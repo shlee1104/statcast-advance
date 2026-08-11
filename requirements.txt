@@ -1,0 +1,16 @@
+# Core data
+pandas>=2.1,<3.0
+duckdb>=1.0
+requests>=2.31
+pyyaml>=6.0
+
+# Player ID lookup (we write our own Savant fetch client, but pybaseball's
+# name -> MLBAM ID resolution is well-maintained and not worth rebuilding)
+pybaseball>=2.2.7
+
+# Reporting
+plotly>=5.20
+jinja2>=3.1
+
+# Testing
+pytest>=8.0

@@ -1,0 +1,22 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Project data (never commit these) ---
+# The DuckDB cache can grow to hundreds of MB. It is rebuildable
+# from the API, so it does not belong in version control.
+*.duckdb
+*.duckdb.wal
+data/
+pybaseball_cache/
+
+# Generated reports. One curated sample lives in docs/ instead.
+reports/*.html
+
+# --- macOS ---
+.DS_Store

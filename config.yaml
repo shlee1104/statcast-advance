@@ -1,0 +1,71 @@
+# statcast-advance configuration
+#
+# Thresholds live here rather than in code so they can be tuned without
+# touching logic, and so the assumptions behind every flag are auditable
+# in one place.
+
+data:
+  # Default season used when --season is not passed.
+  # 2025 is complete, which makes league baselines stable.
+  default_season: 2025
+
+  # Where the local DuckDB cache lives (gitignored).
+  db_path: "data/statcast.duckdb"
+
+  # Skip spring training and exhibition games; keep regular season
+  # and postseason only.
+  game_types: ["R", "F", "D", "L", "W"]
+
+  # Politeness settings for Baseball Savant. Do not lower these.
+  request_timeout_seconds: 120
+  seconds_between_requests: 3
+  max_retries: 3
+
+  # Treat a cached player-season as fresh for this many days before
+  # re-fetching. In-season data changes; completed seasons do not.
+  cache_ttl_days: 1
+
+report:
+  output_dir: "reports"
+  max_takeaways: 5
+
+  # Pitch types seen fewer than this many times are folded into "Other"
+  # so the report is not cluttered by misclassifications.
+  min_pitches_to_display: 15
+
+# Minimum sample sizes before a weakness flag is allowed to fire.
+# These are the guardrails against small-sample noise. Every flag must
+# clear its gate, and every claim in the report carries its own n.
+flags:
+  min_n:
+    predictable_count: 20
+    handedness_gap: 40
+    hittable_pitch: 50
+    fatigue_outings: 10
+    sequencing_tell: 25
+    location_leak: 40
+    first_pitch: 30
+
+  thresholds:
+    # Fires when one pitch dominates a count AND is well above league rate
+    predictable_count_share: 0.75
+    predictable_count_delta_vs_league: 0.15
+
+    # Usage gap between vs-LHH and vs-RHH for an effective pitch
+    handedness_usage_gap: 0.20
+
+    # xwOBA above league average for that pitch type
+    hittable_pitch_xwoba_delta: 0.060
+
+    # Velocity decline, in mph, across an outing
+    fatigue_velo_drop_mph: 1.0
+
+    # Any transition probability at or above this is a tell
+    sequencing_tell_prob: 0.65
+
+    # Share of a pitch type concentrated in a single zone quadrant
+    location_leak_share: 0.40
+
+    # First-pitch predictability
+    first_pitch_share: 0.70
+    first_pitch_strike_rate_low: 0.52
