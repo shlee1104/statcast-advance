@@ -1,11 +1,8 @@
 """Tests for src/clean.py.
 
-These define the contract. Implement clean.py until they all pass:
-
-    pytest tests/test_clean.py -v
-
-They use small hand-built frames rather than real API data, so they run
-offline in under a second and every expected value can be verified by eye.
+Built on small hand-constructed frames rather than real API responses, so the
+suite runs offline in under a second and every expected value can be verified
+by inspection.
 """
 
 from __future__ import annotations

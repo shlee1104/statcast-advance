@@ -43,7 +43,7 @@ def check(condition: bool, description: str, detail: str = "") -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pitcher", default="Tarik Skubal")
+    parser.add_argument("--pitcher", default="Yoshinobu Yamamoto")
     parser.add_argument("--season", type=int, default=config.get("data.default_season", 2025))
     parser.add_argument("--force-fetch", action="store_true", help="Bypass the cache")
     args = parser.parse_args()

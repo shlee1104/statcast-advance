@@ -32,7 +32,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--pitcher",
-        default="Tarik Skubal",
+        default="Yoshinobu Yamamoto",
         help="Pitcher name. Default is a durable starter with a full season "
              "and a five-pitch mix, which exercises more code paths than a "
              "reliever would.",

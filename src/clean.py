@@ -1,26 +1,17 @@
 """Cleaning and normalization of raw Savant data.
 
-=============================================================================
-=============================================================================
+Sits between the API client and the database. Savant returns 119 loosely typed
+columns including deprecated pitch classifications, non-competitive pitches,
+spring training games, and the occasional impossible count. This module decides
+what counts as a pitch worth analyzing.
 
-Everything else in Phase 1 is plumbing. This file is the part that requires
-actually knowing baseball, and it is the part an interviewer will probe,
-because every decision here changes the numbers in the final report.
+Those decisions are not cosmetic. Every rate statistic in the final report is a
+fraction, and this module determines the denominator. A report stating "throws
+his fastball 52% of the time" is wrong if four intentional balls are sitting in
+the sample, and wrong in a way no downstream check would catch.
 
-Each function below has a docstring specifying what it must do and a
-`raise NotImplementedError`. Run the tests to see what is expected:
-
-    pytest tests/test_clean.py -v
-
-Work one function at a time, top to bottom. Each has its own test class, so
-you can run just one:
-
-    pytest tests/test_clean.py::TestConsolidatePitchTypes -v
-
-The three judgment calls flagged JUDGMENT CALL below are genuinely debatable.
-I have encoded a default in the tests, but if you disagree, change the test
-and change the code. Being able to explain why you chose differently is worth
-more than matching my defaults.
+Decisions that are genuinely debatable are marked JUDGMENT CALL below, with the
+reasoning for the choice made.
 """
 
 from __future__ import annotations
