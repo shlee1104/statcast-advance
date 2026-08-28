@@ -116,6 +116,29 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         """
     )
 
+    # League reference data lives in its own table. Mixing it into `pitches`
+    # would silently inflate every per-pitcher query, since a scouted pitcher
+    # who happened to throw on a sampled date would appear twice.
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS league_pitches (
+            {columns},
+            PRIMARY KEY ({", ".join(PRIMARY_KEY)})
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS league_sample_log (
+            game_date   DATE,
+            season      INTEGER,
+            row_count   INTEGER,
+            fetched_at  TIMESTAMP,
+            PRIMARY KEY (game_date)
+        )
+        """
+    )
+
 
 def is_cached(
     conn: duckdb.DuckDBPyConnection,
@@ -285,6 +308,65 @@ def load_pitcher_season(
         """,
         [mlbam_id, season],
     ).df()
+
+
+def save_league_pitches(
+    conn: duckdb.DuckDBPyConnection,
+    frame: pd.DataFrame,
+    game_date: str,
+    season: int,
+) -> int:
+    """Write one sampled day of league-wide pitches to the reference table."""
+    if frame.empty:
+        _log_league_sample(conn, game_date, season, 0)
+        return 0
+
+    staged = coerce_schema_types(frame[list(PITCH_SCHEMA.keys())])
+    staged = staged.drop_duplicates(subset=PRIMARY_KEY, keep="last")
+
+    conn.register("staged_league", staged)
+    try:
+        conn.execute("BEGIN TRANSACTION")
+        conn.execute(
+            f"""
+            DELETE FROM league_pitches
+            WHERE ({", ".join(PRIMARY_KEY)}) IN (
+                SELECT {", ".join(PRIMARY_KEY)} FROM staged_league
+            )
+            """
+        )
+        conn.execute("INSERT INTO league_pitches SELECT * FROM staged_league")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.unregister("staged_league")
+
+    _log_league_sample(conn, game_date, season, len(staged))
+    return len(staged)
+
+
+def _log_league_sample(
+    conn: duckdb.DuckDBPyConnection,
+    game_date: str,
+    season: int,
+    row_count: int,
+) -> None:
+    conn.execute("DELETE FROM league_sample_log WHERE game_date = ?", [game_date])
+    conn.execute(
+        "INSERT INTO league_sample_log VALUES (?, ?, ?, ?)",
+        [game_date, season, row_count, dt.datetime.now()],
+    )
+
+
+def cached_league_dates(conn: duckdb.DuckDBPyConnection, season: int) -> set[str]:
+    """Dates already sampled, so a rebuild does not re-fetch them."""
+    rows = conn.execute(
+        "SELECT game_date FROM league_sample_log WHERE season = ? AND row_count > 0",
+        [season],
+    ).fetchall()
+    return {row[0].isoformat() for row in rows}
 
 
 def cache_summary(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:

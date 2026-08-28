@@ -25,6 +25,27 @@ data:
   # re-fetching. In-season data changes; completed seasons do not.
   cache_ttl_days: 1
 
+baselines:
+  # League reference data is built by sampling dates rather than pulling a full
+  # season. One date is roughly 4,400 pitches, so 30 dates gives ~130k — ample
+  # for count-level and pitch-type-level rates, at a fraction of the requests.
+  n_dates: 30
+
+  # Sampling is stratified: the season is split into n_dates equal intervals and
+  # one date is drawn from each. This guarantees coverage across the season
+  # while the within-interval draw avoids aligning to a fixed day of the week,
+  # which would bias toward whichever weekdays carry more games.
+  seed: 17
+
+  # Regular season window, as month-day. Sampling stays inside this.
+  season_start: "03-20"
+  season_end: "10-01"
+
+  # Baselines are computed separately for each pitcher handedness. Comparing a
+  # right-hander against a pool containing left-handers understates how unusual
+  # his pitch mix is.
+  split_by_handedness: true
+
 report:
   output_dir: "reports"
   max_takeaways: 5
@@ -32,6 +53,16 @@ report:
   # Pitch types seen fewer than this many times are folded into "Other"
   # so the report is not cluttered by misclassifications.
   min_pitches_to_display: 15
+
+  # Arsenal membership is a rate question, not a count question: a pitch is a
+  # real offering if he goes to it a meaningful share of the time. An absolute
+  # threshold would behave completely differently against a starter's 3,000
+  # pitches and a reliever's 900.
+  min_arsenal_share: 0.01
+
+  # Absolute floor, guarding only against tiny samples where a share of 1%
+  # can be a single pitch.
+  min_arsenal_pitches: 5
 
 # Minimum sample sizes before a weakness flag is allowed to fire.
 # These are the guardrails against small-sample noise. Every flag must

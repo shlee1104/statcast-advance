@@ -18,6 +18,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src import config
+
 # The twelve legal counts, in the order a scouting report should display them.
 ALL_COUNTS: list[str] = [
     "0-0", "0-1", "0-2",
@@ -27,9 +29,51 @@ ALL_COUNTS: list[str] = [
 ]
 
 
+def primary_arsenal(
+    frame: pd.DataFrame,
+    min_share: float | None = None,
+    min_pitches: int | None = None,
+) -> list[str]:
+    """Pitch types the pitcher throws often enough to count as real offerings.
+
+    Statcast misclassifies a small number of pitches every season. A pitcher
+    credited with two sweepers across 3,000 pitches does not have a sweeper,
+    and treating that stray label as a genuine offering distorts anything
+    computed over arsenal size — most importantly the entropy ceiling in
+    predictability(), where one phantom pitch type raises log2(k) and depresses
+    every score in the table.
+
+    The primary gate is a usage SHARE rather than a raw count, because arsenal
+    membership is a rate question. An absolute threshold that is sensible
+    against a starter's 3,000 pitches would discard genuine offerings from a
+    reliever's 900. `min_pitches` is a secondary floor, guarding only against
+    samples small enough that a 1% share can be a single pitch.
+
+    Defaults come from `report.min_arsenal_share` and
+    `report.min_arsenal_pitches` in config.yaml.
+    """
+    if min_share is None:
+        min_share = float(config.get("report.min_arsenal_share", 0.01))
+    if min_pitches is None:
+        min_pitches = int(config.get("report.min_arsenal_pitches", 5))
+
+    if len(frame) == 0:
+        return []
+
+    tallies = frame["pitch_type"].value_counts()
+    shares = tallies / tallies.sum()
+    qualifying = tallies[(shares >= min_share) & (tallies >= min_pitches)]
+    return list(qualifying.index)
+
+
 def pitch_mix(frame: pd.DataFrame) -> pd.Series:
-    
+    """Overall pitch-type usage as proportions summing to 1.
+
+    Index is pitch_type, values are shares, sorted descending so the pitcher's
+    primary offering comes first. Returns an empty Series for an empty frame.
+    """
     return frame["pitch_type"].value_counts(normalize=True)
+
 
 def mix_by_count(frame: pd.DataFrame, min_pitches: int = 1) -> pd.DataFrame:
     """Pitch-type usage broken out by count.
@@ -100,7 +144,11 @@ def first_pitch_tendencies(frame: pd.DataFrame) -> dict:
     }
 
 
-def predictability(frame: pd.DataFrame, min_pitches: int = 20) -> pd.DataFrame:
+def predictability(
+    frame: pd.DataFrame,
+    min_pitches: int = 20,
+    min_arsenal_share: float | None = None,
+) -> pd.DataFrame:
     """Score how predictable the pitcher is in each count.
 
     Measures the normalized Shannon entropy of the pitch-mix distribution in
@@ -134,13 +182,27 @@ def predictability(frame: pd.DataFrame, min_pitches: int = 20) -> pd.DataFrame:
     A single-pitch arsenal is handled separately, since log2(1) = 0 would make
     the normalization undefined; such a pitcher scores 1.0 in every count by
     definition.
+
+    Arsenal membership is gated by usage share (see primary_arsenal) rather
+    than counting every distinct label that appears. A single misclassified
+    pitch would otherwise add a whole category to k, raise the entropy ceiling,
+    and quietly depress every score in the table.
     """
     columns = ["n", "entropy", "predictability", "top_pitch", "top_share"]
 
     if len(frame) == 0:
         return pd.DataFrame(columns=columns)
 
-    k = frame["pitch_type"].nunique()
+    arsenal = primary_arsenal(frame, min_share=min_arsenal_share)
+    if not arsenal:
+        return pd.DataFrame(columns=columns)
+
+    # Restrict to real offerings before measuring anything. Gating only the
+    # ceiling while leaving stray pitches in the distribution would let the
+    # observed entropy exceed log2(k) and drive predictability below zero.
+    frame = frame[frame["pitch_type"].isin(arsenal)]
+
+    k = len(arsenal)
     max_entropy = np.log2(k) if k > 1 else None
 
     per_count = frame["count"].value_counts()

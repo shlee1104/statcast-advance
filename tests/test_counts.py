@@ -207,3 +207,42 @@ class TestPredictability:
         assert len(table) == 0
         for column in ["n", "entropy", "predictability", "top_pitch", "top_share"]:
             assert column in table.columns
+
+    def test_stray_pitch_type_does_not_inflate_k(self):
+        """Six misclassified sweepers in 806 pitches are not an offering.
+
+        At 0.74% usage the sweeper falls under the 1% share gate, so the
+        arsenal is {FF, SL} and a 50/50 mix over k=2 scores 0.0. Drop the share
+        gate and k=3 raises the ceiling to log2(3), scoring the same pitcher
+        above 0.3 — every count in the table shifts on six pitches.
+
+        The stray count sits above the absolute floor of 5 deliberately, so
+        this test exercises the share gate rather than the floor.
+        """
+        frame = make_pitches([
+            ("0-0", "FF", 400), ("0-0", "SL", 400), ("0-0", "ST", 6),
+        ])
+        gated = counts.predictability(frame, min_pitches=20)
+        ungated = counts.predictability(frame, min_pitches=20, min_arsenal_share=0.0)
+
+        assert gated.loc["0-0", "predictability"] == pytest.approx(0.0, abs=1e-9)
+        assert ungated.loc["0-0", "predictability"] > 0.25
+
+    def test_genuine_secondary_pitch_is_not_discarded(self):
+        """A share-based gate must keep real offerings on small samples.
+
+        Ten four-seams in forty pitches is 25% usage. An absolute threshold
+        tuned for a full season would wrongly drop it.
+        """
+        frame = make_pitches([("1-2", "SL", 30), ("1-2", "FF", 10)])
+        assert set(counts.primary_arsenal(frame)) == {"SL", "FF"}
+
+    def test_predictability_stays_within_unit_interval(self):
+        """Gating the ceiling without gating the mix once drove this negative."""
+        frame = make_pitches([
+            ("0-0", "FF", 400), ("0-0", "SL", 400), ("0-0", "ST", 6),
+            ("1-2", "SL", 300), ("1-2", "FF", 50),
+        ])
+        table = counts.predictability(frame, min_pitches=20)
+        assert (table["predictability"] >= 0).all()
+        assert (table["predictability"] <= 1).all()

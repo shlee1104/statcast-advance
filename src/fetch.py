@@ -264,6 +264,59 @@ def fetch_player_season(
         ) from exc
 
 
+def fetch_date_range(start_date: str, end_date: str) -> pd.DataFrame:
+    """Download every pitch thrown league-wide between two dates, inclusive.
+
+    Dates are ISO strings, "YYYY-MM-DD". Used to assemble league baselines by
+    sampling days rather than pulling a whole season, which would be hundreds
+    of thousands of rows and a great many requests.
+
+    A single day is roughly 4,400 pitches and takes about ten seconds, so keep
+    ranges short and let the caller loop with the rate limiter in between.
+    """
+    params = {
+        "all": "true",
+        "hfGT": "R|PO|",
+        "game_date_gt": start_date,
+        "game_date_lt": end_date,
+        "type": "details",
+        "min_pitches": "0",
+        "min_results": "0",
+        "group_by": "name",
+        "sort_col": "pitches",
+        "sort_order": "desc",
+    }
+
+    timeout = int(config.get("data.request_timeout_seconds", 120))
+    max_retries = int(config.get("data.max_retries", 3))
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_retries + 1):
+        _respect_rate_limit()
+        try:
+            log.info("Fetching league pitches %s..%s (attempt %s/%s)",
+                     start_date, end_date, attempt, max_retries)
+            response = requests.get(
+                SAVANT_CSV_URL, params=params, headers=HEADERS, timeout=timeout
+            )
+            response.raise_for_status()
+
+            text = response.text
+            if text.lstrip().startswith("<"):
+                raise SavantError("Savant returned HTML instead of CSV (likely overloaded)")
+
+            return pd.read_csv(StringIO(text), low_memory=False)
+
+        except Exception as exc:  # noqa: BLE001 - retry on anything transient
+            last_error = exc
+            if attempt < max_retries:
+                time.sleep(2 ** attempt)
+
+    raise SavantError(
+        f"Could not retrieve league pitches for {start_date}..{end_date}: {last_error}"
+    )
+
+
 def _fetch_via_pybaseball(mlbam_id: int, season: int, player_type: str) -> pd.DataFrame:
     """Fallback path using pybaseball's own Savant wrapper."""
     from pybaseball import statcast_batter, statcast_pitcher
