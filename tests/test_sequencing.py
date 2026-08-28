@@ -225,3 +225,129 @@ class TestPutaway:
         frame = make_at_bats([["SL"]], strikes=[[2]]).iloc[0:0]
         table = sequencing.putaway(frame)
         assert len(table) == 0
+
+
+SWING_DESCRIPTIONS = {"swinging_strike", "foul", "hit_into_play", "foul_tip"}
+
+
+def make_pairs(
+    specs: list[tuple],
+    balls: int = 0,
+    strikes: int = 0,
+) -> pd.DataFrame:
+    """Build two-pitch plate appearances from explicit setup -> follow specs.
+
+    Each spec is (setup_pitch, setup_zone, next_pitch, repetitions,
+    next_description).
+    """
+    rows = []
+    pa = 0
+    for setup_pitch, setup_zone, next_pitch, n, next_description in specs:
+        for _ in range(n):
+            pa += 1
+            rows.append({
+                "game_pk": 1, "at_bat_number": pa, "pitch_number": 1,
+                "pitch_type": setup_pitch, "zone": setup_zone,
+                "description": "called_strike", "events": None,
+                "balls": balls, "strikes": strikes,
+                "is_swing": False, "is_whiff": False,
+            })
+            rows.append({
+                "game_pk": 1, "at_bat_number": pa, "pitch_number": 2,
+                "pitch_type": next_pitch, "zone": 5,
+                "description": next_description, "events": None,
+                "balls": balls, "strikes": strikes,
+                "is_swing": next_description in SWING_DESCRIPTIONS,
+                "is_whiff": next_description == "swinging_strike",
+            })
+    return pd.DataFrame(rows)
+
+
+class TestSetupPairs:
+    def test_frequency_lift(self):
+        """FF up always precedes CU; CU is 40% of follow-ups overall.
+
+        p_next = 1.0, baseline = 0.4, so freq_lift = 2.5.
+        """
+        frame = make_pairs([
+            ("FF", 2, "CU", 40, "called_strike"),   # zone 2 -> UP
+            ("FF", 8, "FF", 60, "called_strike"),   # zone 8 -> DOWN
+        ])
+        table = sequencing.setup_pairs(frame, min_n=25)
+        row = table[
+            (table["setup_pitch"] == "FF")
+            & (table["setup_band"] == "UP")
+            & (table["next_pitch"] == "CU")
+        ].iloc[0]
+        assert row["n"] == 40
+        assert row["p_next"] == pytest.approx(1.0)
+        assert row["baseline_p"] == pytest.approx(0.4)
+        assert row["freq_lift"] == pytest.approx(2.5)
+
+    def test_zone_banding(self):
+        """Zones 1-3 and 11-12 are UP; 7-9 and 13-14 are DOWN; 4-6 are MID."""
+        frame = make_pairs([
+            ("FF", 1, "CU", 30, "called_strike"),
+            ("FF", 5, "CU", 30, "called_strike"),
+            ("FF", 13, "CU", 30, "called_strike"),
+        ])
+        table = sequencing.setup_pairs(frame, min_n=25)
+        assert set(table["setup_band"]) == {"UP", "MID", "DOWN"}
+
+    def test_effect_lift(self):
+        """Splitter whiffs 100% after FF up, 0% after SL. Baseline is 50%."""
+        frame = make_pairs([
+            ("FF", 2, "FS", 40, "swinging_strike"),
+            ("SL", 5, "FS", 40, "foul"),
+        ])
+        table = sequencing.setup_pairs(frame, min_n=25)
+
+        after_ff = table[table["setup_pitch"] == "FF"].iloc[0]
+        after_sl = table[table["setup_pitch"] == "SL"].iloc[0]
+
+        assert after_ff["whiff_after"] == pytest.approx(1.0)
+        assert after_ff["whiff_baseline"] == pytest.approx(0.5)
+        assert after_ff["effect_lift"] == pytest.approx(2.0)
+        assert after_sl["effect_lift"] == pytest.approx(0.0)
+
+    def test_min_n_gate(self):
+        frame = make_pairs([
+            ("FF", 2, "CU", 40, "called_strike"),
+            ("SL", 2, "CH", 10, "called_strike"),
+        ])
+        table = sequencing.setup_pairs(frame, min_n=25)
+        assert "CH" not in set(table["next_pitch"])
+        assert "CU" in set(table["next_pitch"])
+
+    def test_sorted_by_score_descending(self):
+        frame = make_pairs([
+            ("FF", 2, "CU", 40, "called_strike"),
+            ("FF", 8, "FF", 60, "called_strike"),
+        ])
+        table = sequencing.setup_pairs(frame, min_n=25)
+        assert list(table["score"]) == sorted(table["score"], reverse=True)
+
+    def test_unknown_zone_excluded(self):
+        """A pitch Statcast could not locate cannot be attributed to a band."""
+        frame = make_pairs([("FF", None, "CU", 40, "called_strike")])
+        table = sequencing.setup_pairs(frame, min_n=25)
+        assert len(table) == 0
+
+    def test_count_state_filter(self):
+        frame = make_pairs(
+            [("FF", 2, "CU", 40, "called_strike")], balls=0, strikes=2
+        )
+        assert len(sequencing.setup_pairs(frame, min_n=25, count_state="ahead")) == 1
+        assert len(sequencing.setup_pairs(frame, min_n=25, count_state="behind")) == 0
+
+    def test_unknown_count_state_raises(self):
+        frame = make_pairs([("FF", 2, "CU", 40, "called_strike")])
+        with pytest.raises(ValueError):
+            sequencing.setup_pairs(frame, min_n=25, count_state="tied")
+
+    def test_empty_frame_returns_columns(self):
+        frame = make_pairs([("FF", 2, "CU", 2, "called_strike")]).iloc[0:0]
+        table = sequencing.setup_pairs(frame)
+        assert len(table) == 0
+        for column in ["setup_pitch", "setup_band", "next_pitch", "freq_lift"]:
+            assert column in table.columns
