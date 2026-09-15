@@ -36,13 +36,21 @@ against real season data; the report layer is not yet built.
   predictability scoring
 - Sequencing metrics — transition matrices, outcome-conditioned transitions,
   two-strike putaway, setup-pitch lift analysis
-- 79 unit tests, plus an end-to-end validation suite over live data
+- League baselines — stratified date sampling (~130k pitches), handedness-split
+  reference rates computed in SQL, and z-tested comparisons of a pitcher's
+  arsenal, count mix, predictability, and putaway rates against them
+- Arsenal metrics — velocity, spin, movement and results by pitch type, plus a
+  release-point consistency check that flags offerings thrown from a different
+  slot than the fastball
+- Splits — platoon usage gaps, in-outing velocity decay, and a times-through-order
+  decomposition that separates fatigue from familiarity
+- Location — plate coordinates normalized to the pitcher's arm side and to the
+  batter's own strike zone, with per-pitch quadrant concentration and command
+  spread
+- 161 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- League baselines via stratified date sampling, so findings can be stated as
-  deviations from league norms rather than raw rates
-- Arsenal and platoon/fatigue splits
 - Weakness-flag rules engine
 - Single-file interactive HTML report
 - Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))

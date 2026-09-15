@@ -37,6 +37,10 @@ PATTERNS: list[tuple[str, str]] = [
 # Files allowed to contain the markers. This script names them by necessity.
 ALLOWLIST = {"check_publish_ready.py"}
 
+# Anything matching `*.local.*` is working material that is gitignored and
+# never published, so scanning it produces only noise.
+LOCAL_SUFFIX = ".local."
+
 
 def iter_source_files():
     for path in sorted(ROOT.rglob("*")):
@@ -46,7 +50,7 @@ def iter_source_files():
             continue
         if path.suffix not in {".py", ".md", ".yaml", ".yml", ".sql"}:
             continue
-        if path.name in ALLOWLIST:
+        if path.name in ALLOWLIST or LOCAL_SUFFIX in path.name:
             continue
         yield path
 

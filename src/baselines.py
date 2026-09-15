@@ -295,6 +295,145 @@ def putaway_rates(
     ).df()
 
 
+def proportion_z(observed_share: float, n: int, league_share: float) -> float:
+    """How many standard errors a rate sits from the league rate.
+
+    Uses the league proportion for the standard error, treating it as known
+    rather than estimated — the league sample is orders of magnitude larger
+    than any pitcher's, so its sampling error is negligible by comparison.
+
+    Roughly |z| > 2 is worth reporting. This is what stops a 16-point deviation
+    measured over 39 pitches from being presented with the same confidence as
+    the same deviation measured over 900.
+    """
+    if n is None or n <= 0:
+        return float("nan")
+    if not (0 < league_share < 1) or pd.isna(observed_share):
+        return float("nan")
+
+    standard_error = (league_share * (1 - league_share) / n) ** 0.5
+    if standard_error == 0:
+        return float("nan")
+    return (observed_share - league_share) / standard_error
+
+
+def compare_arsenal(pitcher_mix: pd.Series, league: pd.DataFrame) -> pd.DataFrame:
+    """Pitch-type usage against league usage for the same handedness.
+
+    `pitcher_mix` is the Series from metrics.counts.pitch_mix(); `league` is
+    the frame from pitch_outcomes(). The ratio column is what surfaces an
+    unusual repertoire — a pitch thrown at six times the league rate is the
+    defining fact about a pitcher, and a raw percentage never says so.
+    """
+    frame = pitcher_mix.rename("usage").rename_axis("pitch_type").reset_index()
+    merged = frame.merge(
+        league[["pitch_type", "league_usage", "avg_velo", "whiff_rate", "avg_xwoba"]]
+        .rename(columns={
+            "avg_velo": "league_velo",
+            "whiff_rate": "league_whiff",
+            "avg_xwoba": "league_xwoba",
+        }),
+        on="pitch_type",
+        how="left",
+    )
+    merged["usage_delta"] = merged["usage"] - merged["league_usage"]
+    merged["usage_ratio"] = merged["usage"] / merged["league_usage"]
+    return merged.sort_values("usage", ascending=False).reset_index(drop=True)
+
+
+def compare_profile(pitcher: pd.DataFrame, league: pd.DataFrame) -> pd.DataFrame:
+    """A pitcher's per-pitch stuff and results against league, pitch by pitch.
+
+    `pitcher` is the frame from metrics.arsenal.profile(); `league` is the frame
+    from pitch_outcomes(). Where compare_arsenal answers "how unusual is his
+    mix", this answers "how good is each pitch in it" — velocity, whiff rate,
+    and contact quality, each differenced against pitchers of the same hand.
+
+    `xwoba_delta` is the column the hittable_pitch flag reads. It is signed so
+    that positive is bad for the pitcher: hitters are doing more damage against
+    this offering than against the league's version of it. A pitch that is both
+    heavily used and worse than league is the clearest "sit on this" finding a
+    report can make.
+    """
+    frame = pitcher.rename_axis("pitch_type").reset_index()
+    merged = frame.merge(
+        league[["pitch_type", "league_usage", "avg_velo", "whiff_rate", "avg_xwoba"]]
+        .rename(columns={
+            "avg_velo": "league_velo",
+            "whiff_rate": "league_whiff",
+            "avg_xwoba": "league_xwoba",
+        }),
+        on="pitch_type",
+        how="left",
+    )
+
+    merged["velo_delta"] = merged["velo"] - merged["league_velo"]
+    merged["whiff_delta"] = merged["whiff_rate"] - merged["league_whiff"]
+    merged["xwoba_delta"] = merged["xwoba"] - merged["league_xwoba"]
+    merged["usage_ratio"] = merged["usage"] / merged["league_usage"]
+
+    return merged.sort_values("usage", ascending=False).reset_index(drop=True)
+
+
+def compare_putaway(pitcher: pd.DataFrame, league: pd.DataFrame) -> pd.DataFrame:
+    """Two-strike behaviour against league rates for the same handedness.
+
+    Reports usage and putaway separately, and differences them against league,
+    because the interesting case is a pitcher leaning hardest on the pitch with
+    the smallest edge over league.
+    """
+    frame = pitcher.rename_axis("pitch_type").reset_index()
+    merged = frame.merge(
+        league[["pitch_type", "league_usage", "putaway_rate", "whiff_rate"]].rename(
+            columns={
+                "putaway_rate": "league_putaway",
+                "whiff_rate": "league_whiff",
+            }
+        ),
+        on="pitch_type",
+        how="left",
+    )
+
+    merged["usage_ratio"] = merged["usage"] / merged["league_usage"]
+    merged["putaway_delta"] = merged["putaway_rate"] - merged["league_putaway"]
+    merged["whiff_delta"] = merged["whiff_rate"] - merged["league_whiff"]
+    merged["putaway_z"] = [
+        proportion_z(row.putaway_rate, row.n, row.league_putaway)
+        for row in merged.itertuples()
+    ]
+    return merged.sort_values("usage", ascending=False).reset_index(drop=True)
+
+
+def compare_predictability(
+    pitcher: pd.DataFrame,
+    league_mix: pd.DataFrame,
+) -> pd.DataFrame:
+    """A pitcher's top pitch per count against how often the league throws it.
+
+    This is the comparison that rescues the 3-0 problem. "82% four-seams in
+    3-0" reads as a finding until you know the league rate; against 65.8% it
+    genuinely is one, and against 90% it would be the opposite.
+
+    `pitcher` is the frame from metrics.counts.predictability().
+    """
+    frame = pitcher.rename_axis("count").reset_index()
+    merged = frame.merge(
+        league_mix[["count", "pitch_type", "league_share"]].rename(
+            columns={"pitch_type": "top_pitch", "league_share": "league_top_share"}
+        ),
+        on=["count", "top_pitch"],
+        how="left",
+    )
+    merged["share_delta"] = merged["top_share"] - merged["league_top_share"]
+    merged["share_z"] = [
+        proportion_z(row.top_share, row.n, row.league_top_share)
+        for row in merged.itertuples()
+    ]
+    return merged.sort_values("share_delta", ascending=False, key=abs).reset_index(
+        drop=True
+    )
+
+
 def compare_count_mix(
     pitcher_mix: pd.DataFrame,
     league: pd.DataFrame,

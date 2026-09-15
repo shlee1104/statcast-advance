@@ -20,3 +20,6 @@ reports/*.html
 
 # --- macOS ---
 .DS_Store
+
+# --- Working notes, not for publication ---
+NOTES.local.md
