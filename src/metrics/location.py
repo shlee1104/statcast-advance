@@ -224,15 +224,23 @@ def location_leaks(
       excess       float, share minus the 0.25 a uniform pitcher would show
       in_zone      float, share of the pitch type thrown in the strike zone
 
-    This is the input to the `location_leak` flag. Defaults come from
-    `flags.thresholds.location_leak_share` and `flags.min_n.location_leak`.
+    Descriptive report content, deliberately not wired to a flag. Defaults come
+    from `flags.thresholds.location_leak_share` and `flags.min_n.location_leak`.
 
-    Concentration is not automatically a weakness — a pitcher who lives down
-    and away with his slider is executing a plan, not leaking information. It
-    becomes a weakness when the concentration is high enough that a hitter can
-    commit to a region before recognizing the pitch, which is why the threshold
-    is configurable and why the sample gate is enforced here rather than left
-    to the caller.
+    Concentration is not a weakness. A pitcher who lives down and away with his
+    slider is executing a plan, and most pitchers concentrate most offerings in
+    one quadrant, so any fixed threshold on this number fires on nearly every
+    pitch of nearly every pitcher — five of Yamamoto's six at 0.40, which is a
+    flag carrying no information.
+
+    It is also the wrong unit. When several pitches all concentrate downward,
+    these rows report one underlying fact several times over and make each
+    instance look marginal. The claim worth flagging runs the other way: given
+    the band, what is the pitch. See location_tells() and band_information().
+
+    This table earns its place as a picture of where a pitcher works, which a
+    coach reads alongside the heat map. It just does not, on its own, identify
+    a weakness.
     """
     columns = ["pitch_type", "n", "quadrant", "share", "excess", "in_zone"]
 
@@ -261,6 +269,199 @@ def location_leaks(
     result["excess"] = result["share"] - uniform_share
 
     return result.sort_values("share", ascending=False).reset_index(drop=True)[columns]
+
+
+# ---------------------------------------------------------------------------
+# Location as a tell
+# ---------------------------------------------------------------------------
+#
+# The functions above ask where each pitch type goes. These ask the question
+# backwards, which is the version a hitter can use: given the region the ball
+# is headed for, how much does that narrow down which pitch it is.
+#
+# The distinction matters because concentration alone is not a weakness. Most
+# pitchers send most offerings to one quadrant, since that is what throwing to
+# a plan looks like, and a threshold on concentration fires on nearly every
+# pitch of nearly every pitcher. Reversing the conditioning produces one claim
+# per pitcher instead of one per pitch, and the claim is about information the
+# hitter gains rather than about the pitcher's habits.
+#
+# What this is NOT: out-of-the-hand pitch recognition. A hitter does not know
+# the final plate location when he decides to swing, and part of why a curveball
+# ends up low is that it breaks down, not that it was aimed there. So this does
+# not say "he tips his curveball."
+#
+# What it IS: a measure of whether committing to a vertical or horizontal region
+# also commits the hitter to a pitch type. "Hunting the high fastball and
+# laying off anything below the belt" is a real plan hitters take into an
+# at-bat, and its value depends entirely on how cleanly the pitcher's arsenal
+# separates by region. That is what these numbers score.
+
+
+BAND_COLUMNS: dict[str, str] = {
+    "v_band": "vertical third of the strike zone",
+    "h_band": "horizontal third of the plate",
+    "quadrant": "quadrant",
+}
+
+
+def location_tells(
+    frame: pd.DataFrame,
+    by: str = "v_band",
+    min_n: int | None = None,
+    count_state: str | None = None,
+) -> pd.DataFrame:
+    """How much each location band gives away about the pitch.
+
+    Returns one row per (band, pitch_type) with at least `min_n` occurrences,
+    sorted by `score` descending:
+
+      band         str, the location band
+      pitch_type   str
+      n            int, pitches of this type in this band
+      band_n       int, all pitches in this band
+      p_pitch      float, P(pitch type | band)
+      baseline_p   float, the pitcher's overall rate for that pitch
+      lift         float, p_pitch / baseline_p
+      score        float, (lift - 1) * n
+
+    `by` selects the conditioning variable: "v_band" (default), "h_band", or
+    "quadrant". Vertical is the usual answer, because a pitcher's arsenal
+    separates by height far more often than by side, and because height is the
+    dimension a hitter can commit to without giving up the plate.
+
+    `score` matches the scoring in sequencing.setup_pairs — excess lift times
+    sample size — so a dramatic lift on a thin band does not outrank a moderate
+    one that can be trusted.
+
+    `count_state` optionally restricts to "ahead", "behind", or "even". The
+    count drives both location and selection, so an unrestricted lift partly
+    measures ordinary count logic; holding the count fixed isolates the
+    location signal. Baselines are recomputed within the restricted population
+    so both sides of the ratio narrow together.
+    """
+    columns = ["band", "pitch_type", "n", "band_n",
+               "p_pitch", "baseline_p", "lift", "score"]
+
+    if min_n is None:
+        min_n = int(config.get("flags.min_n.location_tell", 40))
+
+    working = _banded(frame, by, count_state)
+    if working is None:
+        return pd.DataFrame(columns=columns)
+
+    baseline_p = working["pitch_type"].value_counts(normalize=True)
+
+    records = []
+    for band, group in working.groupby(by):
+        band_n = len(group)
+        for pitch_type, n in group["pitch_type"].value_counts().items():
+            if n < min_n:
+                continue
+
+            p_pitch = n / band_n
+            base = float(baseline_p.get(pitch_type, float("nan")))
+            lift = p_pitch / base if base else float("nan")
+
+            records.append({
+                "band": band,
+                "pitch_type": pitch_type,
+                "n": int(n),
+                "band_n": band_n,
+                "p_pitch": p_pitch,
+                "baseline_p": base,
+                "lift": lift,
+                "score": (lift - 1.0) * n,
+            })
+
+    if not records:
+        return pd.DataFrame(columns=columns)
+
+    table = pd.DataFrame(records)
+    return table.sort_values("score", ascending=False).reset_index(drop=True)[columns]
+
+
+def band_information(
+    frame: pd.DataFrame,
+    by: str = "v_band",
+    count_state: str | None = None,
+) -> dict:
+    """Share of pitch-type uncertainty removed by knowing the location band.
+
+    Returns a dict:
+      n             int, pitches considered
+      bands         int, distinct bands present
+      h_pitch       float, entropy of the pitch mix, in bits
+      h_given_band  float, entropy remaining once the band is known
+      info_gain     float, bits of uncertainty removed
+      info_gain_pct float, that gain as a share of h_pitch, in [0, 1]
+      top_band      str, the band that most narrows the guess
+      top_pitch     str, the pitch that band most points to
+      top_share     float, P(top_pitch | top_band)
+
+    The computation is standard conditional entropy:
+
+        H(P)      = -sum p_i log2(p_i)
+        H(P | B)  =  sum_b P(b) * H(P | b)
+        info_gain =  H(P) - H(P | B)
+
+    `info_gain_pct` is the headline. It normalizes by the pitcher's own mix
+    entropy, so a five-pitch pitcher and a two-pitch pitcher are on the same
+    scale — without that, a pitcher with more offerings would always appear to
+    leak more information simply by having more to leak.
+
+    Reported alongside the per-band lifts in location_tells() rather than
+    instead of them: this number says how much location gives away in total,
+    and those rows say which band gives away what.
+    """
+    blank = {
+        "n": 0,
+        "bands": 0,
+        "h_pitch": float("nan"),
+        "h_given_band": float("nan"),
+        "info_gain": float("nan"),
+        "info_gain_pct": float("nan"),
+        "top_band": None,
+        "top_pitch": None,
+        "top_share": float("nan"),
+    }
+
+    working = _banded(frame, by, count_state)
+    if working is None:
+        return blank
+
+    total = len(working)
+    h_pitch = _entropy(working["pitch_type"].value_counts(normalize=True))
+
+    h_given_band = 0.0
+    best = None
+    for band, group in working.groupby(by):
+        shares = group["pitch_type"].value_counts(normalize=True)
+        weight = len(group) / total
+        h_given_band += weight * _entropy(shares)
+
+        # The most telling band is the one whose own entropy is lowest, not the
+        # one with the highest single share: a band holding one pitch at 60%
+        # and a five-way split behind it gives away less than a band holding
+        # two pitches at 50/50.
+        candidate = (_entropy(shares), -len(group))
+        if best is None or candidate < best[0]:
+            best = (candidate, band, shares)
+
+    info_gain = h_pitch - h_given_band
+    _, top_band, top_shares = best
+
+    return {
+        "n": total,
+        "bands": int(working[by].nunique()),
+        "h_pitch": float(h_pitch),
+        "h_given_band": float(h_given_band),
+        "info_gain": float(info_gain),
+        "info_gain_pct": float(info_gain / h_pitch) if h_pitch > 0 else 0.0,
+        "top_band": top_band,
+        "top_pitch": top_shares.index[0],
+        "top_share": float(top_shares.iloc[0]),
+    }
 
 
 def zone_table(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame:
@@ -322,3 +523,49 @@ def _located(frame: pd.DataFrame, min_pitches: int | None) -> pd.DataFrame | Non
     working = working[working["quadrant"] != UNKNOWN]
 
     return working if len(working) else None
+
+
+def _banded(
+    frame: pd.DataFrame,
+    by: str,
+    count_state: str | None = None,
+) -> pd.DataFrame | None:
+    """Arsenal pitches with a known band on `by`, optionally one count state.
+
+    Returns None rather than an empty frame so callers can distinguish "no
+    usable data" from a genuine result, matching how the rest of the module
+    handles it.
+    """
+    if by not in BAND_COLUMNS:
+        raise ValueError(
+            f"Unknown band {by!r}. Expected one of: {', '.join(sorted(BAND_COLUMNS))}."
+        )
+
+    working = _located(frame, min_pitches=None)
+    if working is None:
+        return None
+
+    if count_state is not None:
+        states = {
+            "ahead": working["strikes"] > working["balls"],
+            "behind": working["balls"] > working["strikes"],
+            "even": working["balls"] == working["strikes"],
+        }
+        if count_state not in states:
+            raise ValueError(
+                f"Unknown count_state {count_state!r}. "
+                f"Expected one of: {', '.join(sorted(states))}."
+            )
+        working = working[states[count_state]]
+
+    working = working[working[by] != UNKNOWN]
+
+    return working if len(working) else None
+
+
+def _entropy(shares: pd.Series) -> float:
+    """Shannon entropy in bits of a distribution that already sums to 1."""
+    nonzero = shares[shares > 0]
+    if len(nonzero) == 0:
+        return 0.0
+    return float(-(nonzero * np.log2(nonzero)).sum())

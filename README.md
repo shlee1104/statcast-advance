@@ -45,9 +45,10 @@ against real season data; the report layer is not yet built.
 - Splits — platoon usage gaps, in-outing velocity decay, and a times-through-order
   decomposition that separates fatigue from familiarity
 - Location — plate coordinates normalized to the pitcher's arm side and to the
-  batter's own strike zone, with per-pitch quadrant concentration and command
-  spread
-- 161 unit tests, plus an end-to-end validation suite over live data
+  batter's own strike zone, with per-pitch quadrant concentration, command
+  spread, and a conditional-entropy score for how much a location band gives
+  away about which pitch is coming
+- 175 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -129,6 +130,9 @@ logic.
 - **Sequencing** — within-plate-appearance pitch transition matrices, variants
   conditioned on the previous pitch outcome, two-strike putaway mix, and
   setup-pitch detection keyed on pitch type and location band
+- **Location** — where each pitch lives in coordinates normalized to the pitcher's
+  arm side and the batter's own zone, command spread, and how much knowing the
+  region narrows down which pitch is coming
 - **Splits** — platoon splits, velocity decay within outings, times-through-order
 - **Key takeaways** — up to five auto-generated findings, ranked by severity, each
   carrying its sample size and the league baseline it deviates from

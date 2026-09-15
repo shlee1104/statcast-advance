@@ -144,13 +144,35 @@ def main() -> int:
     show("QUADRANT SHARES")
     print(location.quadrant_shares(frame).to_string())
 
-    show("LOCATION LEAKS")
+    show("LOCATION CONCENTRATION (descriptive)")
     leaks = location.location_leaks(frame)
     if len(leaks) == 0:
         print("  nothing clears the concentration threshold")
     else:
         print(leaks.to_string(index=False))
         print("\n  excess is share above the 0.25 a uniform pitcher would show.")
+        print("  Not a flag: concentration is what throwing to a plan looks like.")
+
+    show("LOCATION TELLS — what a band gives away")
+    for band in ("v_band", "h_band", "quadrant"):
+        info = location.band_information(frame, by=band)
+        print(f"  {band:<9} removes {info['info_gain_pct']:6.1%} of pitch-type "
+              f"uncertainty  ({info['h_pitch']:.2f} -> {info['h_given_band']:.2f} bits)"
+              f"   clearest: {info['top_band']} -> {info['top_pitch']} "
+              f"{info['top_share']:.1%}")
+
+    print()
+    print(location.location_tells(frame).head(8).to_string(index=False))
+    print("\n  lift is P(pitch | band) over his own baseline rate for that pitch.")
+    print("  score is (lift - 1) * n, so a thin band cannot outrank a trusted one.")
+
+    for state in ("ahead", "even", "behind"):
+        show(f"LOCATION TELLS ({state} in the count)")
+        subset = location.location_tells(frame, count_state=state)
+        if len(subset) == 0:
+            print("  nothing clears the sample gate")
+            continue
+        print(subset.head(4).to_string(index=False))
 
     # ---------------------------------------------------------------- splits
     show("PLATOON GAPS")

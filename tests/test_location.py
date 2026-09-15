@@ -243,6 +243,169 @@ class TestLocationLeaks:
         assert len(location.location_leaks(frame)) == 0
 
 
+class TestLocationTells:
+    def test_lift_is_measured_against_the_pitchers_own_mix(self):
+        """Fastballs are 50% of everything, but 80% of what he throws up. The
+        lift is 1.6, and that ratio is the whole claim."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 80, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 20, "plate_z": 3.3},
+            {"pitch_type": "FF", "n": 20, "plate_z": 1.7},
+            {"pitch_type": "SL", "n": 80, "plate_z": 1.7},
+        ])
+        table = location.location_tells(frame, min_n=10)
+        up_ff = table[(table["band"] == "UP") & (table["pitch_type"] == "FF")].iloc[0]
+        assert up_ff["p_pitch"] == pytest.approx(0.80)
+        assert up_ff["baseline_p"] == pytest.approx(0.50)
+        assert up_ff["lift"] == pytest.approx(1.60)
+
+    def test_score_is_excess_lift_times_sample_size(self):
+        """Matching sequencing.setup_pairs, so a dramatic lift on a thin band
+        does not outrank a moderate one that can be trusted."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 80, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 20, "plate_z": 3.3},
+            {"pitch_type": "FF", "n": 20, "plate_z": 1.7},
+            {"pitch_type": "SL", "n": 80, "plate_z": 1.7},
+        ])
+        table = location.location_tells(frame, min_n=10)
+        up_ff = table[(table["band"] == "UP") & (table["pitch_type"] == "FF")].iloc[0]
+        assert up_ff["score"] == pytest.approx((1.60 - 1.0) * 80)
+
+    def test_sorted_by_score_descending(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 80, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 20, "plate_z": 3.3},
+            {"pitch_type": "FF", "n": 20, "plate_z": 1.7},
+            {"pitch_type": "SL", "n": 80, "plate_z": 1.7},
+        ])
+        scores = list(location.location_tells(frame, min_n=10)["score"])
+        assert scores == sorted(scores, reverse=True)
+
+    def test_sample_gate_drops_thin_combinations(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 100, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 100, "plate_z": 1.7},
+            {"pitch_type": "CU", "n": 6, "plate_z": 1.7},
+        ])
+        table = location.location_tells(frame, min_n=40)
+        assert "CU" not in list(table["pitch_type"])
+
+    def test_count_state_narrows_both_sides_of_the_ratio(self):
+        """The baseline must be recomputed inside the restricted population,
+        or the lift compares a subset against the whole season."""
+        ahead = make_pitches([
+            {"pitch_type": "FF", "n": 50, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 50, "plate_z": 1.7},
+        ])
+        ahead["balls"], ahead["strikes"] = 0, 2
+        behind = make_pitches([{"pitch_type": "FF", "n": 100, "plate_z": 3.3}])
+        behind["balls"], behind["strikes"] = 3, 0
+        frame = pd.concat([ahead, behind]).reset_index(drop=True)
+
+        table = location.location_tells(frame, min_n=10, count_state="ahead")
+        up_ff = table[(table["band"] == "UP") & (table["pitch_type"] == "FF")].iloc[0]
+        assert up_ff["n"] == 50
+        assert up_ff["baseline_p"] == pytest.approx(0.50)
+
+    def test_rejects_an_unknown_band(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 50}])
+        with pytest.raises(ValueError):
+            location.location_tells(frame, by="elevation")
+
+    def test_rejects_an_unknown_count_state(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 50}])
+        frame["balls"], frame["strikes"] = 0, 0
+        with pytest.raises(ValueError):
+            location.location_tells(frame, count_state="winning")
+
+    def test_empty_frame(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
+        assert len(location.location_tells(frame)) == 0
+
+
+class TestBandInformation:
+    def test_perfect_separation_removes_all_uncertainty(self):
+        """If every high pitch is a fastball and every low pitch a slider, the
+        band identifies the pitch outright."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 50, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 50, "plate_z": 1.7},
+        ])
+        info = location.band_information(frame)
+        assert info["h_pitch"] == pytest.approx(1.0)
+        assert info["h_given_band"] == pytest.approx(0.0)
+        assert info["info_gain_pct"] == pytest.approx(1.0)
+
+    def test_identical_mix_in_every_band_removes_none(self):
+        """A pitcher who throws the same mix everywhere gives away nothing by
+        location, however concentrated any single pitch looks."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 50, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 50, "plate_z": 3.3},
+            {"pitch_type": "FF", "n": 50, "plate_z": 1.7},
+            {"pitch_type": "SL", "n": 50, "plate_z": 1.7},
+        ])
+        info = location.band_information(frame)
+        assert info["info_gain"] == pytest.approx(0.0, abs=1e-9)
+        assert info["info_gain_pct"] == pytest.approx(0.0, abs=1e-9)
+
+    def test_normalizes_by_the_pitchers_own_entropy(self):
+        """A two-pitch pitcher and a four-pitch pitcher with equally clean
+        separation must both score 1.0, so arsenal size does not masquerade as
+        leaking more information."""
+        two = make_pitches([
+            {"pitch_type": "FF", "n": 50, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 50, "plate_z": 1.7},
+        ])
+        four = make_pitches([
+            {"pitch_type": "FF", "n": 50, "plate_z": 3.3},
+            {"pitch_type": "FC", "n": 50, "plate_z": 3.3, "plate_x": 0.6},
+            {"pitch_type": "SL", "n": 50, "plate_z": 1.7},
+            {"pitch_type": "CU", "n": 50, "plate_z": 1.7, "plate_x": 0.6},
+        ])
+        assert location.band_information(two)["h_pitch"] == pytest.approx(1.0)
+        assert location.band_information(four)["h_pitch"] == pytest.approx(2.0)
+        assert location.band_information(two)["info_gain_pct"] == pytest.approx(1.0)
+        assert location.band_information(four, by="quadrant")[
+            "info_gain_pct"] == pytest.approx(1.0)
+
+    def test_top_band_is_the_least_uncertain_not_the_largest_share(self):
+        """A band holding one pitch at 60% with a wide split behind it gives
+        away less than a band split cleanly two ways."""
+        frame = make_pitches([
+            # UP: a clean 50/50 between two pitches, entropy 1.0 bit
+            {"pitch_type": "FF", "n": 50, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 50, "plate_z": 3.3},
+            # DOWN: 60% one pitch, then a four-way tail, entropy above 1.0
+            {"pitch_type": "CU", "n": 60, "plate_z": 1.7},
+            {"pitch_type": "FS", "n": 10, "plate_z": 1.7},
+            {"pitch_type": "FC", "n": 10, "plate_z": 1.7},
+            {"pitch_type": "SI", "n": 10, "plate_z": 1.7},
+            {"pitch_type": "ST", "n": 10, "plate_z": 1.7},
+        ])
+        info = location.band_information(frame)
+        assert info["top_band"] == "UP"
+
+    def test_reports_the_band_and_pitch_it_points_to(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 90, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 10, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 50, "plate_z": 1.7},
+            {"pitch_type": "FF", "n": 50, "plate_z": 1.7},
+        ])
+        info = location.band_information(frame)
+        assert info["top_band"] == "UP"
+        assert info["top_pitch"] == "FF"
+        assert info["top_share"] == pytest.approx(0.90)
+
+    def test_empty_frame(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
+        info = location.band_information(frame)
+        assert info["n"] == 0
+        assert info["top_band"] is None
+
+
 class TestZoneTable:
     def test_columns_are_the_thirteen_savant_zones(self):
         frame = make_pitches([{"pitch_type": "FF", "n": 20, "zone": 5}])

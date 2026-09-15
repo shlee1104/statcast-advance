@@ -75,6 +75,7 @@ flags:
     fatigue_outings: 10
     sequencing_tell: 25
     location_leak: 40
+    location_tell: 40
     first_pitch: 30
 
   thresholds:
@@ -94,8 +95,30 @@ flags:
     # Any transition probability at or above this is a tell
     sequencing_tell_prob: 0.65
 
-    # Share of a pitch type concentrated in a single zone quadrant
+    # Share of a pitch type concentrated in a single zone quadrant.
+    # Descriptive only — see location_tell_lift below for why this is not
+    # wired to a flag. Most pitchers concentrate most offerings in one
+    # quadrant, because that is what executing a plan looks like, so a
+    # threshold on concentration alone fires on nearly everything.
     location_leak_share: 0.40
+
+    # The location finding that is actually actionable runs the other
+    # direction: given the region the ball is headed for, how much does that
+    # narrow down which pitch it is. Lift is P(pitch | band) divided by the
+    # pitcher's baseline rate for that pitch, so 1.35 means a band makes a
+    # pitch 35% more likely than his overall mix would suggest.
+    location_tell_lift: 1.35
+
+    # Share of the pitcher's pitch-type uncertainty removed by knowing the
+    # band, as normalized information gain in [0, 1]: 0.0 means location says
+    # nothing about pitch type, 1.0 means it identifies the pitch outright.
+    #
+    # PROVISIONAL. Calibrated against two pitchers, which is not enough to set
+    # a threshold with. Both landed near 0.10 while showing per-band lifts
+    # above 1.6, so the lift above is what the flag fires on; this value only
+    # decides whether the report prints a summary sentence about location
+    # carrying information overall. Revisit once more pitchers have been run.
+    location_tell_info: 0.08
 
     # First-pitch predictability
     first_pitch_share: 0.70
