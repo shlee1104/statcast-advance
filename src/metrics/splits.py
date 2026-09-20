@@ -32,6 +32,44 @@ PA_KEYS = ["game_pk", "at_bat_number"]
 FASTBALL_TYPES: frozenset[str] = frozenset({"FF", "SI", "FC"})
 
 
+def min_outings() -> int:
+    """Separate outings required before a within-outing number is trustworthy."""
+    return int(config.get("flags.min_n.fatigue_outings", 10))
+
+
+def mark_reliable(
+    table: pd.DataFrame,
+    outings_column: str = "outings",
+    minimum: int | None = None,
+) -> pd.DataFrame:
+    """Add a boolean `reliable` column based on how many outings contributed.
+
+    Anything measured late in an outing suffers from survivorship, not merely
+    small samples: the starts that reach pitch 105, or a fourth trip through
+    the order, are the starts that were going well enough to continue. A late
+    bucket showing velocity *rising* is that selection, not recovery.
+
+    This lives here rather than in the fatigue chart that first needed it,
+    because the problem is a class and not an instance. The same artifact
+    appears in the times-through-order table, where a fourth trip drawn from a
+    handful of starts shows the best velocity of the game.
+
+    Rows are marked, never dropped. Removing them would make a curve look
+    better supported than the evidence, and a reader would have no way to know
+    the tail had been trimmed.
+    """
+    if minimum is None:
+        minimum = min_outings()
+
+    result = table.copy()
+    if len(result) == 0:
+        result["reliable"] = pd.Series(dtype=bool)
+        return result
+
+    result["reliable"] = result[outings_column].fillna(0) >= minimum
+    return result
+
+
 def platoon(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame:
     """Pitch usage and results split by batter handedness.
 
@@ -223,7 +261,8 @@ def times_through_order(frame: pd.DataFrame) -> pd.DataFrame:
     reconstructing lineup turns from batter identity, which is error-prone in
     the presence of pinch hitters.
     """
-    columns = ["tto", "n", "velo", "whiff_rate", "xwoba", "batters"]
+    columns = ["tto", "n", "velo", "whiff_rate", "xwoba", "batters",
+               "outings", "reliable"]
 
     if len(frame) == 0 or "n_thruorder_pitcher" not in frame.columns:
         return pd.DataFrame(columns=columns)
@@ -244,28 +283,48 @@ def times_through_order(frame: pd.DataFrame) -> pd.DataFrame:
             "whiff_rate": whiffs / swings if swings else float("nan"),
             "xwoba": _mean(group, "estimated_woba_using_speedangle"),
             "batters": int(group.groupby(PA_KEYS).ngroups),
+            # A fourth trip only happens in the starts that were going well
+            # enough to get there, which is why its velocity can read higher
+            # than the first. Same survivorship as a late fatigue bucket, so
+            # the same gate applies.
+            "outings": int(group["game_pk"].nunique()),
         })
 
-    return pd.DataFrame(records).sort_values("tto")[columns]
+    table = pd.DataFrame(records).sort_values("tto")
+    return mark_reliable(table)[columns]
 
 
 def decompose_tto(frame: pd.DataFrame) -> dict:
-    """Attribute times-through-order decay to fatigue or to familiarity.
+    """Describe what changes by the third trip through the order.
 
-    Compares the third trip against the first and reports both changes:
+    Compares the third trip against the first:
 
       velo_delta      float, mph change in fastball velocity
       xwoba_delta     float, change in expected wOBA
       whiff_delta     float, change in whiff rate
-      attribution     str, "fatigue" | "familiarity" | "both" | "none"
-      note            str, one-line reading of the split
+      attribution     str, what is observed: "velocity_declines" |
+                      "results_decay" | "both" | "neither" | "unknown"
+      note            str, one-line reading
+      caveat          str, why this cannot be read causally
+      reliable        bool, whether both trips clear the outings gate
 
-    The attribution threshold on velocity is 0.7 mph, chosen because
-    measurement noise on an outing-level average is well under that, while a
-    genuine fatigue effect in the literature is typically larger.
+    THIS FUNCTION NO LONGER CLAIMS A CAUSE, and the rename of its output values
+    is the point rather than cosmetic. It previously returned "fatigue" or
+    "familiarity", which this design cannot distinguish: the third trip is also
+    the 70th-to-100th pitch, so trip number and pitch count are very nearly
+    collinear and a marginal comparison cannot say which is doing the work.
+    Reporting "fatigue" from a velocity decline alone asserted a mechanism the
+    data does not contain.
 
-    A pitcher whose velocity holds while results decay is being *solved*, not
-    tiring, and the scouting advice inverts accordingly.
+    It was also reporting an xwOBA change of +0.004 — .264 to .268 across three
+    trips — alongside that claim as if it were corroboration. It is noise, and
+    `results_decay` now requires the change to clear `tto_xwoba_rise` before
+    the word "decay" is used at all.
+
+    Separating fatigue from familiarity needs cases where trip number and pitch
+    count diverge: comparing a batter's second plate appearance after a short
+    inning against a long one, or holding pitch count fixed within trip. That
+    is a real analysis and it is not this one.
     """
     blank = {
         "velo_delta": float("nan"),
@@ -273,7 +332,23 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
         "whiff_delta": float("nan"),
         "attribution": "unknown",
         "note": "insufficient data",
+        "caveat": "",
+        "reliable": False,
     }
+
+    # A missing column and a thin sample both produce no result, and they call
+    # for completely different responses — one is "re-fetch", the other is
+    # "this pitcher did not go three times through". Saying "insufficient
+    # data" for both hid a caching bug behind a plausible-looking message for
+    # a whole season of starts.
+    if len(frame) and "n_thruorder_pitcher" not in frame.columns:
+        return blank | {
+            "note": (
+                "n_thruorder_pitcher is not present in this data. It is a "
+                "Savant feed column; if this came from the cache, re-fetch "
+                "the player-season to populate it."
+            ),
+        }
 
     table = times_through_order(frame)
     if len(table) == 0:
@@ -288,26 +363,42 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
     velo_delta = float(third["velo"] - first["velo"])
     xwoba_delta = float(third["xwoba"] - first["xwoba"])
     whiff_delta = float(third["whiff_rate"] - first["whiff_rate"])
+    reliable = bool(first.get("reliable", True) and third.get("reliable", True))
 
-    tiring = velo_delta <= -0.7
-    worse = xwoba_delta >= 0.020
+    velo_drop = float(config.get("flags.thresholds.fatigue_velo_drop_mph", 1.0))
+    xwoba_rise = float(config.get("flags.thresholds.tto_xwoba_rise", 0.020))
 
-    if tiring and worse:
+    slower = velo_delta <= -velo_drop
+    # "Decay" requires clearing the noise threshold. A +0.004 xwOBA change
+    # across three trips is not a decline, and printing it next to a velocity
+    # number made it look like supporting evidence.
+    worse = xwoba_delta >= xwoba_rise
+
+    caveat = (
+        "The third trip is also the 70th-to-100th pitch, so trip number and "
+        "pitch count move together and this comparison cannot say which is "
+        "responsible. Read it as what happens late, not why."
+    )
+
+    if slower and worse:
         attribution = "both"
-        note = ("Velocity drops and results decay together — he is tiring, and "
-                "the third time through is the time to attack.")
-    elif tiring:
-        attribution = "fatigue"
-        note = ("Velocity drops without a clear results decline yet — the stuff "
-                "is fading before the outcomes have caught up.")
+        note = (f"By the third trip his fastball is {abs(velo_delta):.1f} mph "
+                f"slower and hitters' xwOBA is {xwoba_delta:+.3f}. Both move "
+                f"the wrong way for him late.")
+    elif slower:
+        attribution = "velocity_declines"
+        note = (f"His fastball is {abs(velo_delta):.1f} mph slower by the third "
+                f"trip, while results are essentially unchanged "
+                f"({xwoba_delta:+.3f} xwOBA). The velocity is real; the "
+                f"consequence is not visible in outcomes.")
     elif worse:
-        attribution = "familiarity"
-        note = ("Velocity holds while results decay — hitters are solving the "
-                "pattern rather than out-lasting the arm. Sit on the sequence "
-                "he showed earlier.")
+        attribution = "results_decay"
+        note = (f"Hitters' xwOBA rises {xwoba_delta:+.3f} by the third trip "
+                f"while velocity holds ({velo_delta:+.1f} mph).")
     else:
-        attribution = "none"
-        note = "No meaningful third-time-through decline."
+        attribution = "neither"
+        note = (f"No meaningful third-trip change: velocity {velo_delta:+.1f} "
+                f"mph, xwOBA {xwoba_delta:+.3f}.")
 
     return {
         "velo_delta": velo_delta,
@@ -315,6 +406,8 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
         "whiff_delta": whiff_delta,
         "attribution": attribution,
         "note": note,
+        "caveat": caveat,
+        "reliable": reliable,
     }
 
 

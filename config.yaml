@@ -50,6 +50,33 @@ report:
   output_dir: "reports"
   max_takeaways: 5
 
+  # Findings arrive in different units — a share delta, a velocity drop in mph,
+  # a lift ratio — and the top takeaways have to be ranked against each other.
+  #
+  # Where a league proportion exists, severity is standard errors from that
+  # proportion, which is a real measurement: it demotes a large deviation on a
+  # thin sample automatically. Roughly |z| > 2 is worth reporting, so severity
+  # is on that scale.
+  #
+  # Fatigue and lift findings have no league proportion to test against, so
+  # they are scaled onto the same axis by how far past their own threshold they
+  # sit, multiplied by the weight below. THESE WEIGHTS ARE A JUDGMENT CALL, not
+  # a measurement, and every finding records which basis produced its severity
+  # so the two are never silently conflated.
+  # Only predictable_count has a true league proportion behind it and is
+  # therefore ranked by z-score; every other flag is scaled by the weight
+  # below. Equal weights are the honest starting point — they say "these
+  # matter about the same amount", which is a claim I can defend, where tuned
+  # weights would imply a precision that does not exist yet.
+  severity_weights:
+    predictable_count: 2.0
+    handedness_gap: 2.0
+    hittable_pitch: 2.0
+    fatigue: 2.0
+    sequencing_tell: 2.0
+    location_tell: 2.0
+    first_pitch: 2.0
+
   # Pitch types seen fewer than this many times are folded into "Other"
   # so the report is not cluttered by misclassifications.
   min_pitches_to_display: 15
@@ -78,10 +105,40 @@ flags:
     location_tell: 40
     first_pitch: 30
 
+    # Third-trip findings are measured in pitches, not outings, because the
+    # decomposition compares rates rather than counting starts.
+    times_through_order: 150
+
   thresholds:
-    # Fires when one pitch dominates a count AND is well above league rate
+    # A count is a finding when it changes what HE does, measured against his
+    # own overall rate for that pitch.
+    #
+    # This replaced a league comparison, and the reason is the single most
+    # important judgment in this file. Against league, Yamamoto's splitter is
+    # 5-7x in all five counts where he uses it, so the report said "he throws a
+    # splitter" five times with the count changed — one true fact about who he
+    # is, dressed up as five findings about what he will throw. Against his own
+    # rate, the splitter compresses to 1.2-1.9x and the cutter appears at 2.4x
+    # in 2-1 and 3-1, which he then abandons with two strikes. That is the
+    # exploitable pattern and the league comparison hid it, because his cutter
+    # usage overall is only 1.5x league so it never crossed any threshold.
+    #
+    # League rates are still reported as context — they answer "who is this
+    # guy" — but they no longer decide what fires.
+    predictable_count_own_lift: 1.50
+
+    # Kept for the league context line in the claim, not as a gate.
     predictable_count_share: 0.75
     predictable_count_delta_vs_league: 0.15
+
+    # Or, short of dominating, when the deviation from league is extreme
+    # enough to be the finding on its own. Yamamoto throws the splitter 50% of
+    # the time in 0-2 against a league rate of 7% — six times league, z = 24 —
+    # and the 0.75 share gate above silently discarded it, while passing an
+    # 82% four-seam in 3-0 that beats league by only 16 points. The absolute
+    # share and the deviation from league are different questions, and the
+    # second one is what makes a count exploitable.
+    predictable_count_z: 4.0
 
     # Usage gap between vs-LHH and vs-RHH for an effective pitch
     handedness_usage_gap: 0.20
@@ -92,8 +149,30 @@ flags:
     # Velocity decline, in mph, across an outing
     fatigue_velo_drop_mph: 1.0
 
+    # A tell only counts as a weakness if the pattern costs him runs when it
+    # holds. Yamamoto's splitter is the case that forced this: hitters know it
+    # is coming with two strikes and still post a .191 xwOBA against it, so
+    # flagging it as exploitable hands a coach a plan that does not work.
+    #
+    # Measured as (run value when the pattern holds − his norm for that pitch)
+    # × occurrences, using Savant's delta_run_exp, where positive favours the
+    # batter. One run over a season is deliberately a low bar: it filters
+    # patterns with no consequence at all without pretending the estimate is
+    # precise enough to rank fine differences.
+    min_runs_cost: 1.0
+
     # Any transition probability at or above this is a tell
     sequencing_tell_prob: 0.65
+
+    # Or, short of that, a follow-up made this many times more likely than the
+    # pitcher's baseline rate for it. A 30% pitch at 2x baseline is a tell even
+    # though 30% is not a majority.
+    sequencing_tell_lift: 1.50
+
+    # Third time through the order, an xwOBA rise of this much counts as
+    # results decaying. Paired with whether velocity held, that is what
+    # separates familiarity from fatigue.
+    tto_xwoba_rise: 0.020
 
     # Share of a pitch type concentrated in a single zone quadrant.
     # Descriptive only — see location_tell_lift below for why this is not
@@ -108,6 +187,16 @@ flags:
     # pitcher's baseline rate for that pitch, so 1.35 means a band makes a
     # pitch 35% more likely than his overall mix would suggest.
     location_tell_lift: 1.35
+
+    # Lift alone is not enough to act on. Knowing a band moves a pitch from a
+    # 26% baseline to 37% is a real 1.42x, but no hitter commits to a pitch
+    # he will see a third of the time. A band has to point to something close
+    # to a plurality before the information is usable, so a share floor sits
+    # alongside the lift bar and both must clear.
+    #
+    # JUDGMENT CALL: 0.45 is where "he is probably throwing X" starts being a
+    # sentence worth putting in front of a hitter. It is not derived.
+    location_tell_share: 0.45
 
     # Share of the pitcher's pitch-type uncertainty removed by knowing the
     # band, as normalized information gain in [0, 1]: 0.0 means location says

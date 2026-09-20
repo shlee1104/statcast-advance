@@ -1,0 +1,956 @@
+{# Advance scouting report — single self-contained file.
+
+   Everything is embedded: data as JSON, styles and behaviour inline. The only
+   external request is Chart.js, and the page degrades to tables if it is
+   blocked, because the person reading this may be on stadium wifi.
+
+   No computation happens in here. Every number comes from the payload built
+   by src/report.py, so the template cannot introduce a figure that no metric
+   produced. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ payload.meta.pitcher }} {{ payload.meta.season }} — Advance Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#1c2024; --muted:#6b7280; --line:#e5e7eb;
+  --head:#16202e; --accent:#2f6fb2; --warn:#b4472e; --good:#3b7a4e;
+  --c1:#2f6fb2; --c2:#c8703a; --c3:#4d8c5f; --c4:#a8444a; --c5:#7a6aa8; --c6:#8a7355;
+  --gap:16px; --radius:10px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+     background:var(--bg);color:var(--ink);line-height:1.5;font-size:14px}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--gap)}
+
+header.top{background:var(--head);color:#fff;padding:22px 26px;border-radius:var(--radius);
+           margin-bottom:var(--gap)}
+header.top h1{font-size:22px;font-weight:650;letter-spacing:-.01em}
+header.top .sub{color:#9fb0c4;font-size:13px;margin-top:4px}
+header.top .sub b{color:#d7e2ee;font-weight:600}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--gap);
+      margin-bottom:var(--gap)}
+.kpi{background:var(--card);border-radius:var(--radius);padding:16px 18px;
+     box-shadow:0 1px 2px rgba(16,24,40,.06)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.kpi .v{font-size:26px;font-weight:700;margin:2px 0;letter-spacing:-.02em}
+.kpi .n{font-size:12px;color:var(--muted)}
+
+section.card{background:var(--card);border-radius:var(--radius);padding:20px 24px;
+             margin-bottom:var(--gap);box-shadow:0 1px 2px rgba(16,24,40,.06)}
+section.card > h2{font-size:15px;font-weight:650;margin-bottom:4px}
+section.card > .lede{font-size:13px;color:var(--muted);margin-bottom:16px;max-width:70ch}
+
+/* Takeaways lead the page. They are the deliverable; everything else is
+   evidence, and the styling should say so. */
+.take{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+.take:last-child{border-bottom:none}
+.take .rank{flex:0 0 26px;height:26px;border-radius:13px;background:var(--head);color:#fff;
+            font-size:13px;font-weight:650;display:flex;align-items:center;justify-content:center}
+.take .body{flex:1}
+.take .claim{font-size:15px;line-height:1.45}
+.take .meta{margin-top:5px;font-size:11px;color:var(--muted);display:flex;gap:8px;
+            flex-wrap:wrap;align-items:center}
+.chip{display:inline-block;padding:2px 7px;border-radius:4px;background:#eef2f6;
+      color:#40556b;font-size:11px;font-weight:600;letter-spacing:.02em}
+.chip.z{background:#e6f0e9;color:var(--good)}
+.chip.t{background:#f3eee6;color:#7a5d33}
+.chip.cost{background:#f7e4de;color:var(--warn)}
+.chip.works{background:#e3ecf6;color:#2f5f8f}
+
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:var(--gap)}
+.chartbox{background:var(--card);border-radius:var(--radius);padding:20px 24px;
+          box-shadow:0 1px 2px rgba(16,24,40,.06);margin-bottom:var(--gap)}
+.chartbox h3{font-size:14px;font-weight:650;margin-bottom:2px}
+.chartbox .lede{font-size:12px;color:var(--muted);margin-bottom:14px}
+.chartbox .holder{position:relative;height:280px}
+canvas{max-height:280px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);color:var(--muted);
+   font-size:11px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;
+   cursor:pointer;user-select:none}
+th:hover{color:var(--ink);background:#fafbfc}
+td{padding:8px 10px;border-bottom:1px solid #f1f2f4;white-space:nowrap}
+tbody tr:hover{background:#fafbfc}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+.pos{color:var(--warn);font-weight:600}
+.neg{color:var(--good)}
+.dim{color:var(--muted)}
+
+/* Zone map: Savant's 3x3 strike zone floating inside the four outside
+   regions, which is how a hitter pictures it. */
+.zonewrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.zone{position:relative;width:250px;height:280px;flex:0 0 auto}
+.zone .outer{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
+             grid-template-rows:1fr 1fr;border-radius:6px;overflow:hidden}
+.zone .inner{position:absolute;left:22%;top:20%;width:56%;height:60%;
+             display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
+             border:2px solid rgba(20,28,40,.65);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
+.cell{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;
+       border:1px solid rgba(255,255,255,.45);color:#16202e}
+.zone .legend{position:absolute;bottom:-4px;width:100%;text-align:center;font-size:11px;
+              color:var(--muted)}
+/* Small multiples: all six pitches at once, so comparison is by eye rather
+   than by memory. A dropdown that swaps one grid forces the reader to hold
+   the previous one in their head. */
+.zgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+       gap:18px;margin-top:4px}
+.zpanel{border:1px solid var(--line);border-radius:8px;padding:10px 10px 6px}
+.zpanel.thin{background:repeating-linear-gradient(45deg,#fbfbfc,#fbfbfc 6px,
+             #f4f5f7 6px,#f4f5f7 12px);border-style:dashed}
+.zpanel h4{font-size:12px;font-weight:650;margin-bottom:1px}
+.zpanel .sub{font-size:11px;color:var(--muted);margin-bottom:8px}
+.zpanel .warn{color:#8a5a22}
+.zmap{position:relative;width:100%;aspect-ratio:1/1.05}
+.zmap .outer{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
+             grid-template-rows:1fr 1fr;border-radius:4px;overflow:hidden}
+.zmap .inner{position:absolute;left:22%;top:20%;width:56%;height:60%;
+             display:grid;grid-template-columns:repeat(3,1fr);
+             grid-template-rows:repeat(3,1fr);
+             border:2px solid rgba(20,28,40,.6)}
+.zcell{display:flex;flex-direction:column;align-items:center;justify-content:center;
+       font-size:9px;line-height:1.15;border:1px solid rgba(255,255,255,.5);
+       color:#16202e;font-variant-numeric:tabular-nums}
+.zcell b{font-size:10px;font-weight:650}
+.zcell i{font-style:normal;opacity:.6;font-size:8px}
+.legend-inline{display:inline-flex;align-items:center;gap:6px;font-size:11px;
+               color:var(--muted);margin-left:4px}
+.legend-inline .ramp{display:inline-block;width:110px;height:11px;border-radius:3px;
+                     border:1px solid var(--line)}
+.zonekey{font-size:12px;color:var(--muted);max-width:34ch}
+.zonekey .sw{display:flex;align-items:center;gap:6px;margin-top:8px}
+.zonekey .sw i{width:14px;height:14px;border-radius:3px;display:inline-block}
+select{padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;
+       font-size:13px;color:var(--ink)}
+.controls{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.controls label{font-size:12px;color:var(--muted)}
+
+.note{font-size:12px;color:var(--muted);margin-top:12px;max-width:80ch}
+.gaps{background:#fdf4ec;border:1px solid #e9d3ba;color:#7a4f22;border-radius:var(--radius);
+      padding:12px 16px;margin-bottom:var(--gap);font-size:13px}
+.gaps code{background:#f5e6d5;padding:1px 5px;border-radius:3px;font-size:12px}
+.nodata{color:var(--muted);font-size:13px;padding:10px 0}
+footer{color:var(--muted);font-size:12px;padding:8px 4px 24px}
+button.more{background:none;border:1px solid var(--line);border-radius:6px;padding:6px 12px;
+            font-size:12px;color:var(--accent);cursor:pointer}
+button.more:hover{background:#f3f6fa}
+
+@media (max-width:720px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .charts{grid-template-columns:1fr}
+}
+@media print{
+  body{background:#fff}
+  .chartbox,section.card,.kpi{box-shadow:none;border:1px solid var(--line)}
+  .controls,button.more{display:none}
+  section.card,.chartbox{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>{{ payload.meta.pitcher }} — {{ payload.meta.season }} advance report</h1>
+  <div class="sub">
+    Throws <b>{{ payload.meta.hand }}</b> ·
+    <b>{{ "{:,}".format(payload.meta.pitches) }}</b> pitches ·
+    <b>{{ payload.meta.games }}</b> games ·
+    <b>{{ "{:,}".format(payload.meta.batters_faced) }}</b> batters faced ·
+    {{ payload.meta.league_note }}
+  </div>
+</header>
+
+{% if payload.data_gaps %}
+<div class="gaps">
+  <b>Incomplete input.</b>
+  {% for gap in payload.data_gaps %}
+  <code>{{ gap.column }}</code> is missing, so the {{ gap.affects }} section is
+  unavailable.{% endfor %}
+  This is a feed column — if this report was built from the cache, re-fetch the
+  player-season to populate it.
+</div>
+{% endif %}
+
+<div class="kpis">
+{% for kpi in payload.kpis %}
+  <div class="kpi">
+    <div class="l">{{ kpi.label }}</div>
+    <div class="v">{{ kpi.value }}</div>
+    <div class="n">{{ kpi.note }}</div>
+  </div>
+{% endfor %}
+</div>
+
+<section class="card">
+  <h2>Key takeaways</h2>
+  <p class="lede">
+    Ranked by severity, one per category, each carrying the sample it rests on.
+    A claim without its sample size is not in this report.
+  </p>
+{% if payload.takeaways %}
+  {% for t in payload.takeaways %}
+  <div class="take">
+    <div class="rank">{{ loop.index }}</div>
+    <div class="body">
+      <div class="claim">{{ t.claim }}</div>
+      <div class="meta">
+        <span class="chip">{{ t.flag }}</span>
+        <span>n = {{ t.n }}</span>
+        <span>severity {{ "%.2f"|format(t.severity) }}</span>
+        {% if t.runs_cost is not none %}
+          {% if t.runs_cost > 0 %}
+          <span class="chip cost">costs him {{ "%.1f"|format(t.runs_cost) }} runs</span>
+          {% else %}
+          <span class="chip works">saves him {{ "%.1f"|format(-t.runs_cost) }} runs</span>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  <p class="note">
+    {{ payload.finding_count }} findings cleared their gates in total; the list above
+    is deduplicated to the strongest per category.
+    Counts and sequences are compared against <b>his own</b> overall rates, not the
+    league's — the league answers "who is this pitcher", his own rate answers "what is
+    he about to throw", and only the second is a hitter's question.
+    Where the run column is present it is the estimated season cost of the pattern,
+    from Savant's run expectancy.
+  </p>
+  <p class="note">
+    <b>How many comparisons produced this.</b>
+    {{ payload.comparisons.total }} were run
+    ({% for fam, k in payload.comparisons.families.items() %}{{ k }} {{ fam }}{% if not loop.last %}, {% endif %}{% endfor %}),
+    of which about {{ payload.comparisons.expected_by_chance }} would clear an
+    uncorrected p &lt; .05 by chance alone. After a Benjamini-Hochberg correction
+    across all of them,
+    {% if payload.resolved_count == 1 %}
+    <b>1</b> run-consequence estimate survives.
+    {% else %}
+    <b>{{ payload.resolved_count }}</b> run-consequence estimates survive.
+    {% endif %}
+    So the frequency patterns above are the findings; what they cost him is not
+    resolved by one season of one pitcher, and the report does not pretend
+    otherwise.
+  </p>
+{% else %}
+  <p class="nodata">Nothing cleared the sample gates. That is a result, not a failure.</p>
+{% endif %}
+</section>
+
+<div class="charts">
+  <div class="chartbox">
+    <h3>Pitch mix by count</h3>
+    <p class="lede">Each column sums to 100%. The question is "given this count, what is coming".</p>
+    <div class="holder"><canvas id="countChart"></canvas></div>
+  </div>
+  <div class="chartbox">
+    <h3>Arsenal usage{% if payload.meta.has_league %} vs league{% endif %}</h3>
+    <p class="lede">
+      {% if payload.meta.has_league %}A pitch thrown well above league rate is the defining
+      fact about a pitcher.{% else %}Share of all pitches.{% endif %}
+    </p>
+    <div class="holder"><canvas id="arsenalChart"></canvas></div>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="chartbox">
+    <h3>Velocity through the outing</h3>
+    <p class="lede">
+      Fastballs only — averaging offspeed in tracks pitch selection, not fatigue.
+      Dashed and greyed buckets come from fewer than
+      {{ payload.fatigue.min_outings }} outings: only the starts that got that
+      deep are in them, so a rise there is selection, not recovery.
+    </p>
+    <div class="holder"><canvas id="fatigueChart"></canvas></div>
+  </div>
+  <div class="chartbox">
+    <h3>Usage by batter handedness</h3>
+    <p class="lede">A pitch one side rarely sees is a pitch that side has not learned.</p>
+    <div class="holder"><canvas id="platoonChart"></canvas></div>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Location</h2>
+  <p class="lede">
+    Coordinates are normalized: horizontally to the pitcher's arm side, vertically to
+    each batter's own strike zone. The grid below is Savant's, read from the catcher's
+    view — the 3&times;3 is the strike zone, the four surrounding regions are outside it.
+  </p>
+  <div class="controls">
+    <label for="zonePick">Pitch type</label>
+    <select id="zonePick"></select>
+  </div>
+  <div class="zonewrap">
+    <div class="zone">
+      <div class="outer" id="zoneOuter"></div>
+      <div class="inner" id="zoneInner"></div>
+      <div class="legend">catcher's view</div>
+    </div>
+    <div class="zonekey">
+      Share of this pitch type going to each region. Darker is more concentrated.
+      <div class="sw"><i style="background:#dce6f0"></i> low</div>
+      <div class="sw"><i style="background:#2f6fb2"></i> high</div>
+      <div id="bandNote" class="note"></div>
+    </div>
+  </div>
+
+  <h3 style="font-size:13px;margin:26px 0 6px">
+    Every pitch, by count state and batter handedness
+  </h3>
+  <p class="lede">
+    All six grids share one colour scale, so a cell means the same thing in
+    every panel and across every slice — switching the controls does not
+    rescale anything. Each cell carries its own percentage and pitch count,
+    because colour alone should not be load-bearing.
+  </p>
+  <div class="controls">
+    <label for="sliceState">Count</label>
+    <select id="sliceState">
+      <option value="all">All counts</option>
+      <option value="ahead">Ahead (strikes &gt; balls)</option>
+      <option value="even">Even</option>
+      <option value="behind">Behind (balls &gt; strikes)</option>
+    </select>
+    <label for="sliceHand">Batter</label>
+    <select id="sliceHand">
+      <option value="all">Both</option>
+      <option value="L">vs LHH</option>
+      <option value="R">vs RHH</option>
+    </select>
+    <label for="sliceMode">Colour</label>
+    <select id="sliceMode">
+      <option value="lift">Lift vs his own pattern</option>
+      <option value="share">Raw share of the pitch</option>
+    </select>
+    <span id="sliceLegend" class="legend-inline"></span>
+  </div>
+  <div id="zgrid" class="zgrid"></div>
+  <p class="note" id="sliceNote"></p>
+
+  {% if payload.location_tells %}
+  <h3 style="font-size:13px;margin:22px 0 8px">What a location band gives away</h3>
+  <div class="scroll">
+    <table id="tellsTable">
+      <thead><tr>
+        <th>Band</th><th>Pitch</th><th class="num">n</th>
+        <th class="num">P(pitch | band)</th><th class="num">His baseline</th>
+        <th class="num">Lift</th><th class="num">Score</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Arsenal</h2>
+  <p class="lede">
+    Movement in inches from the catcher's view. Whiff rate is per swing, not per pitch.
+  </p>
+  <div class="scroll"><table id="arsenalTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>Count tendencies</h2>
+  <p class="lede">
+    Predictability is inverted normalized entropy: 1.0 means one pitch only, 0.0 an even
+    spread across the whole arsenal.
+    {% if payload.meta.has_league %}
+    A share is only a finding next to the league rate for the same count.
+    {% endif %}
+  </p>
+  <div class="scroll"><table id="predTable"><thead></thead><tbody></tbody></table></div>
+
+  <h3 style="font-size:13px;margin:22px 0 8px">
+    Counts that change his mind — every pitch, not only the plurality
+  </h3>
+  <p class="lede">
+    Lift is against <b>his own</b> overall rate for that pitch. The most useful
+    pattern is frequently not the most-thrown pitch in the count, so this table
+    covers every pitch-count pair rather than one row per count.
+  </p>
+  <div class="scroll"><table id="liftTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>Sequencing</h2>
+  <p class="lede">
+    Frequency and effectiveness are measured separately. A sequence that is predictable
+    <em>and</em> not working is the most exploitable pattern a report can carry, and any
+    metric that merges the two hides it.
+  </p>
+  {% if payload.setups %}
+  <div class="scroll"><table id="setupTable"><thead></thead><tbody></tbody></table></div>
+  <p class="note">
+    freq_lift is how much more likely the follow-up becomes; effect_lift is whether the
+    whiff rate improves. High freq_lift with effect_lift at or below 1.0 is the finding.
+  </p>
+  {% else %}
+  <p class="nodata">No setup pair cleared the sample gate.</p>
+  {% endif %}
+
+  <h3 style="font-size:13px;margin:22px 0 8px">Two-strike approach</h3>
+  <div class="scroll"><table id="putawayTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>Splits</h2>
+  <div class="scroll"><table id="platoonTable"><thead></thead><tbody></tbody></table></div>
+
+  <h3 style="font-size:13px;margin:22px 0 8px">Times through the order</h3>
+  <div class="scroll"><table id="ttoTable"><thead></thead><tbody></tbody></table></div>
+  {% if payload.tto_decomposition.attribution %}
+  <p class="note"><b>{{ payload.tto_decomposition.attribution }}.</b>
+    {{ payload.tto_decomposition.note }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Release consistency</h2>
+  <p class="lede">
+    The cheap half of tunneling. A pitch released away from the fastball slot can be
+    identified before movement matters — and a tight spread in a distinct slot is a
+    tell, where a wide spread is a command problem.
+  </p>
+  <div class="scroll"><table id="releaseTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>All findings</h2>
+  <p class="lede">Everything that cleared its gate, before deduplication.</p>
+  <div class="scroll"><table id="findingsTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<footer>
+  {{ payload.gates.note }}<br>
+  Generated {{ payload.meta.generated }} · statcast-advance · data from Baseball Savant
+</footer>
+</div>
+
+<script id="payload" type="application/json">{{ payload_json|safe }}</script>
+<script>
+const D = JSON.parse(document.getElementById('payload').textContent);
+const COLORS = ['#2f6fb2','#c8703a','#4d8c5f','#a8444a','#7a6aa8','#8a7355','#4f7f8f','#96566f'];
+
+const pct  = v => v === null || v === undefined ? '—' : (v * 100).toFixed(1) + '%';
+const pct0 = v => v === null || v === undefined ? '—' : (v * 100).toFixed(0) + '%';
+const num  = (v, d = 1) => v === null || v === undefined ? '—' : v.toFixed(d);
+const int  = v => v === null || v === undefined ? '—' : Math.round(v).toLocaleString();
+const sign = (v, d = 3) => v === null || v === undefined ? '—'
+                           : (v >= 0 ? '+' : '') + v.toFixed(d);
+
+/* ---------------------------------------------------------------- tables */
+/* One renderer for every table. Columns declare their own formatter, so a
+   rate can never be printed as a raw float by accident. */
+function table(id, rows, cols) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!rows || !rows.length) {
+    el.outerHTML = '<p class="nodata">No rows cleared the sample gate.</p>';
+    return;
+  }
+  const present = cols.filter(c => rows.some(r => r[c.f] !== undefined));
+  let state = { col: null, dir: 'desc' };
+
+  function draw(data) {
+    el.querySelector('thead').innerHTML = '<tr>' + present.map(c =>
+      `<th class="${c.n ? 'num' : ''}" data-f="${c.f}">${c.l}${
+        state.col === c.f ? (state.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`
+    ).join('') + '</tr>';
+
+    el.querySelector('tbody').innerHTML = data.map(r => '<tr>' + present.map(c => {
+      const raw = r[c.f];
+      const txt = c.fmt ? c.fmt(raw) : (raw === null || raw === undefined ? '—' : raw);
+      let cls = c.n ? 'num' : '';
+      if (c.tone && typeof raw === 'number') cls += raw > 0 ? ' pos' : ' neg';
+      return `<td class="${cls}">${txt}</td>`;
+    }).join('') + '</tr>').join('');
+
+    el.querySelectorAll('th').forEach(th => th.onclick = () => {
+      const f = th.dataset.f;
+      state.dir = (state.col === f && state.dir === 'desc') ? 'asc' : 'desc';
+      state.col = f;
+      draw([...data].sort((a, b) => {
+        const x = a[f], y = b[f];
+        if (x === null || x === undefined) return 1;
+        if (y === null || y === undefined) return -1;
+        const c = x < y ? -1 : x > y ? 1 : 0;
+        return state.dir === 'asc' ? c : -c;
+      }));
+    });
+  }
+  draw(rows);
+}
+
+table('arsenalTable', D.arsenal, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'usage', l: 'Usage', n: 1, fmt: pct },
+  { f: 'league_usage', l: 'Lg usage', n: 1, fmt: pct },
+  { f: 'usage_ratio', l: 'vs Lg', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
+  { f: 'velo_delta', l: 'Δ velo', n: 1, fmt: v => sign(v, 1) },
+  { f: 'spin', l: 'Spin', n: 1, fmt: int },
+  { f: 'h_break', l: 'H break', n: 1, fmt: v => num(v, 1) },
+  { f: 'v_break', l: 'V break', n: 1, fmt: v => num(v, 1) },
+  { f: 'zone_rate', l: 'Zone%', n: 1, fmt: pct0 },
+  { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
+  { f: 'whiff_delta', l: 'Δ whiff', n: 1, fmt: v => sign(v, 3) },
+  { f: 'chase_rate', l: 'Chase', n: 1, fmt: pct },
+  { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
+  { f: 'xwoba_delta', l: 'Δ xwOBA', n: 1, fmt: v => sign(v, 3), tone: 1 },
+]);
+
+table('predTable', D.predictability, [
+  { f: 'count', l: 'Count' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'top_pitch', l: 'Top pitch' },
+  { f: 'top_share', l: 'Share', n: 1, fmt: pct },
+  { f: 'league_top_share', l: 'Lg share', n: 1, fmt: pct },
+  { f: 'share_delta', l: 'Δ', n: 1, fmt: v => sign(v, 3), tone: 1 },
+  { f: 'share_z', l: 'z', n: 1, fmt: v => num(v, 1) },
+  { f: 'predictability', l: 'Predictability', n: 1, fmt: v => num(v, 3) },
+  { f: 'entropy', l: 'Entropy', n: 1, fmt: v => num(v, 2) },
+]);
+
+table('liftTable', D.count_lifts, [
+  { f: 'count', l: 'Count' },
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'count_n', l: 'in count', n: 1, fmt: int },
+  { f: 'share', l: 'Share', n: 1, fmt: pct },
+  { f: 'own_rate', l: 'His overall', n: 1, fmt: pct },
+  { f: 'lift', l: 'Lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
+  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+]);
+
+table('setupTable', D.setups, [
+  { f: 'setup_pitch', l: 'Setup' },
+  { f: 'setup_band', l: 'Band' },
+  { f: 'next_pitch', l: 'Follow-up' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'p_next', l: 'P(next)', n: 1, fmt: pct },
+  { f: 'baseline_p', l: 'Baseline', n: 1, fmt: pct },
+  { f: 'freq_lift', l: 'Freq lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'effect_lift', l: 'Effect lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'xwoba_when', l: 'xwOBA after', n: 1, fmt: v => num(v, 3) },
+  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+]);
+
+table('putawayTable', D.putaway, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'usage', l: 'Usage', n: 1, fmt: pct },
+  { f: 'league_usage', l: 'Lg usage', n: 1, fmt: pct },
+  { f: 'putaway_rate', l: 'Putaway', n: 1, fmt: pct },
+  { f: 'league_putaway', l: 'Lg putaway', n: 1, fmt: pct },
+  { f: 'putaway_delta', l: 'Δ', n: 1, fmt: v => sign(v, 3) },
+  { f: 'putaway_z', l: 'z', n: 1, fmt: v => num(v, 1) },
+  { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
+]);
+
+table('platoonTable', D.platoon, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'usage_L', l: 'vs LHH', n: 1, fmt: pct },
+  { f: 'usage_R', l: 'vs RHH', n: 1, fmt: pct },
+  { f: 'gap', l: 'Gap', n: 1, fmt: v => sign(v, 3) },
+  { f: 'whiff_L', l: 'Whiff L', n: 1, fmt: pct },
+  { f: 'whiff_R', l: 'Whiff R', n: 1, fmt: pct },
+  { f: 'n_L', l: 'n L', n: 1, fmt: int },
+  { f: 'n_R', l: 'n R', n: 1, fmt: int },
+]);
+
+table('ttoTable', D.tto, [
+  { f: 'tto', l: 'Trip' },
+  { f: 'n', l: 'Pitches', n: 1, fmt: int },
+  { f: 'batters', l: 'Batters', n: 1, fmt: int },
+  { f: 'outings', l: 'Outings', n: 1, fmt: int },
+  { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
+  { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
+  { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
+]);
+
+table('releaseTable', D.release, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'rel_x', l: 'Rel x (in)', n: 1, fmt: v => num(v, 1) },
+  { f: 'rel_z', l: 'Rel z (in)', n: 1, fmt: v => num(v, 1) },
+  { f: 'rel_x_sd', l: 'SD x', n: 1, fmt: v => num(v, 2) },
+  { f: 'rel_z_sd', l: 'SD z', n: 1, fmt: v => num(v, 2) },
+  { f: 'arm_angle', l: 'Arm angle', n: 1, fmt: v => num(v, 1) },
+  { f: 'dist_from_ref', l: 'From slot (in)', n: 1, fmt: v => num(v, 2) },
+]);
+
+table('tellsTable', D.location_tells, [
+  { f: 'band', l: 'Band' },
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'p_pitch', l: 'P(pitch | band)', n: 1, fmt: pct },
+  { f: 'baseline_p', l: 'His baseline', n: 1, fmt: pct },
+  { f: 'lift', l: 'Lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
+  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+]);
+
+table('findingsTable', D.findings, [
+  { f: 'flag', l: 'Flag' },
+  { f: 'severity', l: 'Severity', n: 1, fmt: v => num(v, 2) },
+  { f: 'severity_basis', l: 'Basis' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'claim', l: 'Claim' },
+]);
+
+/* ------------------------------------------------------------- zone map */
+const zoneRows = {};
+(D.zone.rows || []).forEach(r => zoneRows[r.pitch_type] = r);
+const zonePitches = Object.keys(zoneRows);
+
+function shade(share, max) {
+  if (share === null || share === undefined || !max) return '#eef1f4';
+  const t = Math.min(share / max, 1);
+  // Interpolate pale blue -> accent blue. Two stops keeps the ramp readable
+  // in print, where a rainbow scale turns into mud.
+  const c0 = [220, 230, 240], c1 = [47, 111, 178];
+  return 'rgb(' + c0.map((v, i) => Math.round(v + (c1[i] - v) * t)).join(',') + ')';
+}
+
+function drawZone(pitch) {
+  const row = zoneRows[pitch];
+  const inner = document.getElementById('zoneInner');
+  const outer = document.getElementById('zoneOuter');
+  if (!row) { inner.innerHTML = ''; outer.innerHTML = ''; return; }
+
+  const all = [...D.zone.inner, ...D.zone.outer].map(z => row[z] || 0);
+  const max = Math.max(...all);
+
+  inner.innerHTML = D.zone.inner.map(z =>
+    `<div class="cell" style="background:${shade(row[z], max)}"
+      title="zone ${z}">${pct0(row[z] || 0)}</div>`).join('');
+
+  // 11 12 / 13 14 maps onto a 2x2 grid in that order, which is how Savant
+  // numbers the outside regions from the catcher's view.
+  outer.innerHTML = D.zone.outer.map(z =>
+    `<div class="cell" style="background:${shade(row[z], max)};font-size:10px;
+      align-items:flex-start;justify-content:flex-start;padding:6px"
+      title="zone ${z}">${pct0(row[z] || 0)}</div>`).join('');
+}
+
+if (zonePitches.length) {
+  const pick = document.getElementById('zonePick');
+  pick.innerHTML = zonePitches.map(p => {
+    const label = (D.display_names || {})[p] || p;
+    return `<option value="${p}">${label}</option>`;
+  }).join('');
+  pick.onchange = () => drawZone(pick.value);
+  drawZone(zonePitches[0]);
+}
+
+/* ------------------------------------------------- sliced zone heatmaps */
+/* Counts come from the payload; shares and lift are computed here so any
+   combination of count state and handedness can be assembled by summing.
+   Shares cannot be averaged across slices of different sizes without
+   weighting, so summing counts first is also the only correct way to do it. */
+const ZS = D.zone_slices || { cells: [], pitches: [] };
+
+/* Both scales are fixed, never fitted to the current selection. A scale that
+   rescales when you change a dropdown makes two slices look identical when
+   their magnitudes differ by a factor of three. */
+const SHARE_MAX = 0.35;         // share of a pitch going to one zone
+const LIFT_MAX  = 3.0;          // and its reciprocal, 0.33x, at the other end
+
+function lerp(a, b, t) {
+  return 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',') + ')';
+}
+
+/* Sequential single hue: absence to presence. */
+function shareColor(v) {
+  if (v === null || v === undefined) return '#f2f4f6';
+  return lerp([233, 239, 245], [31, 84, 140], Math.min(v / SHARE_MAX, 1));
+}
+
+/* Diverging, neutral at 1.0, blue below and orange above — not red/green,
+   which about 8% of men cannot separate. Ratios are placed on a log scale so
+   2x and 0.5x sit the same distance from the midpoint; on a linear scale
+   every "less than usual" cell would crowd into the bottom third. */
+function liftColor(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '#f2f4f6';
+  const span = Math.log(LIFT_MAX);
+  const t = Math.max(-1, Math.min(1, Math.log(v) / span));
+  const neutral = [247, 247, 245];
+  return t >= 0 ? lerp(neutral, [191, 94, 39], t)
+                : lerp(neutral, [39, 104, 168], -t);
+}
+
+function sliceCells(state, hand) {
+  const out = {};
+  ZS.cells.forEach(c => {
+    if (state !== 'all' && c.s !== state) return;
+    if (hand !== 'all' && c.h !== hand) return;
+    (out[c.p] = out[c.p] || {})[c.z] = (out[c.p][c.z] || 0) + c.n;
+  });
+  return out;
+}
+
+function drawSlices() {
+  const state = document.getElementById('sliceState').value;
+  const hand = document.getElementById('sliceHand').value;
+  const mode = document.getElementById('sliceMode').value;
+  const grid = document.getElementById('zgrid');
+  if (!grid) return;
+
+  const byPitch = sliceCells(state, hand);
+  const thin = [];
+
+  grid.innerHTML = ZS.pitches.map(pitch => {
+    const cells = byPitch[pitch] || {};
+    const total = Object.values(cells).reduce((a, b) => a + b, 0);
+    const base = (ZS.base || {})[pitch] || {};
+    const ok = total >= ZS.min_slice;
+    if (!ok) thin.push(pitch);
+
+    const cell = z => {
+      const n = cells[z] || 0;
+      const share = total ? n / total : null;
+      const b = base[z];
+      const lift = (share !== null && b) ? share / b : null;
+      const v = mode === 'lift' ? lift : share;
+      const bg = mode === 'lift' ? liftColor(v) : shareColor(v);
+      const label = v === null ? '—'
+        : mode === 'lift' ? v.toFixed(1) + 'x' : (v * 100).toFixed(0) + '%';
+      return `<div class="zcell" style="background:${bg}"
+        title="zone ${z}: ${n} pitches, ${total ? ((n / total) * 100).toFixed(1) : 0}%">
+        <b>${n ? label : ''}</b><i>${n || ''}</i></div>`;
+    };
+
+    const name = (D.display_names || {})[pitch] || pitch;
+    return `<div class="zpanel${ok ? '' : ' thin'}">
+      <h4>${name}</h4>
+      <div class="sub${ok ? '' : ' warn'}">
+        ${total} pitches${ok ? '' : ' — too thin to read'}
+      </div>
+      <div class="zmap">
+        <div class="outer">${ZS.outer.map(cell).join('')}</div>
+        <div class="inner">${ZS.inner.map(cell).join('')}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const ramp = mode === 'lift'
+    ? `<span class="ramp" style="background:linear-gradient(90deg,
+         ${liftColor(1 / LIFT_MAX)},${liftColor(1)},${liftColor(LIFT_MAX)})"></span>
+       <span>0.33x &nbsp;·&nbsp; 1.0x &nbsp;·&nbsp; 3x+</span>`
+    : `<span class="ramp" style="background:linear-gradient(90deg,
+         ${shareColor(0)},${shareColor(SHARE_MAX)})"></span>
+       <span>0% &nbsp;·&nbsp; ${(SHARE_MAX * 100).toFixed(0)}%+</span>`;
+  document.getElementById('sliceLegend').innerHTML = ramp;
+
+  const explain = mode === 'lift'
+    ? 'Lift is this slice’s share of the zone divided by where that pitch '
+      + 'goes across the whole season, so 1.0x means the situation does not move '
+      + 'it. Orange is more than usual, blue less. Big number is the lift, small '
+      + 'number is the pitch count.'
+    : 'Share is the percentage of this pitch, in this slice, going to each zone. '
+      + 'Mostly it shows where the pitch always goes; switch to lift for what is '
+      + 'specific to the slice.';
+  const caution = thin.length
+    ? ` Hatched panels (${thin.join(', ')}) fall under ${ZS.min_slice} pitches — `
+      + 'a thirteen-zone grid of that many is noise however it is coloured.'
+    : '';
+  document.getElementById('sliceNote').textContent = explain + caution;
+}
+
+if (ZS.pitches.length) {
+  ['sliceState', 'sliceHand', 'sliceMode'].forEach(id => {
+    document.getElementById(id).onchange = drawSlices;
+  });
+  drawSlices();
+}
+
+const bi = D.band_information || {};
+if (bi.v_band) {
+  document.getElementById('bandNote').textContent =
+    `Vertical band removes ${pct(bi.v_band.info_gain_pct)} of pitch-type ` +
+    `uncertainty; quadrant removes ${pct((bi.quadrant || {}).info_gain_pct)}. ` +
+    `Clearest: ${bi.v_band.top_band} → ${bi.v_band.top_pitch} ` +
+    `${pct0(bi.v_band.top_share)}.`;
+}
+
+/* --------------------------------------------------------------- charts */
+/* Chart.js is the one external dependency. If it is blocked the tables above
+   still carry every number, so the page is degraded rather than broken. */
+if (typeof Chart === 'undefined') {
+  document.querySelectorAll('.chartbox .holder').forEach(h => {
+    h.innerHTML = '<p class="nodata">Charts need a network connection. ' +
+                  'Every figure is in the tables below.</p>';
+  });
+} else {
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 11;
+  Chart.defaults.animation = false;
+
+  const cm = D.count_mix;
+  if (cm && cm.counts.length) {
+    new Chart(document.getElementById('countChart'), {
+      type: 'bar',
+      data: {
+        labels: cm.counts,
+        datasets: cm.pitches.map((p, i) => ({
+          label: (D.display_names || {})[p] || p,
+          data: cm.series[p],
+          backgroundColor: COLORS[i % COLORS.length],
+          borderWidth: 0,
+        })),
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: { stacked: true, max: 1, ticks: { callback: v => (v * 100) + '%' },
+               grid: { color: '#f0f2f4' } },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.y)}` } },
+        },
+      },
+    });
+  }
+
+  const ars = D.arsenal || [];
+  if (ars.length) {
+    const sets = [{
+      label: 'His usage',
+      data: ars.map(r => r.usage),
+      backgroundColor: COLORS[0],
+      borderRadius: 3,
+    }];
+    if (D.meta.has_league && ars.some(r => r.league_usage !== null)) {
+      sets.push({
+        label: 'League',
+        data: ars.map(r => r.league_usage),
+        backgroundColor: '#c9d2dc',
+        borderRadius: 3,
+      });
+    }
+    new Chart(document.getElementById('arsenalChart'), {
+      type: 'bar',
+      data: { labels: ars.map(r => r.pitch_type), datasets: sets },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { callback: v => (v * 100).toFixed(0) + '%' },
+               grid: { color: '#f0f2f4' } },
+          y: { grid: { display: false } },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.x)}` } },
+        },
+      },
+    });
+  }
+
+  const fg = D.fatigue;
+  if (fg && fg.buckets.length) {
+    // Buckets built from too few separate outings are greyed, not removed.
+    // A late bucket only contains the starts that got that deep, which are
+    // the starts that were going well, so its rise is selection rather than
+    // recovery. Dropping those points would make the curve look better
+    // supported than it is; greying them says what happened.
+    const ok = fg.reliable || fg.buckets.map(() => true);
+    const solid = '#2f6fb2', faded = '#b9c6d4';
+
+    new Chart(document.getElementById('fatigueChart'), {
+      type: 'line',
+      data: {
+        labels: fg.buckets,
+        datasets: [{
+          label: 'Fastball velo',
+          data: fg.velo,
+          borderColor: solid,
+          backgroundColor: 'rgba(47,111,178,.10)',
+          // Straight segments. A smoothed curve implies measurements between
+          // buckets that do not exist.
+          borderWidth: 2, fill: true, tension: 0,
+          pointRadius: 4, pointHoverRadius: 7,
+          pointBackgroundColor: ctx => ok[ctx.dataIndex] ? solid : faded,
+          pointBorderColor: ctx => ok[ctx.dataIndex] ? solid : faded,
+          segment: {
+            borderColor: ctx =>
+              (ok[ctx.p0DataIndex] && ok[ctx.p1DataIndex]) ? solid : faded,
+            borderDash: ctx =>
+              (ok[ctx.p0DataIndex] && ok[ctx.p1DataIndex]) ? undefined : [5, 4],
+          },
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { grid: { display: false }, title: { display: true, text: 'pitch of outing' } },
+          y: { grid: { color: '#f0f2f4' }, ticks: { callback: v => v.toFixed(1) } },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: c => `${num(c.parsed.y, 2)} mph`,
+              // The outing count is what governs interpretation: a drop seen
+              // in three starts is three starts.
+              afterLabel: c => `${fg.outings[c.dataIndex]} outings, ` +
+                               `n=${fg.n[c.dataIndex]}` +
+                               (ok[c.dataIndex] ? ''
+                                 : `\nUnder ${fg.min_outings} outings — only the ` +
+                                   `starts that got this deep are in here.`),
+            },
+          },
+        },
+      },
+    });
+  }
+
+  const pl = D.platoon || [];
+  if (pl.length) {
+    new Chart(document.getElementById('platoonChart'), {
+      type: 'bar',
+      data: {
+        labels: pl.map(r => r.pitch_type),
+        datasets: [
+          { label: 'vs LHH', data: pl.map(r => r.usage_L),
+            backgroundColor: COLORS[0], borderRadius: 3 },
+          { label: 'vs RHH', data: pl.map(r => r.usage_R),
+            backgroundColor: COLORS[1], borderRadius: 3 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { grid: { display: false } },
+          y: { ticks: { callback: v => (v * 100).toFixed(0) + '%' },
+               grid: { color: '#f0f2f4' } },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.y)}` } },
+        },
+      },
+    });
+  }
+}
+</script>
+</body>
+</html>

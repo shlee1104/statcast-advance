@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 
 from src import config
-from src.metrics import counts
+from src.metrics import counts, events
 
 FEET_TO_INCHES = 12.0
 
@@ -54,6 +54,15 @@ HIGH_BAND_EDGE = 2.0 / 3.0
 UNKNOWN = "UNKNOWN"
 
 QUADRANTS: list[str] = ["UP-ARM", "UP-GLOVE", "DOWN-ARM", "DOWN-GLOVE"]
+
+# Savant's zone grid, in the order a heat map renders it. 1-9 are the strike
+# zone read left to right and top to bottom from the catcher's view; 11-14 are
+# the four regions outside it, clockwise from upper left. Zone 10 does not
+# exist. These live here rather than in the report layer because they describe
+# the data, not the presentation.
+INNER_ZONES: list[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+OUTER_ZONES: list[int] = [11, 12, 13, 14]
+ALL_ZONES: list[int] = INNER_ZONES + OUTER_ZONES
 
 
 def add_location_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -324,6 +333,17 @@ def location_tells(
       baseline_p   float, the pitcher's overall rate for that pitch
       lift         float, p_pitch / baseline_p
       score        float, (lift - 1) * n
+      rv_when      float, run value on that pitch in that band
+      rv_base      float, run value on that pitch overall
+      rv_delta     float, the difference; positive means it costs the pitcher
+      runs_cost    float, rv_delta * n, runs over the season
+      xwoba_when   float, contact quality when the pattern holds
+      xwoba_delta  float, against that pitch's own norm
+
+    The outcome columns are what separate a tell from a weakness. Yamamoto's
+    splitter is predictable with two strikes and hitters still cannot touch it;
+    flagging that as exploitable would hand a coach a plan that does not work.
+    A tell with no run consequence is trivia, however large its lift.
 
     `by` selects the conditioning variable: "v_band" (default), "h_band", or
     "quadrant". Vertical is the usual answer, because a pitcher's arsenal
@@ -341,7 +361,10 @@ def location_tells(
     so both sides of the ratio narrow together.
     """
     columns = ["band", "pitch_type", "n", "band_n",
-               "p_pitch", "baseline_p", "lift", "score"]
+               "p_pitch", "baseline_p", "lift", "score",
+               "rv_when", "rv_base", "rv_delta", "runs_cost",
+               "runs_lo", "runs_hi", "significant", "rv_p",
+               "xwoba_when", "xwoba_delta"]
 
     if min_n is None:
         min_n = int(config.get("flags.min_n.location_tell", 40))
@@ -363,6 +386,13 @@ def location_tells(
             base = float(baseline_p.get(pitch_type, float("nan")))
             lift = p_pitch / base if base else float("nan")
 
+            # Outcomes when the pattern holds, against that pitch's own norm
+            # across every band — so the comparison isolates the location, not
+            # the pitch.
+            in_band = group[group["pitch_type"] == pitch_type]
+            all_of_pitch = working[working["pitch_type"] == pitch_type]
+            outcome = events.outcome_delta(in_band, all_of_pitch)
+
             records.append({
                 "band": band,
                 "pitch_type": pitch_type,
@@ -372,6 +402,16 @@ def location_tells(
                 "baseline_p": base,
                 "lift": lift,
                 "score": (lift - 1.0) * n,
+                "rv_when": outcome["rv_when"],
+                "rv_base": outcome["rv_base"],
+                "rv_delta": outcome["rv_delta"],
+                "runs_cost": outcome["runs_cost"],
+                "runs_lo": outcome["runs_lo"],
+                "runs_hi": outcome["runs_hi"],
+                "significant": outcome["significant"],
+                "rv_p": outcome["rv_p"],
+                "xwoba_when": outcome["xwoba_when"],
+                "xwoba_delta": outcome["xwoba_delta"],
             })
 
     if not records:
@@ -476,7 +516,7 @@ def zone_table(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFr
     field is already the grid. The normalized coordinates are what the
     comparisons and flags are built from.
     """
-    zones = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14]
+    zones = ALL_ZONES
 
     if len(frame) == 0 or "zone" not in frame.columns:
         return pd.DataFrame(columns=zones)
@@ -496,6 +536,131 @@ def zone_table(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFr
 
     order = subset["pitch_type"].value_counts().index
     return table.reindex([p for p in order if p in table.index])
+
+
+COUNT_STATES: list[str] = ["ahead", "even", "behind"]
+
+
+def count_state(frame: pd.DataFrame) -> pd.Series:
+    """Label each pitch ahead / even / behind in the count.
+
+    Three states rather than twelve counts, and the reason is sample size
+    rather than taste. Slicing one season of one pitcher by pitch type, count
+    and batter handedness gives 123 cells at a median of 19 pitches — about 1.5
+    pitches per zone on a thirteen-zone grid, which is a picture of noise.
+    Collapsing to three states gives 35 cells at a median of 76.
+
+    It is also closer to how the situation is actually read: a hitter behaves
+    the same way in 2-0 and 3-1, and differently in 0-2, and the three-state
+    split captures that while a twelve-cell grid spends most of its area on
+    counts that barely occur.
+
+    Reuses the flags `clean.add_count_state()` already computed where they are
+    present, so one definition of "ahead" governs the whole project.
+    """
+    if "is_ahead" in frame.columns and "is_behind" in frame.columns:
+        return pd.Series(
+            np.where(frame["is_ahead"].eq(True), "ahead",
+                     np.where(frame["is_behind"].eq(True), "behind", "even")),
+            index=frame.index,
+        )
+    return pd.Series(
+        np.where(frame["strikes"] > frame["balls"], "ahead",
+                 np.where(frame["balls"] > frame["strikes"], "behind", "even")),
+        index=frame.index,
+    )
+
+
+def zone_slices(
+    frame: pd.DataFrame,
+    min_pitches: int | None = None,
+    min_cell: int = 25,
+) -> pd.DataFrame:
+    """Zone distribution per pitch type, count state and batter handedness.
+
+    Returns one row per (pitch_type, state, stand, zone):
+
+      pitch_type  str
+      state       str, "ahead" | "even" | "behind"
+      stand       str, "L" | "R"
+      zone        int, a Savant zone (1-9 inside, 11-14 outside)
+      n           int, pitches of this type in this zone in this slice
+      slice_n     int, all pitches of this type in this slice
+      share       float, n / slice_n
+      base_share  float, that pitch's share of this zone across the whole season
+      lift        float, share / base_share
+      reliable    bool, whether slice_n clears `min_cell`
+
+    Two encodings, because they answer different questions. `share` says where
+    the pitch goes in this situation, which is mostly where that pitch always
+    goes — low and away for a slider, whatever the count. `lift` says how this
+    situation moves it relative to that pitch's own habit, which is the part
+    specific to the slice.
+
+    `base_share` is the pitch's own distribution over the full season rather
+    than the arsenal's or the league's, so a lift above 1.0 means "he puts it
+    here more than he usually puts THIS pitch", not "more than he throws
+    anything here".
+
+    `reliable` is on the slice, not the cell. A slice of 19 pitches spread over
+    thirteen zones produces cells of one and two, and no per-cell threshold
+    rescues that — the honest signal is that the whole grid is too thin, which
+    is what the renderer greys out.
+    """
+    columns = ["pitch_type", "state", "stand", "zone", "n", "slice_n",
+               "share", "base_share", "lift", "reliable"]
+
+    if len(frame) == 0 or "zone" not in frame.columns:
+        return pd.DataFrame(columns=columns)
+
+    keep = counts.primary_arsenal(frame, min_pitches=min_pitches)
+    if not keep:
+        return pd.DataFrame(columns=columns)
+
+    working = frame[frame["pitch_type"].isin(keep)].copy()
+    working = working[working["zone"].notna()]
+    if len(working) == 0:
+        return pd.DataFrame(columns=columns)
+
+    working["zone"] = working["zone"].astype(int)
+    working["state"] = count_state(working)
+
+    zones = ALL_ZONES
+
+    # Each pitch's own season-long distribution, the denominator for lift.
+    base = {
+        pitch: (
+            group["zone"].value_counts(normalize=True)
+            .reindex(zones, fill_value=0.0)
+        )
+        for pitch, group in working.groupby("pitch_type")
+    }
+
+    records = []
+    for (pitch, state, stand), group in working.groupby(
+        ["pitch_type", "state", "stand"]
+    ):
+        slice_n = len(group)
+        tallies = group["zone"].value_counts().reindex(zones, fill_value=0)
+
+        for zone in zones:
+            n = int(tallies[zone])
+            share = n / slice_n
+            base_share = float(base[pitch][zone])
+            records.append({
+                "pitch_type": pitch,
+                "state": state,
+                "stand": stand,
+                "zone": zone,
+                "n": n,
+                "slice_n": slice_n,
+                "share": share,
+                "base_share": base_share,
+                "lift": share / base_share if base_share else float("nan"),
+                "reliable": slice_n >= min_cell,
+            })
+
+    return pd.DataFrame(records)[columns]
 
 
 def _band(values: pd.Series, edges: list[tuple[float, str]], above: str) -> pd.Series:

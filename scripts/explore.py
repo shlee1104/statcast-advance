@@ -25,7 +25,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src import baselines, clean, store  # noqa: E402
+from src import baselines, clean, flags, store  # noqa: E402
 from src.metrics import (  # noqa: E402
     arsenal, counts, events, location, sequencing, splits,
 )
@@ -97,6 +97,21 @@ def main() -> int:
         else:
             print("No league sample yet — run scripts/build_baselines.py")
         conn.close()
+
+    # --------------------------------------------------------------- takeaways
+    # First, because this is what the report leads with and what a coach reads
+    # if he reads nothing else. Everything below it is the evidence.
+    show("KEY TAKEAWAYS")
+    top = flags.takeaways(frame, league_outcomes, league_mix)
+    if len(top) == 0:
+        print("  nothing clears the sample gates")
+    else:
+        for i, row in top.iterrows():
+            print(f"  {i + 1}. {row['claim']}")
+            print(f"     [{row['flag']}, severity {row['severity']:.2f} "
+                  f"by {row['severity_basis']}]")
+        total = len(flags.evaluate(frame, league_outcomes, league_mix))
+        print(f"\n  {total} findings total, deduplicated to one per flag type.")
 
     # ---------------------------------------------------------------- arsenal
     mix = counts.pitch_mix(frame)

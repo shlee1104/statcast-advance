@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yoshinobu Yamamoto 2025 — Advance Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#1c2024; --muted:#6b7280; --line:#e5e7eb;
+  --head:#16202e; --accent:#2f6fb2; --warn:#b4472e; --good:#3b7a4e;
+  --c1:#2f6fb2; --c2:#c8703a; --c3:#4d8c5f; --c4:#a8444a; --c5:#7a6aa8; --c6:#8a7355;
+  --gap:16px; --radius:10px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+     background:var(--bg);color:var(--ink);line-height:1.5;font-size:14px}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--gap)}
+
+header.top{background:var(--head);color:#fff;padding:22px 26px;border-radius:var(--radius);
+           margin-bottom:var(--gap)}
+header.top h1{font-size:22px;font-weight:650;letter-spacing:-.01em}
+header.top .sub{color:#9fb0c4;font-size:13px;margin-top:4px}
+header.top .sub b{color:#d7e2ee;font-weight:600}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--gap);
+      margin-bottom:var(--gap)}
+.kpi{background:var(--card);border-radius:var(--radius);padding:16px 18px;
+     box-shadow:0 1px 2px rgba(16,24,40,.06)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.kpi .v{font-size:26px;font-weight:700;margin:2px 0;letter-spacing:-.02em}
+.kpi .n{font-size:12px;color:var(--muted)}
+
+section.card{background:var(--card);border-radius:var(--radius);padding:20px 24px;
+             margin-bottom:var(--gap);box-shadow:0 1px 2px rgba(16,24,40,.06)}
+section.card > h2{font-size:15px;font-weight:650;margin-bottom:4px}
+section.card > .lede{font-size:13px;color:var(--muted);margin-bottom:16px;max-width:70ch}
+
+/* Takeaways lead the page. They are the deliverable; everything else is
+   evidence, and the styling should say so. */
+.take{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+.take:last-child{border-bottom:none}
+.take .rank{flex:0 0 26px;height:26px;border-radius:13px;background:var(--head);color:#fff;
+            font-size:13px;font-weight:650;display:flex;align-items:center;justify-content:center}
+.take .body{flex:1}
+.take .claim{font-size:15px;line-height:1.45}
+.take .meta{margin-top:5px;font-size:11px;color:var(--muted);display:flex;gap:8px;
+            flex-wrap:wrap;align-items:center}
+.chip{display:inline-block;padding:2px 7px;border-radius:4px;background:#eef2f6;
+      color:#40556b;font-size:11px;font-weight:600;letter-spacing:.02em}
+.chip.z{background:#e6f0e9;color:var(--good)}
+.chip.t{background:#f3eee6;color:#7a5d33}
+.chip.cost{background:#f7e4de;color:var(--warn)}
+.chip.works{background:#e3ecf6;color:#2f5f8f}
+
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:var(--gap)}
+.chartbox{background:var(--card);border-radius:var(--radius);padding:20px 24px;
+          box-shadow:0 1px 2px rgba(16,24,40,.06);margin-bottom:var(--gap)}
+.chartbox h3{font-size:14px;font-weight:650;margin-bottom:2px}
+.chartbox .lede{font-size:12px;color:var(--muted);margin-bottom:14px}
+.chartbox .holder{position:relative;height:280px}
+canvas{max-height:280px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);color:var(--muted);
+   font-size:11px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;
+   cursor:pointer;user-select:none}
+th:hover{color:var(--ink);background:#fafbfc}
+td{padding:8px 10px;border-bottom:1px solid #f1f2f4;white-space:nowrap}
+tbody tr:hover{background:#fafbfc}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+.pos{color:var(--warn);font-weight:600}
+.neg{color:var(--good)}
+.dim{color:var(--muted)}
+
+/* Zone map: Savant's 3x3 strike zone floating inside the four outside
+   regions, which is how a hitter pictures it. */
+.zonewrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.zone{position:relative;width:250px;height:280px;flex:0 0 auto}
+.zone .outer{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
+             grid-template-rows:1fr 1fr;border-radius:6px;overflow:hidden}
+.zone .inner{position:absolute;left:22%;top:20%;width:56%;height:60%;
+             display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
+             border:2px solid rgba(20,28,40,.65);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
+.cell{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;
+       border:1px solid rgba(255,255,255,.45);color:#16202e}
+.zone .legend{position:absolute;bottom:-4px;width:100%;text-align:center;font-size:11px;
+              color:var(--muted)}
+/* Small multiples: all six pitches at once, so comparison is by eye rather
+   than by memory. A dropdown that swaps one grid forces the reader to hold
+   the previous one in their head. */
+.zgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+       gap:18px;margin-top:4px}
+.zpanel{border:1px solid var(--line);border-radius:8px;padding:10px 10px 6px}
+.zpanel.thin{background:repeating-linear-gradient(45deg,#fbfbfc,#fbfbfc 6px,
+             #f4f5f7 6px,#f4f5f7 12px);border-style:dashed}
+.zpanel h4{font-size:12px;font-weight:650;margin-bottom:1px}
+.zpanel .sub{font-size:11px;color:var(--muted);margin-bottom:8px}
+.zpanel .warn{color:#8a5a22}
+.zmap{position:relative;width:100%;aspect-ratio:1/1.05}
+.zmap .outer{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
+             grid-template-rows:1fr 1fr;border-radius:4px;overflow:hidden}
+.zmap .inner{position:absolute;left:22%;top:20%;width:56%;height:60%;
+             display:grid;grid-template-columns:repeat(3,1fr);
+             grid-template-rows:repeat(3,1fr);
+             border:2px solid rgba(20,28,40,.6)}
+.zcell{display:flex;flex-direction:column;align-items:center;justify-content:center;
+       font-size:9px;line-height:1.15;border:1px solid rgba(255,255,255,.5);
+       color:#16202e;font-variant-numeric:tabular-nums}
+.zcell b{font-size:10px;font-weight:650}
+.zcell i{font-style:normal;opacity:.6;font-size:8px}
+.legend-inline{display:inline-flex;align-items:center;gap:6px;font-size:11px;
+               color:var(--muted);margin-left:4px}
+.legend-inline .ramp{display:inline-block;width:110px;height:11px;border-radius:3px;
+                     border:1px solid var(--line)}
+.zonekey{font-size:12px;color:var(--muted);max-width:34ch}
+.zonekey .sw{display:flex;align-items:center;gap:6px;margin-top:8px}
+.zonekey .sw i{width:14px;height:14px;border-radius:3px;display:inline-block}
+select{padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;
+       font-size:13px;color:var(--ink)}
+.controls{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.controls label{font-size:12px;color:var(--muted)}
+
+.note{font-size:12px;color:var(--muted);margin-top:12px;max-width:80ch}
+.gaps{background:#fdf4ec;border:1px solid #e9d3ba;color:#7a4f22;border-radius:var(--radius);
+      padding:12px 16px;margin-bottom:var(--gap);font-size:13px}
+.gaps code{background:#f5e6d5;padding:1px 5px;border-radius:3px;font-size:12px}
+.nodata{color:var(--muted);font-size:13px;padding:10px 0}
+footer{color:var(--muted);font-size:12px;padding:8px 4px 24px}
+button.more{background:none;border:1px solid var(--line);border-radius:6px;padding:6px 12px;
+            font-size:12px;color:var(--accent);cursor:pointer}
+button.more:hover{background:#f3f6fa}
+
+@media (max-width:720px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .charts{grid-template-columns:1fr}
+}
+@media print{
+  body{background:#fff}
+  .chartbox,section.card,.kpi{box-shadow:none;border:1px solid var(--line)}
+  .controls,button.more{display:none}
+  section.card,.chartbox{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Yoshinobu Yamamoto — 2025 advance report</h1>
+  <div class="sub">
+    Throws <b>R</b> ·
+    <b>3,315</b> pitches ·
+    <b>36</b> games ·
+    <b>831</b> batters faced ·
+    Compared against RHP league baselines
+  </div>
+</header>
+
+
+<div class="kpis">
+  <div class="kpi">
+    <div class="l">Pitches</div>
+    <div class="v">3,315</div>
+    <div class="n">36 games</div>
+  </div>
+  <div class="kpi">
+    <div class="l">Arsenal</div>
+    <div class="v">6</div>
+    <div class="n">FF, FS, CU, FC, SI, SL</div>
+  </div>
+  <div class="kpi">
+    <div class="l">Whiff rate</div>
+    <div class="v">26.9%</div>
+    <div class="n">per swing</div>
+  </div>
+  <div class="kpi">
+    <div class="l">First-pitch strikes</div>
+    <div class="v">62.7%</div>
+    <div class="n">n=829</div>
+  </div>
+  <div class="kpi">
+    <div class="l">Most predictable count</div>
+    <div class="v">3-0</div>
+    <div class="n">FF 82%</div>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Key takeaways</h2>
+  <p class="lede">
+    Ranked by severity, one per category, each carrying the sample it rests on.
+    A claim without its sample size is not in this report.
+  </p>
+  <div class="take">
+    <div class="rank">1</div>
+    <div class="body">
+      <div class="claim">When the pitch is headed up in the zone it is the FF 61% of the time, against his overall 34% — 1.80x (n=393). Run consequence is unresolved at this sample: the point estimate is +3.4 runs [95% CI -4 to +11], which does not exclude zero. Treat the frequency pattern as the finding.</div>
+      <div class="meta">
+        <span class="chip">location_tell</span>
+        <span>n = 393</span>
+        <span>severity 8.35</span>
+          <span class="chip cost">costs him 3.4 runs</span>
+      </div>
+    </div>
+  </div>
+  <div class="take">
+    <div class="rank">2</div>
+    <div class="body">
+      <div class="claim">In 1-2 he goes to the FS 46% of the time against his own 26% overall — 1.8x (n=152 of 330 pitches in that count). He is elevated with it in 1 other count too (0-2). League rate in 1-2 is 8%. Run consequence is unresolved at this sample: the point estimate is -2.4 runs [95% CI -8 to +3], which does not exclude zero. Treat the frequency pattern as the finding.</div>
+      <div class="meta">
+        <span class="chip">predictable_count</span>
+        <span>n = 152</span>
+        <span>severity 6.53</span>
+          <span class="chip works">saves him 2.4 runs</span>
+      </div>
+    </div>
+  </div>
+  <div class="take">
+    <div class="rank">3</div>
+    <div class="body">
+      <div class="claim">After a FF up, the CU follows 27% of the time against a baseline of 17% — 1.59x (n=89). Run consequence is unresolved at this sample: the point estimate is -1.2 runs [95% CI -4 to +2], which does not exclude zero. Treat the frequency pattern as the finding.</div>
+      <div class="meta">
+        <span class="chip">sequencing_tell</span>
+        <span>n = 89</span>
+        <span>severity 4.01</span>
+          <span class="chip works">saves him 1.2 runs</span>
+      </div>
+    </div>
+  </div>
+  <div class="take">
+    <div class="rank">4</div>
+    <div class="body">
+      <div class="claim">Fastball velocity falls 1.0 mph by pitch 76-90 of an outing, measured across 31 starts (n=238 pitches).</div>
+      <div class="meta">
+        <span class="chip">fatigue</span>
+        <span>n = 238</span>
+        <span>severity 3.65</span>
+      </div>
+    </div>
+  </div>
+  <p class="note">
+    8 findings cleared their gates in total; the list above
+    is deduplicated to the strongest per category.
+    Counts and sequences are compared against <b>his own</b> overall rates, not the
+    league's — the league answers "who is this pitcher", his own rate answers "what is
+    he about to throw", and only the second is a hitter's question.
+    Where the run column is present it is the estimated season cost of the pattern,
+    from Savant's run expectancy.
+  </p>
+  <p class="note">
+    <b>How many comparisons produced this.</b>
+    120 were run
+    (44 count, 44 location, 32 sequencing),
+    of which about 6.0 would clear an
+    uncorrected p &lt; .05 by chance alone. After a Benjamini-Hochberg correction
+    across all of them,
+    <b>0</b> run-consequence estimates survive.
+    So the frequency patterns above are the findings; what they cost him is not
+    resolved by one season of one pitcher, and the report does not pretend
+    otherwise.
+  </p>
+</section>
+
+<div class="charts">
+  <div class="chartbox">
+    <h3>Pitch mix by count</h3>
+    <p class="lede">Each column sums to 100%. The question is "given this count, what is coming".</p>
+    <div class="holder"><canvas id="countChart"></canvas></div>
+  </div>
+  <div class="chartbox">
+    <h3>Arsenal usage vs league</h3>
+    <p class="lede">
+A pitch thrown well above league rate is the defining
+      fact about a pitcher.    </p>
+    <div class="holder"><canvas id="arsenalChart"></canvas></div>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="chartbox">
+    <h3>Velocity through the outing</h3>
+    <p class="lede">
+      Fastballs only — averaging offspeed in tracks pitch selection, not fatigue.
+      Dashed and greyed buckets come from fewer than
+      10 outings: only the starts that got that
+      deep are in them, so a rise there is selection, not recovery.
+    </p>
+    <div class="holder"><canvas id="fatigueChart"></canvas></div>
+  </div>
+  <div class="chartbox">
+    <h3>Usage by batter handedness</h3>
+    <p class="lede">A pitch one side rarely sees is a pitch that side has not learned.</p>
+    <div class="holder"><canvas id="platoonChart"></canvas></div>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Location</h2>
+  <p class="lede">
+    Coordinates are normalized: horizontally to the pitcher's arm side, vertically to
+    each batter's own strike zone. The grid below is Savant's, read from the catcher's
+    view — the 3&times;3 is the strike zone, the four surrounding regions are outside it.
+  </p>
+  <div class="controls">
+    <label for="zonePick">Pitch type</label>
+    <select id="zonePick"></select>
+  </div>
+  <div class="zonewrap">
+    <div class="zone">
+      <div class="outer" id="zoneOuter"></div>
+      <div class="inner" id="zoneInner"></div>
+      <div class="legend">catcher's view</div>
+    </div>
+    <div class="zonekey">
+      Share of this pitch type going to each region. Darker is more concentrated.
+      <div class="sw"><i style="background:#dce6f0"></i> low</div>
+      <div class="sw"><i style="background:#2f6fb2"></i> high</div>
+      <div id="bandNote" class="note"></div>
+    </div>
+  </div>
+
+  <h3 style="font-size:13px;margin:26px 0 6px">
+    Every pitch, by count state and batter handedness
+  </h3>
+  <p class="lede">
+    All six grids share one colour scale, so a cell means the same thing in
+    every panel and across every slice — switching the controls does not
+    rescale anything. Each cell carries its own percentage and pitch count,
+    because colour alone should not be load-bearing.
+  </p>
+  <div class="controls">
+    <label for="sliceState">Count</label>
+    <select id="sliceState">
+      <option value="all">All counts</option>
+      <option value="ahead">Ahead (strikes &gt; balls)</option>
+      <option value="even">Even</option>
+      <option value="behind">Behind (balls &gt; strikes)</option>
+    </select>
+    <label for="sliceHand">Batter</label>
+    <select id="sliceHand">
+      <option value="all">Both</option>
+      <option value="L">vs LHH</option>
+      <option value="R">vs RHH</option>
+    </select>
+    <label for="sliceMode">Colour</label>
+    <select id="sliceMode">
+      <option value="lift">Lift vs his own pattern</option>
+      <option value="share">Raw share of the pitch</option>
+    </select>
+    <span id="sliceLegend" class="legend-inline"></span>
+  </div>
+  <div id="zgrid" class="zgrid"></div>
+  <p class="note" id="sliceNote"></p>
+
+  <h3 style="font-size:13px;margin:22px 0 8px">What a location band gives away</h3>
+  <div class="scroll">
+    <table id="tellsTable">
+      <thead><tr>
+        <th>Band</th><th>Pitch</th><th class="num">n</th>
+        <th class="num">P(pitch | band)</th><th class="num">His baseline</th>
+        <th class="num">Lift</th><th class="num">Score</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Arsenal</h2>
+  <p class="lede">
+    Movement in inches from the catcher's view. Whiff rate is per swing, not per pitch.
+  </p>
+  <div class="scroll"><table id="arsenalTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>Count tendencies</h2>
+  <p class="lede">
+    Predictability is inverted normalized entropy: 1.0 means one pitch only, 0.0 an even
+    spread across the whole arsenal.
+    A share is only a finding next to the league rate for the same count.
+  </p>
+  <div class="scroll"><table id="predTable"><thead></thead><tbody></tbody></table></div>
+
+  <h3 style="font-size:13px;margin:22px 0 8px">
+    Counts that change his mind — every pitch, not only the plurality
+  </h3>
+  <p class="lede">
+    Lift is against <b>his own</b> overall rate for that pitch. The most useful
+    pattern is frequently not the most-thrown pitch in the count, so this table
+    covers every pitch-count pair rather than one row per count.
+  </p>
+  <div class="scroll"><table id="liftTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>Sequencing</h2>
+  <p class="lede">
+    Frequency and effectiveness are measured separately. A sequence that is predictable
+    <em>and</em> not working is the most exploitable pattern a report can carry, and any
+    metric that merges the two hides it.
+  </p>
+  <div class="scroll"><table id="setupTable"><thead></thead><tbody></tbody></table></div>
+  <p class="note">
+    freq_lift is how much more likely the follow-up becomes; effect_lift is whether the
+    whiff rate improves. High freq_lift with effect_lift at or below 1.0 is the finding.
+  </p>
+
+  <h3 style="font-size:13px;margin:22px 0 8px">Two-strike approach</h3>
+  <div class="scroll"><table id="putawayTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>Splits</h2>
+  <div class="scroll"><table id="platoonTable"><thead></thead><tbody></tbody></table></div>
+
+  <h3 style="font-size:13px;margin:22px 0 8px">Times through the order</h3>
+  <div class="scroll"><table id="ttoTable"><thead></thead><tbody></tbody></table></div>
+  <p class="note"><b>neither.</b>
+    No meaningful third-trip change: velocity -0.9 mph, xwOBA +0.004.</p>
+</section>
+
+<section class="card">
+  <h2>Release consistency</h2>
+  <p class="lede">
+    The cheap half of tunneling. A pitch released away from the fastball slot can be
+    identified before movement matters — and a tight spread in a distinct slot is a
+    tell, where a wide spread is a command problem.
+  </p>
+  <div class="scroll"><table id="releaseTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section class="card">
+  <h2>All findings</h2>
+  <p class="lede">Everything that cleared its gate, before deduplication.</p>
+  <div class="scroll"><table id="findingsTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<footer>
+  Every claim states its sample size. Thresholds and minimum samples are defined in config.yaml, not in code.<br>
+  Generated 2026-09-18 15:02 · statcast-advance · data from Baseball Savant
+</footer>
+</div>
+
+<script id="payload" type="application/json">{"meta": {"pitcher": "Yoshinobu Yamamoto", "season": 2025, "hand": "R", "pitches": 3315, "games": 36, "batters_faced": 831, "generated": "2026-09-18 15:02", "has_league": true, "league_note": "Compared against RHP league baselines"}, "data_gaps": [], "kpis": [{"label": "Pitches", "value": "3,315", "note": "36 games"}, {"label": "Arsenal", "value": "6", "note": "FF, FS, CU, FC, SI, SL"}, {"label": "Whiff rate", "value": "26.9%", "note": "per swing"}, {"label": "First-pitch strikes", "value": "62.7%", "note": "n=829"}, {"label": "Most predictable count", "value": "3-0", "note": "FF 82%"}], "takeaways": [{"flag": "location_tell", "severity": 8.351479769745165, "severity_basis": "threshold_multiple", "n": 393, "runs_cost": 3.390420212765957, "resolved": false, "claim": "When the pitch is headed up in the zone it is the FF 61% of the time, against his overall 34% \u2014 1.80x (n=393). Run consequence is unresolved at this sample: the point estimate is +3.4 runs [95% CI -4 to +11], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.6121495327102804, "reference": 0.3403741701870851, "delta": 0.2717753625231953, "runs_lo": -3.8647518784392987, "runs_hi": 10.645592303971213, "rv_p": 0.3597040558302738}, {"flag": "predictable_count", "severity": 6.531824705535356, "severity_basis": "threshold_multiple", "n": 152, "runs_cost": -2.3933969732246796, "resolved": false, "claim": "In 1-2 he goes to the FS 46% of the time against his own 26% overall \u2014 1.8x (n=152 of 330 pitches in that count). He is elevated with it in 1 other count too (0-2). League rate in 1-2 is 8%. Run consequence is unresolved at this sample: the point estimate is -2.4 runs [95% CI -8 to +3], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.46060606060606063, "reference": 0.2592033796016898, "delta": 0.2014026810043708, "runs_lo": -8.153804580938228, "runs_hi": 3.367010634488869, "rv_p": 0.41543750096026527}, {"flag": "sequencing_tell", "severity": 4.008585236599869, "severity_basis": "threshold_multiple", "n": 89, "runs_cost": -1.1586359338061467, "resolved": false, "claim": "After a FF up, the CU follows 27% of the time against a baseline of 17% \u2014 1.59x (n=89). Run consequence is unresolved at this sample: the point estimate is -1.2 runs [95% CI -4 to +2], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.27134146341463417, "reference": 0.17028985507246377, "delta": 0.10105160834217039, "runs_lo": -4.340607041629386, "runs_hi": 2.0233351740170926, "rv_p": 0.4754217155343175}, {"flag": "fatigue", "severity": 3.650104386971193, "severity_basis": "threshold_multiple", "n": 238, "runs_cost": null, "resolved": false, "claim": "Fastball velocity falls 1.0 mph by pitch 76-90 of an outing, measured across 31 starts (n=238 pitches).", "observed": 93.94075630252101, "reference": 94.97731629392972, "delta": -1.0365599914087085, "runs_lo": null, "runs_hi": null, "rv_p": null}], "findings": [{"flag": "location_tell", "severity": 8.351479769745165, "severity_basis": "threshold_multiple", "n": 393, "runs_cost": 3.390420212765957, "resolved": false, "claim": "When the pitch is headed up in the zone it is the FF 61% of the time, against his overall 34% \u2014 1.80x (n=393). Run consequence is unresolved at this sample: the point estimate is +3.4 runs [95% CI -4 to +11], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.6121495327102804, "reference": 0.3403741701870851, "delta": 0.2717753625231953, "runs_lo": -3.8647518784392987, "runs_hi": 10.645592303971213, "rv_p": 0.3597040558302738}, {"flag": "predictable_count", "severity": 6.531824705535356, "severity_basis": "threshold_multiple", "n": 152, "runs_cost": -2.3933969732246796, "resolved": false, "claim": "In 1-2 he goes to the FS 46% of the time against his own 26% overall \u2014 1.8x (n=152 of 330 pitches in that count). He is elevated with it in 1 other count too (0-2). League rate in 1-2 is 8%. Run consequence is unresolved at this sample: the point estimate is -2.4 runs [95% CI -8 to +3], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.46060606060606063, "reference": 0.2592033796016898, "delta": 0.2014026810043708, "runs_lo": -8.153804580938228, "runs_hi": 3.367010634488869, "rv_p": 0.41543750096026527}, {"flag": "predictable_count", "severity": 4.935674312306726, "severity_basis": "threshold_multiple", "n": 48, "runs_cost": 0.774914438502674, "resolved": false, "claim": "In 2-1 he goes to the FC 27% of the time against his own 11% overall \u2014 2.4x (n=48 of 178 pitches in that count). He is elevated with it in 2 other counts too (3-1, 2-0). League rate in 2-1 is 9%. Run consequence is unresolved at this sample: the point estimate is +0.8 runs [95% CI -5 to +6], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.2696629213483146, "reference": 0.11285455642727821, "delta": 0.1568083649210364, "runs_lo": -4.854253753180359, "runs_hi": 6.404082630185707, "rv_p": 0.7873028168996116}, {"flag": "predictable_count", "severity": 4.289962856133972, "severity_basis": "threshold_multiple", "n": 61, "runs_cost": 0.9742755905511813, "resolved": false, "claim": "In 0-1 he goes to the SI 14% of the time against his own 8% overall \u2014 1.8x (n=61 of 432 pitches in that count). League rate in 0-1 is 15%. Run consequence is unresolved at this sample: the point estimate is +1.0 runs [95% CI -3 to +5], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.1412037037037037, "reference": 0.07664453832226917, "delta": 0.06455916538143452, "runs_lo": -3.1951085417920075, "runs_hi": 5.14365972289437, "rv_p": 0.6469520578939532}, {"flag": "predictable_count", "severity": 4.065626735837259, "severity_basis": "threshold_multiple", "n": 32, "runs_cost": -1.0742482269503546, "resolved": false, "claim": "In 3-0 he goes to the FF 82% of the time against his own 34% overall \u2014 2.4x (n=32 of 39 pitches in that count). League rate in 3-0 is 66%. Run consequence is unresolved at this sample: the point estimate is -1.1 runs [95% CI -2 to -0], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.8205128205128205, "reference": 0.3403741701870851, "delta": 0.4801386503257354, "runs_lo": -1.9177225070653994, "runs_hi": -0.23077394683530983, "rv_p": 0.01255124910567908}, {"flag": "sequencing_tell", "severity": 4.008585236599869, "severity_basis": "threshold_multiple", "n": 89, "runs_cost": -1.1586359338061467, "resolved": false, "claim": "After a FF up, the CU follows 27% of the time against a baseline of 17% \u2014 1.59x (n=89). Run consequence is unresolved at this sample: the point estimate is -1.2 runs [95% CI -4 to +2], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.27134146341463417, "reference": 0.17028985507246377, "delta": 0.10105160834217039, "runs_lo": -4.340607041629386, "runs_hi": 2.0233351740170926, "rv_p": 0.4754217155343175}, {"flag": "fatigue", "severity": 3.650104386971193, "severity_basis": "threshold_multiple", "n": 238, "runs_cost": null, "resolved": false, "claim": "Fastball velocity falls 1.0 mph by pitch 76-90 of an outing, measured across 31 starts (n=238 pitches).", "observed": 93.94075630252101, "reference": 94.97731629392972, "delta": -1.0365599914087085, "runs_lo": null, "runs_hi": null, "rv_p": null}, {"flag": "sequencing_tell", "severity": 3.0317471976518964, "severity_basis": "threshold_multiple", "n": 27, "runs_cost": -0.756817733990148, "resolved": false, "claim": "After a FC down, the SI follows 18% of the time against a baseline of 8% \u2014 2.19x (n=27). Run consequence is unresolved at this sample: the point estimate is -0.8 runs [95% CI -3 to +2], which does not exclude zero. Treat the frequency pattern as the finding.", "observed": 0.17880794701986755, "reference": 0.08172302737520129, "delta": 0.09708491964466626, "runs_lo": -3.060648713221147, "runs_hi": 1.547013245240851, "rv_p": 0.5196611145708441}], "finding_count": 8, "resolved_count": 0, "comparisons": {"families": {"count": 44, "location": 44, "sequencing": 32}, "total": 120, "expected_by_chance": 6.0}, "arsenal": [{"pitch_type": "FF", "n": 1128, "usage": 0.3403741701870851, "velo": 95.48395390070921, "velo_max": 97.2, "spin": 2206.947695035461, "h_break": -6.962340425531915, "v_break": 16.015851063829786, "extension": 6.478989361702128, "zone_rate": 0.6072695035460993, "swing_rate": 0.4015957446808511, "whiff_rate": 0.18101545253863136, "chase_rate": 0.15575620767494355, "xwoba": 0.29580113404458236, "run_value": -0.01671099290780142, "league_usage": 0.315578518449472, "league_velo": 94.891662095447, "league_whiff": 0.1803392779469334, "league_xwoba": 0.3544847706722932, "velo_delta": 0.5922918052622066, "whiff_delta": 0.0006761745916979423, "xwoba_delta": -0.05868363662771087, "usage_ratio": 1.07857205192369}, {"pitch_type": "FS", "n": 859, "usage": 0.2592033796016898, "velo": 91.0766006984866, "velo_max": 93.0, "spin": 1424.4330616996508, "h_break": -11.242700814901047, "v_break": 1.7984633294528523, "extension": 6.525494761350407, "zone_rate": 0.32945285215366704, "swing_rate": 0.5215366705471478, "whiff_rate": 0.390625, "chase_rate": 0.3888888888888889, "xwoba": 0.1914988035906385, "run_value": -0.015464493597206055, "league_usage": 0.0455943646217558, "league_velo": 86.2507593457944, "league_whiff": 0.3242034656232532, "league_xwoba": 0.2638116319292721, "velo_delta": 4.825841352692194, "whiff_delta": 0.0664215343767468, "xwoba_delta": -0.07231282833863359, "usage_ratio": 5.684987207344664}, {"pitch_type": "CU", "n": 608, "usage": 0.18346409173204586, "velo": 77.03026315789474, "velo_max": 79.6, "spin": 2772.1200657894738, "h_break": 12.151973684210526, "v_break": -16.106644736842107, "extension": 6.537335526315789, "zone_rate": 0.5131578947368421, "swing_rate": 0.4342105263157895, "whiff_rate": 0.3409090909090909, "chase_rate": 0.28716216216216217, "xwoba": 0.27015660420323045, "run_value": -0.015646381578947367, "league_usage": 0.0835852297694981, "league_velo": 80.76996973076321, "league_whiff": 0.2945884146341463, "league_xwoba": 0.2728760861721994, "velo_delta": -3.739706572868471, "whiff_delta": 0.04632067627494457, "xwoba_delta": -0.0027194819689689287, "usage_ratio": 2.1949343471087226}, {"pitch_type": "FC", "n": 374, "usage": 0.11285455642727821, "velo": 91.18582887700535, "velo_max": 93.235, "spin": 2444.8208556149734, "h_break": 3.656470588235295, "v_break": 7.607807486631016, "extension": 6.449732620320855, "zone_rate": 0.5935828877005348, "swing_rate": 0.5962566844919787, "whiff_rate": 0.17937219730941703, "chase_rate": 0.40131578947368424, "xwoba": 0.3025163865490351, "run_value": -0.024331550802139033, "league_usage": 0.0771668641889822, "league_velo": 90.06043140638496, "league_whiff": 0.1998595012293642, "league_xwoba": 0.3560370299938408, "velo_delta": 1.1253974706203849, "whiff_delta": -0.02048730391994716, "xwoba_delta": -0.05352064344480567, "usage_ratio": 1.462474309580555}, {"pitch_type": "SI", "n": 254, "usage": 0.07664453832226917, "velo": 94.87007874015748, "velo_max": 96.6, "spin": 2249.7755905511813, "h_break": -13.62236220472441, "v_break": 12.151653543307088, "extension": 6.490944881889765, "zone_rate": 0.42913385826771655, "swing_rate": 0.47244094488188976, "whiff_rate": 0.15833333333333333, "chase_rate": 0.31724137931034485, "xwoba": 0.36282622721169405, "run_value": 0.00011023622047244628, "league_usage": 0.1547465278240142, "league_velo": 93.9970742621116, "league_whiff": 0.1126311844077961, "league_xwoba": 0.3524783658357487, "velo_delta": 0.8730044780458854, "whiff_delta": 0.04570214892553723, "xwoba_delta": 0.010347861375945344, "usage_ratio": 0.4952908436784657}, {"pitch_type": "SL", "n": 91, "usage": 0.027459263729631866, "velo": 86.45714285714286, "velo_max": 88.85, "spin": 2782.5714285714284, "h_break": 5.957802197802198, "v_break": 0.6395604395604397, "extension": 6.443956043956042, "zone_rate": 0.5164835164835165, "swing_rate": 0.5824175824175825, "whiff_rate": 0.2641509433962264, "chase_rate": 0.4090909090909091, "xwoba": 0.1715193362193362, "run_value": -0.025813186813186804, "league_usage": 0.1480352077979147, "league_velo": 86.49167940991234, "league_whiff": 0.3191098032002943, "league_xwoba": 0.2937040384797255, "velo_delta": -0.03453655276948098, "whiff_delta": -0.054958859804067894, "xwoba_delta": -0.12218470226038927, "usage_ratio": 0.1854914390846599}], "display_names": {"FS": "Splitter", "CU": "Curveball", "FC": "Cutter", "FF": "Four-Seam", "SI": "Sinker", "SL": "Slider"}, "count_mix": {"counts": ["0-0", "0-1", "0-2", "1-0", "1-1", "1-2", "2-0", "2-1", "2-2", "3-0", "3-1", "3-2"], "pitches": ["CU", "FC", "FF", "FS", "SI", "SL"], "series": {"CU": [0.22316043425814233, 0.11805555555555555, 0.1688888888888889, 0.20846905537459284, 0.17391304347826086, 0.16666666666666666, 0.25, 0.20224719101123595, 0.20754716981132076, 0.0, 0.07228915662650602, 0.17708333333333334], "FC": [0.11942098914354644, 0.11342592592592593, 0.022222222222222223, 0.14006514657980457, 0.12111801242236025, 0.01818181818181818, 0.17857142857142858, 0.2696629213483146, 0.05660377358490566, 0.07692307692307693, 0.27710843373493976, 0.125], "FF": [0.4161640530759952, 0.2708333333333333, 0.24444444444444444, 0.38762214983713356, 0.27639751552795033, 0.2909090909090909, 0.45535714285714285, 0.2808988764044944, 0.24528301886792453, 0.8205128205128205, 0.42168674698795183, 0.3854166666666667], "FS": [0.15922798552472858, 0.3194444444444444, 0.5022222222222222, 0.1563517915309446, 0.3136645962732919, 0.46060606060606063, 0.05357142857142857, 0.12921348314606743, 0.3886792452830189, 0.05128205128205128, 0.060240963855421686, 0.1875], "SI": [0.061519903498190594, 0.1412037037037037, 0.008888888888888889, 0.09771986970684039, 0.10248447204968944, 0.01818181818181818, 0.0625, 0.09550561797752809, 0.04150943396226415, 0.05128205128205128, 0.1686746987951807, 0.10416666666666667], "SL": [0.020506634499396863, 0.037037037037037035, 0.05333333333333334, 0.009771986970684038, 0.012422360248447204, 0.045454545454545456, 0.0, 0.02247191011235955, 0.06037735849056604, 0.0, 0.0, 0.020833333333333332]}}, "predictability": [{"count": "0-2", "n": 225, "entropy": 1.8373125557027286, "predictability": 0.2892304800591293, "top_pitch": "FS", "top_share": 0.5022222222222222, "own_rate": 0.2592033796016898, "own_lift": 1.9375604708317165, "top_pitch_n": 113, "league_top_share": 0.0743716522455706, "share_delta": 0.4278505699766516, "share_z": 24.46027501748971}, {"count": "1-2", "n": 330, "entropy": 1.8771128951570464, "predictability": 0.27383360701233883, "top_pitch": "FS", "top_share": 0.46060606060606063, "own_rate": 0.2592033796016898, "own_lift": 1.7770063851553957, "top_pitch_n": 152, "league_top_share": 0.0750923266311038, "share_delta": 0.3855137339749568, "share_z": 26.573566920317298}, {"count": "2-2", "n": 265, "entropy": 2.1676019338667296, "predictability": 0.1614571069166345, "top_pitch": "FS", "top_share": 0.3886792452830189, "own_rate": 0.2592033796016898, "own_lift": 1.4995145737694116, "top_pitch_n": 103, "league_top_share": 0.0715521308381821, "share_delta": 0.31712711444483677, "share_z": 20.02932276562348}, {"count": "0-1", "n": 432, "entropy": 2.3312798641538084, "predictability": 0.0981378401027384, "top_pitch": "FS", "top_share": 0.3194444444444444, "own_rate": 0.2592033796016898, "own_lift": 1.232408485318846, "top_pitch_n": 138, "league_top_share": 0.0573465592064476, "share_delta": 0.2620978852379968, "share_z": 23.430182911536253}, {"count": "1-1", "n": 322, "entropy": 2.2606460606499486, "predictability": 0.1254627252738596, "top_pitch": "FS", "top_share": 0.3136645962732919, "own_rate": 0.2592033796016898, "own_lift": 1.2101099791032472, "top_pitch_n": 101, "league_top_share": 0.0587697531670367, "share_delta": 0.2548948431062552, "share_z": 19.447514956901927}, {"count": "3-0", "n": 39, "entropy": 0.9583538213708775, "predictability": 0.6292581338787255, "top_pitch": "FF", "top_share": 0.8205128205128205, "own_rate": 0.3403741701870851, "own_lift": 2.410620112747772, "top_pitch_n": 32, "league_top_share": 0.6581081081081082, "share_delta": 0.16240471240471233, "share_z": 2.138148716648278}, {"count": "0-0", "n": 829, "entropy": 2.1599344550601347, "predictability": 0.1644232926173771, "top_pitch": "FF", "top_share": 0.4161640530759952, "own_rate": 0.3403741701870851, "own_lift": 1.2226663757924185, "top_pitch_n": 345, "league_top_share": 0.3273809523809524, "share_delta": 0.0887831006950428, "share_z": 5.447488084036185}, {"count": "2-0", "n": 112, "entropy": 1.9368241040697773, "predictability": 0.2507341582210807, "top_pitch": "FF", "top_share": 0.45535714285714285, "own_rate": 0.3403741701870851, "own_lift": 1.3378134498480243, "top_pitch_n": 51, "league_top_share": 0.3665855636658556, "share_delta": 0.08877157919128725, "share_z": 1.9496259615974698}, {"count": "1-0", "n": 307, "entropy": 2.2104580255302118, "predictability": 0.14487810754951558, "top_pitch": "FF", "top_share": 0.38762214983713356, "own_rate": 0.3403741701870851, "own_lift": 1.1388118834754084, "top_pitch_n": 119, "league_top_share": 0.3047181289712045, "share_delta": 0.08290402086592907, "share_z": 3.155841499555074}, {"count": "3-2", "n": 192, "entropy": 2.2564820443355726, "predictability": 0.12707358667444635, "top_pitch": "FF", "top_share": 0.3854166666666667, "own_rate": 0.3403741701870851, "own_lift": 1.1323322990543736, "top_pitch_n": 74, "league_top_share": 0.351531291611185, "share_delta": 0.03388537505548167, "share_z": 0.983414039800749}, {"count": "2-1", "n": 178, "entropy": 2.318895774416723, "predictability": 0.10292865998257439, "top_pitch": "FF", "top_share": 0.2808988764044944, "own_rate": 0.3403741701870851, "own_lift": 0.8252649613515022, "top_pitch_n": 50, "league_top_share": 0.3015753938484621, "share_delta": -0.0206765174439677, "share_z": -0.6010763986693961}, {"count": "3-1", "n": 83, "entropy": 1.9896272027932462, "predictability": 0.23030713124922408, "top_pitch": "FF", "top_share": 0.42168674698795183, "own_rate": 0.3403741701870851, "own_lift": 1.2388917371614117, "top_pitch_n": 35, "league_top_share": 0.4314199395770393, "share_delta": -0.009733192589087447, "share_z": -0.17903932979360387}], "count_lifts": [{"count": "1-2", "pitch_type": "FS", "n": 152, "count_n": 330, "share": 0.46060606060606063, "own_rate": 0.2592033796016898, "lift": 1.7770063851553957, "score": 118.10497054362014, "rv_when": -0.031210526315789473, "rv_base": -0.015464493597206055, "rv_delta": -0.01574603271858342, "runs_cost": -2.3933969732246796, "runs_lo": -8.153804580938228, "runs_hi": 3.367010634488869, "significant": false, "rv_p": 0.41543750096026527, "xwoba_when": 0.11850949525237381, "xwoba_delta": -0.07298930833826472}, {"count": "0-2", "pitch_type": "FS", "n": 113, "count_n": 225, "share": 0.5022222222222222, "own_rate": 0.2592033796016898, "lift": 1.9375604708317165, "score": 105.94433320398396, "rv_when": -0.0034424778761061956, "rv_base": -0.015464493597206055, "rv_delta": 0.012022015721099859, "runs_cost": 1.358487776484284, "runs_lo": -3.488946893744349, "runs_hi": 6.2059224467129175, "significant": false, "rv_p": 0.582808055232316, "xwoba_when": 0.14143251211689237, "xwoba_delta": -0.050066291473746166}, {"count": "0-0", "pitch_type": "FF", "n": 345, "count_n": 829, "share": 0.4161640530759952, "own_rate": 0.3403741701870851, "lift": 1.2226663757924185, "score": 76.81989964838439, "rv_when": -0.0022057971014492746, "rv_base": -0.01671099290780142, "rv_delta": 0.014505195806352143, "runs_cost": 5.0042925531914895, "runs_lo": -1.1164415952534652, "runs_hi": 11.125026701636443, "significant": false, "rv_p": 0.10904736429670839, "xwoba_when": 0.5447631402837612, "xwoba_delta": 0.2489620062391788}, {"count": "2-1", "pitch_type": "FC", "n": 48, "count_n": 178, "share": 0.2696629213483146, "own_rate": 0.11285455642727821, "lift": 2.3894730517334617, "score": 66.69470648320616, "rv_when": -0.008187499999999992, "rv_base": -0.024331550802139033, "rv_delta": 0.016144050802139043, "runs_cost": 0.774914438502674, "runs_lo": -4.854253753180359, "runs_hi": 6.404082630185707, "significant": false, "rv_p": 0.7873028168996116, "xwoba_when": 0.22920057720057718, "xwoba_delta": -0.07331580934845794}, {"count": "2-2", "pitch_type": "FS", "n": 103, "count_n": 265, "share": 0.3886792452830189, "own_rate": 0.2592033796016898, "lift": 1.4995145737694116, "score": 51.45000109824939, "rv_when": 0.003378640776699029, "rv_base": -0.015464493597206055, "rv_delta": 0.018843134373905085, "runs_cost": 1.9408428405122238, "runs_lo": -4.148290404417603, "runs_hi": 8.029976085442051, "significant": false, "rv_p": 0.5321495999990319, "xwoba_when": 0.15948589771729585, "xwoba_delta": -0.032012905873342684}, {"count": "0-1", "pitch_type": "SI", "n": 61, "count_n": 432, "share": 0.1412037037037037, "own_rate": 0.07664453832226917, "lift": 1.8423191892680078, "score": 51.38147054534847, "rv_when": 0.01608196721311476, "rv_base": 0.00011023622047244628, "rv_delta": 0.015971730992642316, "runs_cost": 0.9742755905511813, "runs_lo": -3.1951085417920075, "runs_hi": 5.14365972289437, "significant": false, "rv_p": 0.6469520578939532, "xwoba_when": 0.6016852584126184, "xwoba_delta": 0.2388590312009244}, {"count": "3-0", "pitch_type": "FF", "n": 32, "count_n": 39, "share": 0.8205128205128205, "own_rate": 0.3403741701870851, "lift": 2.410620112747772, "score": 45.13984360792871, "rv_when": -0.05028125, "rv_base": -0.01671099290780142, "rv_delta": -0.03357025709219858, "runs_cost": -1.0742482269503546, "runs_lo": -1.9177225070653994, "runs_hi": -0.23077394683530983, "significant": true, "rv_p": 0.01255124910567908, "xwoba_when": 0.691497, "xwoba_delta": 0.39569586595541767}, {"count": "0-0", "pitch_type": "CU", "n": 185, "count_n": 829, "share": 0.22316043425814233, "own_rate": 0.18346409173204586, "lift": 1.2163711827820456, "score": 40.02866881467843, "rv_when": -0.0055027027027027015, "rv_base": -0.015646381578947367, "rv_delta": 0.010143678876244665, "runs_cost": 1.876580592105263, "runs_lo": -4.12258683685948, "runs_hi": 7.875748021070006, "significant": false, "rv_p": 0.5398092933677039, "xwoba_when": 0.48466206109968935, "xwoba_delta": 0.2145054568964589}, {"count": "3-1", "pitch_type": "FC", "n": 23, "count_n": 83, "share": 0.27710843373493976, "own_rate": 0.11285455642727821, "lift": 2.455447458282327, "score": 33.47529154049352, "rv_when": -0.05056521739130434, "rv_base": -0.024331550802139033, "rv_delta": -0.026233666589165306, "runs_cost": -0.603374331550802, "runs_lo": -2.5555360629530135, "runs_hi": 1.3487873998514095, "significant": false, "rv_p": 0.5446495724986053, "xwoba_when": 0.5442761111111111, "xwoba_delta": 0.24175972456207595}, {"count": "0-1", "pitch_type": "FS", "n": 138, "count_n": 432, "share": 0.3194444444444444, "own_rate": 0.2592033796016898, "lift": 1.232408485318846, "score": 32.07237097400074, "rv_when": -0.027, "rv_base": -0.015464493597206055, "rv_delta": -0.011535506402793945, "runs_cost": -1.5918998835855644, "runs_lo": -4.695605248963123, "runs_hi": 1.5118054817919933, "significant": false, "rv_p": 0.3147572591327621, "xwoba_when": 0.20257894736842105, "xwoba_delta": 0.01108014377778252}, {"count": "1-1", "pitch_type": "FS", "n": 101, "count_n": 322, "share": 0.3136645962732919, "own_rate": 0.2592033796016898, "lift": 1.2101099791032472, "score": 21.221107889427973, "rv_when": -0.00370297029702971, "rv_base": -0.015464493597206055, "rv_delta": 0.011761523300176345, "runs_cost": 1.1879138533178109, "runs_lo": -2.4801987049823184, "runs_hi": 4.85602641161794, "significant": false, "rv_p": 0.5255956203447092, "xwoba_when": 0.3820923076923077, "xwoba_delta": 0.19059350410166914}, {"count": "2-0", "pitch_type": "FF", "n": 51, "count_n": 112, "share": 0.45535714285714285, "own_rate": 0.3403741701870851, "lift": 1.3378134498480243, "score": 17.22848594224924, "rv_when": 0.04094117647058823, "rv_base": -0.01671099290780142, "rv_delta": 0.05765216937838965, "runs_cost": 2.940260638297872, "runs_lo": -1.0479833132023209, "runs_hi": 6.928504589798065, "significant": false, "rv_p": 0.14846504546697817, "xwoba_when": 0.7245151515151517, "xwoba_delta": 0.4287140174705693}, {"count": "1-0", "pitch_type": "FF", "n": 119, "count_n": 307, "share": 0.38762214983713356, "own_rate": 0.3403741701870851, "lift": 1.1388118834754084, "score": 16.5186141335736, "rv_when": -0.024084033613445376, "rv_base": -0.01671099290780142, "rv_delta": -0.007373040705643957, "runs_cost": -0.877391843971631, "runs_lo": -3.087564765317232, "runs_hi": 1.3327810773739697, "significant": false, "rv_p": 0.43652274127956064, "xwoba_when": 0.18799999999999997, "xwoba_delta": -0.10780113404458239}, {"count": "2-0", "pitch_type": "FC", "n": 20, "count_n": 112, "share": 0.17857142857142858, "own_rate": 0.11285455642727821, "lift": 1.58231474407945, "score": 11.646294881589, "rv_when": 0.038149999999999996, "rv_base": -0.024331550802139033, "rv_delta": 0.06248155080213903, "runs_cost": 1.2496310160427806, "runs_lo": -0.8552752750314394, "runs_hi": 3.354537307117001, "significant": false, "rv_p": 0.2445846429987114, "xwoba_when": 0.6272191780821919, "xwoba_delta": 0.32470279153315673}, {"count": "1-1", "pitch_type": "SI", "n": 33, "count_n": 322, "share": 0.10248447204968944, "own_rate": 0.07664453832226917, "lift": 1.3371399227270504, "score": 11.125617449992664, "rv_when": 0.04184848484848484, "rv_base": 0.00011023622047244628, "rv_delta": 0.0417382486280124, "runs_cost": 1.3773622047244092, "runs_lo": -0.6467612613150835, "runs_hi": 3.401485670763902, "significant": false, "rv_p": 0.18229305066394633, "xwoba_when": 0.4032, "xwoba_delta": 0.04037377278830595}, {"count": "1-0", "pitch_type": "FC", "n": 43, "count_n": 307, "share": 0.14006514657980457, "own_rate": 0.11285455642727821, "lift": 1.241112020763295, "score": 10.367816892821688, "rv_when": -0.011930232558139535, "rv_base": -0.024331550802139033, "rv_delta": 0.012401318243999497, "runs_cost": 0.5332566844919784, "runs_lo": -1.2129358671784654, "runs_hi": 2.279449236162422, "significant": false, "rv_p": 0.5494731789657502, "xwoba_when": 0.45566666666666666, "xwoba_delta": 0.15315028011763154}, {"count": "2-0", "pitch_type": "CU", "n": 28, "count_n": 112, "share": 0.25, "own_rate": 0.18346409173204586, "lift": 1.3626644736842106, "score": 10.154605263157897, "rv_when": -0.0022500000000000016, "rv_base": -0.015646381578947367, "rv_delta": 0.013396381578947365, "runs_cost": 0.3750986842105262, "runs_lo": -1.0933451380472445, "runs_hi": 1.8435425064682969, "significant": false, "rv_p": 0.61660930768535, "xwoba_when": 0.0745, "xwoba_delta": -0.19565660420323044}, {"count": "3-2", "pitch_type": "FF", "n": 74, "count_n": 192, "share": 0.3854166666666667, "own_rate": 0.3403741701870851, "lift": 1.1323322990543736, "score": 9.792590130023648, "rv_when": -0.026081081081081082, "rv_base": -0.01671099290780142, "rv_delta": -0.009370088173279664, "runs_cost": -0.6933865248226951, "runs_lo": -5.365228039535362, "runs_hi": 3.978454989889972, "significant": false, "rv_p": 0.7711279827003095, "xwoba_when": 0.32781621153846163, "xwoba_delta": 0.032015077493879274}, {"count": "1-0", "pitch_type": "CU", "n": 64, "count_n": 307, "share": 0.20846905537459284, "own_rate": 0.18346409173204586, "lift": 1.1362935024858565, "score": 8.722784159094815, "rv_when": 0.009875000000000002, "rv_base": -0.015646381578947367, "rv_delta": 0.02552138157894737, "runs_cost": 1.6333684210526316, "runs_lo": -0.49028810584185156, "runs_hi": 3.757024947947115, "significant": false, "rv_p": 0.13168376308023558, "xwoba_when": 0.39580000000000004, "xwoba_delta": 0.12564339579676959}, {"count": "3-1", "pitch_type": "FF", "n": 35, "count_n": 83, "share": 0.42168674698795183, "own_rate": 0.3403741701870851, "lift": 1.2388917371614117, "score": 8.361210800649408, "rv_when": -0.046542857142857136, "rv_base": -0.01671099290780142, "rv_delta": -0.029831864235055718, "runs_cost": -1.04411524822695, "runs_lo": -3.9781669504258588, "runs_hi": 1.889936453971959, "significant": false, "rv_p": 0.4854974396144298, "xwoba_when": 0.4765615, "xwoba_delta": 0.18076036595541767}, {"count": "1-0", "pitch_type": "SI", "n": 30, "count_n": 307, "share": 0.09771986970684039, "own_rate": 0.07664453832226917, "lift": 1.2749749929467284, "score": 8.249249788401853, "rv_when": -0.02523333333333333, "rv_base": 0.00011023622047244628, "rv_delta": -0.025343569553805775, "runs_cost": -0.7603070866141732, "runs_lo": -3.5581631835270686, "runs_hi": 2.037549010298722, "significant": false, "rv_p": 0.5942947305023675, "xwoba_when": 0.32516666666666666, "xwoba_delta": -0.03765956054502739}, {"count": "2-2", "pitch_type": "CU", "n": 55, "count_n": 265, "share": 0.20754716981132076, "own_rate": 0.18346409173204586, "lift": 1.1312686196623636, "score": 7.219774081429997, "rv_when": -0.0378909090909091, "rv_base": -0.015646381578947367, "rv_delta": -0.022244527511961733, "runs_cost": -1.2234490131578954, "runs_lo": -4.42982072993856, "runs_hi": 1.982922703622769, "significant": false, "rv_p": 0.45453653318828213, "xwoba_when": 0.13006666666666666, "xwoba_delta": -0.1400899375365638}, {"count": "3-2", "pitch_type": "SI", "n": 20, "count_n": 192, "share": 0.10416666666666667, "own_rate": 0.07664453832226917, "lift": 1.3590879265091862, "score": 7.181758530183724, "rv_when": -0.03345000000000001, "rv_base": 0.00011023622047244628, "rv_delta": -0.03356023622047245, "runs_cost": -0.671204724409449, "runs_lo": -3.4280342126626557, "runs_hi": 2.0856247638437573, "significant": false, "rv_p": 0.6332191356797662, "xwoba_when": 0.342936375, "xwoba_delta": -0.019889852211694037}, {"count": "0-0", "pitch_type": "FC", "n": 99, "count_n": 829, "share": 0.11942098914354644, "own_rate": 0.11285455642727821, "lift": 1.0581849144965587, "score": 5.760306535159312, "rv_when": -0.025777777777777778, "rv_base": -0.024331550802139033, "rv_delta": -0.0014462269756387452, "runs_cost": -0.1431764705882358, "runs_lo": -3.473601386622009, "runs_hi": 3.187248445445537, "significant": false, "rv_p": 0.9328486931487809, "xwoba_when": 0.28064285714285714, "xwoba_delta": -0.021873529406177983}, {"count": "2-1", "pitch_type": "CU", "n": 36, "count_n": 178, "share": 0.20224719101123595, "own_rate": 0.18346409173204586, "lift": 1.1023802483737433, "score": 3.6856889414547576, "rv_when": -0.04069444444444445, "rv_base": -0.015646381578947367, "rv_delta": -0.025048062865497083, "runs_cost": -0.901730263157895, "runs_lo": -2.6479752183039995, "runs_hi": 0.8445146919882098, "significant": false, "rv_p": 0.31148564383528965, "xwoba_when": 0.24066666666666667, "xwoba_delta": -0.029489937536563787}, {"count": "1-1", "pitch_type": "FC", "n": 39, "count_n": 322, "share": 0.12111801242236025, "own_rate": 0.11285455642727821, "lift": 1.0732221742451922, "score": 2.855664795562495, "rv_when": -0.02782051282051282, "rv_base": -0.024331550802139033, "rv_delta": -0.003488962018373787, "runs_cost": -0.1360695187165777, "runs_lo": -3.868725652735743, "runs_hi": 3.596586615302588, "significant": false, "rv_p": 0.9430400485767461, "xwoba_when": 0.38075475051264523, "xwoba_delta": 0.07823836396361011}, {"count": "3-2", "pitch_type": "FC", "n": 24, "count_n": 192, "share": 0.125, "own_rate": 0.11285455642727821, "lift": 1.107620320855615, "score": 2.5828877005347604, "rv_when": -0.147, "rv_base": -0.024331550802139033, "rv_delta": -0.12266844919786096, "runs_cost": -2.944042780748663, "runs_lo": -5.343969789560649, "runs_hi": -0.5441157719366765, "significant": true, "rv_p": 0.01620015751931636, "xwoba_when": 0.16040000000000001, "xwoba_delta": -0.1421163865490351}, {"count": "0-1", "pitch_type": "FC", "n": 49, "count_n": 432, "share": 0.11342592592592593, "own_rate": 0.11285455642727821, "lift": 1.0050628837393545, "score": 0.24808130322836974, "rv_when": -0.027408163265306124, "rv_base": -0.024331550802139033, "rv_delta": -0.003076612463167091, "runs_cost": -0.15075401069518746, "runs_lo": -2.846921385287659, "runs_hi": 2.5454133638972842, "significant": false, "rv_p": 0.9127331067009656, "xwoba_when": 0.2750666666666667, "xwoba_delta": -0.02744971988236844}, {"count": "3-2", "pitch_type": "CU", "n": 34, "count_n": 192, "share": 0.17708333333333334, "own_rate": 0.18346409173204586, "lift": 0.9652206688596492, "score": -1.1824972587719276, "rv_when": 0.0013529411764705796, "rv_base": -0.015646381578947367, "rv_delta": 0.016999322755417948, "runs_cost": 0.5779769736842102, "runs_lo": -2.753428108098486, "runs_hi": 3.9093820554669065, "significant": false, "rv_p": 0.7338210060954334, "xwoba_when": 0.35721300000000006, "xwoba_delta": 0.0870563957967696}, {"count": "1-1", "pitch_type": "CU", "n": 56, "count_n": 322, "share": 0.17391304347826086, "own_rate": 0.18346409173204586, "lift": 0.9479405034324943, "score": -2.915331807780322, "rv_when": 0.015875000000000004, "rv_base": -0.015646381578947367, "rv_delta": 0.03152138157894737, "runs_cost": 1.7651973684210527, "runs_lo": -1.5660177660516668, "runs_hi": 5.096412502893772, "significant": false, "rv_p": 0.2989926489724317, "xwoba_when": 0.41771828171828174, "xwoba_delta": 0.14756167751505128}, {"count": "0-2", "pitch_type": "CU", "n": 38, "count_n": 225, "share": 0.1688888888888889, "own_rate": 0.18346409173204586, "lift": 0.9205555555555556, "score": -3.0188888888888883, "rv_when": -0.0688421052631579, "rv_base": -0.015646381578947367, "rv_delta": -0.053195723684210536, "runs_cost": -2.0214375, "runs_lo": -3.29995637151486, "runs_hi": -0.7429186284851403, "significant": true, "rv_p": 0.0019423268871216468, "xwoba_when": 0.13354588235294115, "xwoba_delta": -0.1366107218502893}, {"count": "1-2", "pitch_type": "CU", "n": 55, "count_n": 330, "share": 0.16666666666666666, "own_rate": 0.18346409173204586, "lift": 0.9084429824561403, "score": -5.0356359649122835, "rv_when": -0.030163636363636365, "rv_base": -0.015646381578947367, "rv_delta": -0.014517254784688998, "runs_cost": -0.7984490131578948, "runs_lo": -3.4515790406747766, "runs_hi": 1.8546810143589867, "significant": false, "rv_p": 0.5552883574242998, "xwoba_when": 0.1381022727272727, "xwoba_delta": -0.13205433147595774}, {"count": "2-1", "pitch_type": "FF", "n": 50, "count_n": 178, "share": 0.2808988764044944, "own_rate": 0.3403741701870851, "lift": 0.8252649613515022, "score": -8.736751932424891, "rv_when": -0.059219999999999995, "rv_base": -0.01671099290780142, "rv_delta": -0.04250900709219858, "runs_cost": -2.125450354609929, "runs_lo": -3.6163950059500083, "runs_hi": -0.6345057032698493, "significant": true, "rv_p": 0.0052040685599629224, "xwoba_when": 0.20149999999999998, "xwoba_delta": -0.09430113404458237}, {"count": "3-2", "pitch_type": "FS", "n": 36, "count_n": 192, "share": 0.1875, "own_rate": 0.2592033796016898, "lift": 0.7233701979045402, "score": -9.958672875436555, "rv_when": -0.02361111111111111, "rv_base": -0.015464493597206055, "rv_delta": -0.008146617513905056, "runs_cost": -0.293278230500582, "runs_lo": -2.982775734733695, "runs_hi": 2.3962192737325307, "significant": false, "rv_p": 0.8307578964607911, "xwoba_when": 0.35754409090909095, "xwoba_delta": 0.16604528731845242}, {"count": "0-0", "pitch_type": "SI", "n": 51, "count_n": 829, "share": 0.061519903498190594, "own_rate": 0.07664453832226917, "lift": 0.8026651976102505, "score": -10.064074921877227, "rv_when": -0.014313725490196074, "rv_base": 0.00011023622047244628, "rv_delta": -0.01442396171066852, "runs_cost": -0.7356220472440945, "runs_lo": -3.00156069343184, "runs_hi": 1.5303165989436507, "significant": false, "rv_p": 0.5245801997777548, "xwoba_when": 0.2365714285714286, "xwoba_delta": -0.12625479864026545}, {"count": "2-1", "pitch_type": "FS", "n": 23, "count_n": 178, "share": 0.12921348314606743, "own_rate": 0.2592033796016898, "lift": 0.49850230866829737, "score": -11.53444690062916, "rv_when": -0.009130434782608695, "rv_base": -0.015464493597206055, "rv_delta": 0.00633405881459736, "runs_cost": 0.1456833527357393, "runs_lo": -1.2401863691230497, "runs_hi": 1.5315530745945283, "significant": false, "rv_p": 0.8367626117377783, "xwoba_when": 0.1762, "xwoba_delta": -0.015298803590638538}, {"count": "1-2", "pitch_type": "FF", "n": 96, "count_n": 330, "share": 0.2909090909090909, "own_rate": 0.3403741701870851, "lift": 0.8546744036105738, "score": -13.951257253384917, "rv_when": -0.026197916666666664, "rv_base": -0.01671099290780142, "rv_delta": -0.009486923758865246, "runs_cost": -0.9107446808510636, "runs_lo": -4.294915209079412, "runs_hi": 2.4734258473772845, "significant": false, "rv_p": 0.5978649575831345, "xwoba_when": 0.11303125, "xwoba_delta": -0.18276988404458236}, {"count": "0-2", "pitch_type": "FF", "n": 55, "count_n": 225, "share": 0.24444444444444444, "own_rate": 0.3403741701870851, "lift": 0.7181639085894405, "score": -15.500985027580775, "rv_when": -0.009618181818181817, "rv_base": -0.01671099290780142, "rv_delta": 0.007092811089619601, "runs_cost": 0.39010460992907803, "runs_lo": -1.8815796288433102, "runs_hi": 2.661788848701466, "significant": false, "rv_p": 0.7364330191950397, "xwoba_when": 0.1807055625, "xwoba_delta": -0.11509557154458236}, {"count": "1-1", "pitch_type": "FF", "n": 89, "count_n": 322, "share": 0.27639751552795033, "own_rate": 0.3403741701870851, "lift": 0.8120402184925775, "score": -16.728420554160607, "rv_when": -0.012404494382022468, "rv_base": -0.01671099290780142, "rv_delta": 0.0043064985257789505, "runs_cost": 0.3832783687943266, "runs_lo": -2.8843553776077897, "runs_hi": 3.6509121151964425, "significant": false, "rv_p": 0.8181702838002345, "xwoba_when": 0.1573846153846154, "xwoba_delta": -0.13841651865996696}, {"count": "2-2", "pitch_type": "FF", "n": 65, "count_n": 265, "share": 0.24528301886792453, "own_rate": 0.3403741701870851, "lift": 0.7206275926669343, "score": -18.15920647664927, "rv_when": -0.0332923076923077, "rv_base": -0.01671099290780142, "rv_delta": -0.01658131478450628, "runs_cost": -1.077785460992908, "runs_lo": -4.177488041458284, "runs_hi": 2.0219171194724677, "significant": false, "rv_p": 0.4955526782062545, "xwoba_when": 0.1547333333333333, "xwoba_delta": -0.14106780071124905}, {"count": "0-1", "pitch_type": "CU", "n": 51, "count_n": 432, "share": 0.11805555555555555, "own_rate": 0.18346409173204586, "lift": 0.6434804459064327, "score": -18.18249725877193, "rv_when": -0.03164705882352941, "rv_base": -0.015646381578947367, "rv_delta": -0.016000677244582043, "runs_cost": -0.8160345394736842, "runs_lo": -3.061753396314476, "runs_hi": 1.4296843173671077, "significant": false, "rv_p": 0.47633356813725525, "xwoba_when": 0.3292, "xwoba_delta": 0.05904339579676954}, {"count": "1-0", "pitch_type": "FS", "n": 48, "count_n": 307, "share": 0.1563517915309446, "own_rate": 0.2592033796016898, "lift": 0.603201207373167, "score": -19.046342046087986, "rv_when": -0.02247916666666667, "rv_base": -0.015464493597206055, "rv_delta": -0.007014673069460617, "runs_cost": -0.3367043073341096, "runs_lo": -2.912797635649187, "runs_hi": 2.2393890209809673, "significant": false, "rv_p": 0.7978127942284787, "xwoba_when": 0.2939090909090909, "xwoba_delta": 0.10241028731845236}, {"count": "0-1", "pitch_type": "FF", "n": 117, "count_n": 432, "share": 0.2708333333333333, "own_rate": 0.3403741701870851, "lift": 0.7956929669030732, "score": -23.90392287234043, "rv_when": -0.024529914529914536, "rv_base": -0.01671099290780142, "rv_delta": -0.007818921622113117, "runs_cost": -0.9148138297872348, "runs_lo": -3.303085909813012, "runs_hi": 1.473458250238542, "significant": false, "rv_p": 0.45279308394318585, "xwoba_when": 0.2442727272727273, "xwoba_delta": -0.05152840677185505}, {"count": "0-0", "pitch_type": "FS", "n": 132, "count_n": 829, "share": 0.15922798552472858, "own_rate": 0.2592033796016898, "lift": 0.6142974901384756, "score": -50.91273130172122, "rv_when": -0.016348484848484852, "rv_base": -0.015464493597206055, "rv_delta": -0.000883991251278797, "runs_cost": -0.1166868451688012, "runs_lo": -3.0789791037291137, "runs_hi": 2.845605413391511, "significant": false, "rv_p": 0.9384598081184456, "xwoba_when": 0.2318888888888889, "xwoba_delta": 0.04039008529825036}], "putaway": [{"pitch_type": "FS", "n": 404, "usage": 0.39881539980256664, "strikeouts": 97, "putaway_rate": 0.2400990099009901, "whiff_rate": 0.351931330472103, "league_usage": 0.0675706011763121, "league_putaway": 0.2, "league_whiff": 0.2945823927765237, "usage_ratio": 5.902202923456858, "putaway_delta": 0.04009900990099008, "whiff_delta": 0.057348937695579305, "putaway_z": 2.0149503101752266}, {"pitch_type": "FF", "n": 290, "usage": 0.28627838104639686, "strikeouts": 67, "putaway_rate": 0.23103448275862068, "whiff_rate": 0.22485207100591717, "league_usage": 0.3121267902842006, "league_putaway": 0.1711737629459148, "league_whiff": 0.1691703258608735, "usage_ratio": 0.9171861882978132, "putaway_delta": 0.05986071981270588, "whiff_delta": 0.055681745145043676, "putaway_z": 2.7063913053868722}, {"pitch_type": "CU", "n": 182, "usage": 0.17966436327739388, "strikeouts": 46, "putaway_rate": 0.25274725274725274, "whiff_rate": 0.3211009174311927, "league_usage": 0.101108966012661, "league_putaway": 0.2024866785079929, "league_whiff": 0.2779527559055118, "usage_ratio": 1.7769379943505312, "putaway_delta": 0.050260574239259836, "whiff_delta": 0.043148161525680906, "putaway_z": 1.6873141123474424}, {"pitch_type": "FC", "n": 50, "usage": 0.049358341559723594, "strikeouts": 10, "putaway_rate": 0.2, "whiff_rate": 0.18604651162790697, "league_usage": 0.0523503793831095, "league_putaway": 0.1680960548885077, "league_whiff": 0.1909814323607427, "usage_ratio": 0.9428459190049105, "putaway_delta": 0.031903945111492304, "whiff_delta": -0.004934920732835718, "putaway_z": 0.6032732093477787}, {"pitch_type": "SL", "n": 47, "usage": 0.04639684106614018, "strikeouts": 6, "putaway_rate": 0.1276595744680851, "whiff_rate": 0.17647058823529413, "league_usage": 0.161406186863018, "league_putaway": 0.2169680111265646, "league_whiff": 0.296137339055794, "usage_ratio": 0.28745391962896805, "putaway_delta": -0.08930843665847951, "whiff_delta": -0.11966675082049985, "putaway_z": -1.4854355379146833}, {"pitch_type": "SI", "n": 39, "usage": 0.0384995064165844, "strikeouts": 8, "putaway_rate": 0.20512820512820512, "whiff_rate": 0.2, "league_usage": 0.1026803753423427, "league_putaway": 0.1709663314385658, "league_whiff": 0.1065877128053293, "usage_ratio": 0.37494512742308034, "putaway_delta": 0.03416187368963933, "whiff_delta": 0.0934122871946707, "putaway_z": 0.5666731109084157}], "setups": [{"setup_pitch": "FF", "setup_band": "UP", "next_pitch": "CU", "n": 89, "p_next": 0.27134146341463417, "baseline_p": 0.17028985507246377, "freq_lift": 1.5934094447327452, "whiff_after": 0.3, "whiff_baseline": 0.35023041474654376, "effect_lift": 0.8565789473684211, "score": 52.813440581214316, "rv_when": -0.03310112359550562, "rv_base": -0.02008274231678487, "rv_delta": -0.01301838127872075, "runs_cost": -1.1586359338061467, "runs_lo": -4.340607041629386, "runs_hi": 2.0233351740170926, "significant": false, "rv_p": 0.4754217155343175, "xwoba_when": 0.1619479655172414, "xwoba_delta": -0.07218482149727085}, {"setup_pitch": "CU", "setup_band": "DOWN", "next_pitch": "FF", "n": 130, "p_next": 0.41533546325878595, "baseline_p": 0.3148148148148148, "freq_lift": 1.319300883292614, "whiff_after": 0.17543859649122806, "whiff_baseline": 0.20833333333333334, "effect_lift": 0.8421052631578947, "score": 41.50911482803983, "rv_when": -0.009123076923076925, "rv_base": -0.02323017902813299, "rv_delta": 0.014107102105056064, "runs_cost": 1.8339232736572884, "runs_lo": -2.1971419086576356, "runs_hi": 5.864988455972212, "significant": false, "rv_p": 0.372555244072568, "xwoba_when": 0.2600335284090909, "xwoba_delta": 0.007419681161100811}, {"setup_pitch": "FS", "setup_band": "DOWN", "next_pitch": "FS", "n": 183, "p_next": 0.34990439770554493, "baseline_p": 0.2922705314009662, "freq_lift": 1.197193559091699, "whiff_after": 0.40384615384615385, "whiff_baseline": 0.38287153652392947, "effect_lift": 1.0547823886639676, "score": 36.08642131378094, "rv_when": -0.029743169398907105, "rv_base": -0.015367768595041322, "rv_delta": -0.014375400803865783, "runs_cost": -2.630698347107438, "runs_lo": -8.6029145561604, "runs_hi": 3.341517861945524, "significant": false, "rv_p": 0.38793991688949647, "xwoba_when": 0.1626264184060721, "xwoba_delta": -0.026809912743804676}, {"setup_pitch": "FC", "setup_band": "DOWN", "next_pitch": "SI", "n": 27, "p_next": 0.17880794701986755, "baseline_p": 0.08172302737520129, "freq_lift": 2.1879750758490197, "whiff_after": 0.09090909090909091, "whiff_baseline": 0.12745098039215685, "effect_lift": 0.7132867132867133, "score": 32.07532704792353, "rv_when": -0.0242962962962963, "rv_base": 0.003733990147783256, "rv_delta": -0.028030286444079556, "runs_cost": -0.756817733990148, "runs_lo": -3.060648713221147, "runs_hi": 1.547013245240851, "significant": false, "rv_p": 0.5196611145708441, "xwoba_when": 0.3862456984126984, "xwoba_delta": 0.00939116024097486}, {"setup_pitch": "FF", "setup_band": "DOWN", "next_pitch": "FF", "n": 136, "p_next": 0.3726027397260274, "baseline_p": 0.3148148148148148, "freq_lift": 1.1835616438356165, "whiff_after": 0.1896551724137931, "whiff_baseline": 0.20833333333333334, "effect_lift": 0.9103448275862068, "score": 24.96438356164384, "rv_when": -0.016117647058823528, "rv_base": -0.02323017902813299, "rv_delta": 0.007112531969309461, "runs_cost": 0.9673043478260867, "runs_lo": -3.786236687751823, "runs_hi": 5.720845383403996, "significant": false, "rv_p": 0.6900088979734598, "xwoba_when": 0.28235714826839825, "xwoba_delta": 0.029743301020408175}, {"setup_pitch": "FF", "setup_band": "DOWN", "next_pitch": "FC", "n": 57, "p_next": 0.15616438356164383, "baseline_p": 0.1107085346215781, "freq_lift": 1.4105902864259028, "whiff_after": 0.21212121212121213, "whiff_baseline": 0.1751412429378531, "effect_lift": 1.2111436950146628, "score": 23.40364632627646, "rv_when": -0.03210526315789473, "rv_base": -0.02381090909090909, "rv_delta": -0.008294354066985636, "runs_cost": -0.47277818181818126, "runs_lo": -5.006707122503865, "runs_hi": 4.0611507588675035, "significant": false, "rv_p": 0.838056413337483, "xwoba_when": 0.2999678589910851, "xwoba_delta": -0.006238038542124569}, {"setup_pitch": "FS", "setup_band": "DOWN", "next_pitch": "FF", "n": 184, "p_next": 0.35181644359464626, "baseline_p": 0.3148148148148148, "freq_lift": 1.117534585535935, "whiff_after": 0.21568627450980393, "whiff_baseline": 0.20833333333333334, "effect_lift": 1.035294117647059, "score": 21.626363738612056, "rv_when": -0.025722826086956526, "rv_base": -0.02323017902813299, "rv_delta": -0.002492647058823537, "runs_cost": -0.4586470588235308, "runs_lo": -6.056795464913353, "runs_hi": 5.139501347266291, "significant": false, "rv_p": 0.8724245508548402, "xwoba_when": 0.2010513559322034, "xwoba_delta": -0.05156249131578666}, {"setup_pitch": "FC", "setup_band": "UP", "next_pitch": "FS", "n": 25, "p_next": 0.423728813559322, "baseline_p": 0.2922705314009662, "freq_lift": 1.4497828827566885, "whiff_after": 0.46153846153846156, "whiff_baseline": 0.38287153652392947, "effect_lift": 1.2054655870445345, "score": 11.244572068917213, "rv_when": -0.019599999999999996, "rv_base": -0.015367768595041322, "rv_delta": -0.004232231404958674, "runs_cost": -0.10580578512396685, "runs_lo": -1.8175887735063891, "runs_hi": 1.6059772032584554, "significant": false, "rv_p": 0.9035736933949474, "xwoba_when": 0.1316497, "xwoba_delta": -0.057786631149876755}, {"setup_pitch": "CU", "setup_band": "MID", "next_pitch": "FS", "n": 28, "p_next": 0.39436619718309857, "baseline_p": 0.2922705314009662, "freq_lift": 1.3493190548248164, "whiff_after": 0.35714285714285715, "whiff_baseline": 0.38287153652392947, "effect_lift": 0.9328007518796992, "score": 9.78093353509486, "rv_when": -0.0367857142857143, "rv_base": -0.015367768595041322, "rv_delta": -0.021417945690672974, "runs_cost": -0.5997024793388432, "runs_lo": -1.86212338032128, "runs_hi": 0.6627184216435935, "significant": false, "rv_p": 0.3518113610277766, "xwoba_when": 0.152125, "xwoba_delta": -0.03731133114987675}, {"setup_pitch": "SI", "setup_band": "DOWN", "next_pitch": "CU", "n": 28, "p_next": 0.22764227642276422, "baseline_p": 0.17028985507246377, "freq_lift": 1.336792942397509, "whiff_after": 0.6, "whiff_baseline": 0.35023041474654376, "effect_lift": 1.7131578947368422, "score": 9.43020238713025, "rv_when": -0.08789285714285715, "rv_base": -0.02008274231678487, "rv_delta": -0.06781011482607227, "runs_cost": -1.8986832151300237, "runs_lo": -3.6266456142212964, "runs_hi": -0.170720816038751, "significant": true, "rv_p": 0.031267953346625736, "xwoba_when": 0.10068154545454545, "xwoba_delta": -0.1334512415599668}, {"setup_pitch": "FF", "setup_band": "MID", "next_pitch": "FC", "n": 29, "p_next": 0.14356435643564355, "baseline_p": 0.1107085346215781, "freq_lift": 1.2967776777677766, "whiff_after": 0.13636363636363635, "whiff_baseline": 0.1751412429378531, "effect_lift": 0.7785923753665689, "score": 8.606552655265522, "rv_when": -0.017655172413793104, "rv_base": -0.02381090909090909, "rv_delta": 0.006155736677115987, "runs_cost": 0.1785163636363636, "runs_lo": -2.1552809388978544, "runs_hi": 2.512313666170582, "significant": false, "rv_p": 0.8808246285406095, "xwoba_when": 0.4196107777777778, "xwoba_delta": 0.11340488024456813}, {"setup_pitch": "FF", "setup_band": "UP", "next_pitch": "FC", "n": 43, "p_next": 0.13109756097560976, "baseline_p": 0.1107085346215781, "freq_lift": 1.1841685144124168, "whiff_after": 0.25, "whiff_baseline": 0.1751412429378531, "effect_lift": 1.4274193548387097, "score": 7.919246119733922, "rv_when": 0.0366046511627907, "rv_base": -0.02381090909090909, "rv_delta": 0.06041556025369979, "runs_cost": 2.597869090909091, "runs_lo": -2.9906160922202227, "runs_hi": 8.186354274038404, "significant": false, "rv_p": 0.362228114933714, "xwoba_when": 0.30482063492063494, "xwoba_delta": -0.0013852626125747114}], "location_profile": [{"pitch_type": "FF", "n": 1128, "arm_side": 1.0485374649156052, "arm_side_sd": 8.594995032109377, "height": 0.5286947824957748, "height_sd": 0.4338210869931265, "in_zone": 0.6072695035460993, "top_quadrant": "UP-ARM", "top_share": 0.2898936170212766}, {"pitch_type": "FS", "n": 859, "arm_side": 4.666245537990475, "arm_side_sd": 7.158989623728762, "height": -0.04853608381349192, "height_sd": 0.45326977857199324, "in_zone": 0.32945285215366704, "top_quadrant": "DOWN-ARM", "top_share": 0.6344586728754366}, {"pitch_type": "CU", "n": 608, "arm_side": -0.9913869052832598, "arm_side_sd": 8.745182847512936, "height": 0.13698465543758093, "height_sd": 0.4343675721455815, "in_zone": 0.5131578947368421, "top_quadrant": "DOWN-GLOVE", "top_share": 0.5016447368421053}, {"pitch_type": "FC", "n": 374, "arm_side": -7.02932591893188, "arm_side_sd": 6.920817175355587, "height": 0.35148538857946243, "height_sd": 0.38257679935628586, "in_zone": 0.5935828877005348, "top_quadrant": "DOWN-GLOVE", "top_share": 0.5989304812834224}, {"pitch_type": "SI", "n": 254, "arm_side": 9.181093494529629, "arm_side_sd": 6.588044147440772, "height": 0.3289196957699026, "height_sd": 0.3689882143715164, "in_zone": 0.42913385826771655, "top_quadrant": "DOWN-ARM", "top_share": 0.6535433070866141}, {"pitch_type": "SL", "n": 91, "arm_side": -6.0680992517985715, "arm_side_sd": 7.249781494919241, "height": 0.0485132816931012, "height_sd": 0.38350300519315406, "in_zone": 0.5164835164835165, "top_quadrant": "DOWN-GLOVE", "top_share": 0.7252747252747253}], "location_tells": [{"band": "UP", "pitch_type": "FF", "n": 393, "band_n": 642, "p_pitch": 0.6121495327102804, "baseline_p": 0.3403741701870851, "lift": 1.798460595214423, "score": 313.79501391926823, "rv_when": -0.008083969465648856, "rv_base": -0.01671099290780142, "rv_delta": 0.008627023442152562, "runs_cost": 3.390420212765957, "runs_lo": -3.8647518784392987, "runs_hi": 10.645592303971213, "significant": false, "rv_p": 0.3597040558302738, "xwoba_when": 0.27114440059940054, "xwoba_delta": -0.024656733445181822}, {"band": "DOWN", "pitch_type": "FS", "n": 695, "band_n": 1885, "p_pitch": 0.3687002652519894, "baseline_p": 0.2592033796016898, "lift": 1.4224361804948693, "score": 293.5931454439342, "rv_when": -0.01862014388489209, "rv_base": -0.015464493597206055, "rv_delta": -0.003155650287686034, "runs_cost": -2.193176949941794, "runs_lo": -15.10371715524081, "runs_hi": 10.717363255357222, "significant": false, "rv_p": 0.7391683739984302, "xwoba_when": 0.17122740801399353, "xwoba_delta": -0.020271395576645007}, {"band": "MIDDLE", "pitch_type": "FF", "n": 345, "band_n": 787, "p_pitch": 0.4383735705209657, "baseline_p": 0.3403741701870851, "lift": 1.287916677931277, "score": 99.33125388629055, "rv_when": -0.03403478260869565, "rv_base": -0.01671099290780142, "rv_delta": -0.01732378970089423, "runs_cost": -5.9767074468085095, "runs_lo": -13.243093375241312, "runs_hi": 1.2896784816242919, "significant": false, "rv_p": 0.10693401755803417, "xwoba_when": 0.2941816209061484, "xwoba_delta": -0.0016195131384339478}, {"band": "DOWN", "pitch_type": "CU", "n": 419, "band_n": 1885, "p_pitch": 0.2222811671087533, "baseline_p": 0.18346409173204586, "lift": 1.2115785983526455, "score": 88.65143270975845, "rv_when": -0.02890214797136038, "rv_base": -0.015646381578947367, "rv_delta": -0.013255766392413014, "runs_cost": -5.554166118421053, "runs_lo": -14.285831247904113, "runs_hi": 3.1774990110620074, "significant": false, "rv_p": 0.2124907714751643, "xwoba_when": 0.23045770705135846, "xwoba_delta": -0.039698897151872}, {"band": "MIDDLE", "pitch_type": "SI", "n": 86, "band_n": 787, "p_pitch": 0.10927573062261753, "baseline_p": 0.07664453832226917, "lift": 1.4257471310368286, "score": 36.61425326916726, "rv_when": 0.011790697674418607, "rv_base": 0.00011023622047244628, "rv_delta": 0.011680461453946162, "runs_cost": 1.0045196850393698, "runs_lo": -4.707471564989522, "runs_hi": 6.716510935068261, "significant": false, "rv_p": 0.7303284478697485, "xwoba_when": 0.3612624146176404, "xwoba_delta": -0.0015638125940536374}, {"band": "MIDDLE", "pitch_type": "FC", "n": 113, "band_n": 787, "p_pitch": 0.14358322744599747, "baseline_p": 0.11285455642727821, "lift": 1.2722856036257637, "score": 30.7682732097113, "rv_when": -0.019017699115044247, "rv_base": -0.024331550802139033, "rv_delta": 0.005313851687094785, "runs_cost": 0.6004652406417107, "runs_lo": -6.350597318804095, "runs_hi": 7.551527800087516, "significant": false, "rv_p": 0.8655497024080765, "xwoba_when": 0.345135854762477, "xwoba_delta": 0.04261946821344187}, {"band": "DOWN", "pitch_type": "SL", "n": 69, "band_n": 1885, "p_pitch": 0.03660477453580902, "baseline_p": 0.027459263729631866, "lift": 1.333057393534847, "score": 22.980960153904448, "rv_when": -0.029594202898550723, "rv_base": -0.025813186813186804, "rv_delta": -0.003781016085363919, "runs_cost": -0.2608901098901104, "runs_lo": -3.4529670880663357, "runs_hi": 2.9311868682861144, "significant": false, "rv_p": 0.8727299741937565, "xwoba_when": 0.08533333333333333, "xwoba_delta": -0.08618600288600291}, {"band": "UP", "pitch_type": "FC", "n": 78, "band_n": 642, "p_pitch": 0.12149532710280374, "baseline_p": 0.11285455642727821, "lift": 1.076565545504523, "score": 5.9721125493528024, "rv_when": -0.058012820512820515, "rv_base": -0.024331550802139033, "rv_delta": -0.033681269710681486, "runs_cost": -2.627139037433156, "runs_lo": -6.032419409666949, "runs_hi": 0.7781413348006376, "significant": false, "rv_p": 0.13050334101452254, "xwoba_when": 0.2197922077922078, "xwoba_delta": -0.08272417875682733}, {"band": "DOWN", "pitch_type": "SI", "n": 129, "band_n": 1885, "p_pitch": 0.06843501326259947, "baseline_p": 0.07664453832226917, "lift": 0.8928883226466717, "score": -13.817406378579348, "rv_when": 0.0005813953488372098, "rv_base": 0.00011023622047244628, "rv_delta": 0.00047115912836476355, "runs_cost": 0.0607795275590545, "runs_lo": -5.172998488120178, "runs_hi": 5.2945575432382865, "significant": false, "rv_p": 0.9818406350961455, "xwoba_when": 0.4100351942950666, "xwoba_delta": 0.04720896708337252}, {"band": "MIDDLE", "pitch_type": "CU", "n": 119, "band_n": 787, "p_pitch": 0.15120711562897077, "baseline_p": 0.18346409173204586, "lift": 0.8241782585434361, "score": -20.922787233331107, "rv_when": 0.010579831932773105, "rv_base": -0.015646381578947367, "rv_delta": 0.02622621351172047, "runs_cost": 3.120919407894736, "runs_lo": -3.271255801054974, "runs_hi": 9.513094616844446, "significant": false, "rv_p": 0.3385917049639161, "xwoba_when": 0.35895363174314043, "xwoba_delta": 0.08879702753990998}, {"band": "DOWN", "pitch_type": "FC", "n": 183, "band_n": 1885, "p_pitch": 0.09708222811671087, "baseline_p": 0.11285455642727821, "lift": 0.8602419892480745, "score": -25.575715967602367, "rv_when": -0.013256830601092895, "rv_base": -0.024331550802139033, "rv_delta": 0.011074720201046138, "runs_cost": 2.026673796791443, "runs_lo": -4.760060235239687, "runs_hi": 8.813407828822573, "significant": false, "rv_p": 0.5583454984992199, "xwoba_when": 0.3131235714285714, "xwoba_delta": 0.010607184879536269}, {"band": "UP", "pitch_type": "CU", "n": 70, "band_n": 642, "p_pitch": 0.10903426791277258, "baseline_p": 0.18346409173204586, "lift": 0.5943084931956059, "score": -28.39840547630759, "rv_when": 0.019114285714285712, "rv_base": -0.015646381578947367, "rv_delta": 0.03476066729323308, "runs_cost": 2.4332467105263156, "runs_lo": 0.2541826238385725, "runs_hi": 4.612310797214059, "significant": true, "rv_p": 0.028623792897293616, "xwoba_when": 0.4189694285714286, "xwoba_delta": 0.14881282436819815}], "quadrants": [{"pitch_type": "FF", "UP-ARM": 0.2898936170212766, "UP-GLOVE": 0.19858156028368795, "DOWN-ARM": 0.2624113475177305, "DOWN-GLOVE": 0.24911347517730498}, {"pitch_type": "FS", "UP-ARM": 0.11641443538998836, "UP-GLOVE": 0.009313154831199068, "DOWN-ARM": 0.6344586728754366, "DOWN-GLOVE": 0.239813736903376}, {"pitch_type": "CU", "UP-ARM": 0.16776315789473684, "UP-GLOVE": 0.03289473684210526, "DOWN-ARM": 0.29769736842105265, "DOWN-GLOVE": 0.5016447368421053}, {"pitch_type": "FC", "UP-ARM": 0.11229946524064172, "UP-GLOVE": 0.23796791443850268, "DOWN-ARM": 0.05080213903743316, "DOWN-GLOVE": 0.5989304812834224}, {"pitch_type": "SI", "UP-ARM": 0.27165354330708663, "UP-GLOVE": 0.01968503937007874, "DOWN-ARM": 0.6535433070866141, "DOWN-GLOVE": 0.05511811023622047}, {"pitch_type": "SL", "UP-ARM": 0.054945054945054944, "UP-GLOVE": 0.04395604395604396, "DOWN-ARM": 0.17582417582417584, "DOWN-GLOVE": 0.7252747252747253}], "band_information": {"v_band": {"n": 3314, "bands": 3, "h_pitch": 2.2645801545015765, "h_given_band": 2.141810787088878, "info_gain": 0.1227693674126984, "info_gain_pct": 0.054212860237538976, "top_band": "UP", "top_pitch": "FF", "top_share": 0.6121495327102804}, "h_band": {"n": 3314, "bands": 3, "h_pitch": 2.2645801545015765, "h_given_band": 2.1005946395387647, "info_gain": 0.16398551496281177, "info_gain_pct": 0.07241320853087853, "top_band": "ARM", "top_pitch": "FS", "top_share": 0.3658703071672355}, "quadrant": {"n": 3314, "bands": 4, "h_pitch": 2.2645801545015765, "h_given_band": 2.021559215328974, "info_gain": 0.24302093917260237, "info_gain_pct": 0.10731390482669409, "top_band": "UP-GLOVE", "top_pitch": "FF", "top_share": 0.64}}, "zone": {"inner": [1, 2, 3, 4, 5, 6, 7, 8, 9], "outer": [11, 12, 13, 14], "rows": [{"pitch_type": "FF", "1": 0.04609929078014184, "2": 0.06648936170212766, "3": 0.051418439716312055, "4": 0.08333333333333333, "5": 0.09663120567375887, "6": 0.07180851063829788, "7": 0.0726950354609929, "8": 0.06294326241134751, "9": 0.05585106382978723, "11": 0.13829787234042554, "12": 0.06205673758865248, "13": 0.09397163120567376, "14": 0.09840425531914894}, {"pitch_type": "FS", "1": 0.01629802095459837, "2": 0.004656577415599534, "3": 0.002328288707799767, "4": 0.0570430733410943, "5": 0.01979045401629802, "6": 0.006984866123399301, "7": 0.1350407450523865, "8": 0.06169965075669383, "9": 0.025611175785797437, "11": 0.06286379511059371, "12": 0.0, "13": 0.4179278230500582, "14": 0.18975552968568102}, {"pitch_type": "CU", "1": 0.03453947368421053, "2": 0.006578947368421052, "3": 0.011513157894736841, "4": 0.07072368421052631, "5": 0.07401315789473684, "6": 0.03125, "7": 0.06578947368421052, "8": 0.13651315789473684, "9": 0.08223684210526316, "11": 0.0756578947368421, "12": 0.001644736842105263, "13": 0.09539473684210527, "14": 0.31414473684210525}, {"pitch_type": "FC", "1": 0.016042780748663103, "2": 0.053475935828877004, "3": 0.06149732620320856, "4": 0.01871657754010695, "5": 0.0855614973262032, "6": 0.16042780748663102, "7": 0.0053475935828877, "8": 0.05614973262032086, "9": 0.13636363636363635, "11": 0.0213903743315508, "12": 0.06149732620320856, "13": 0.008021390374331552, "14": 0.3155080213903743}, {"pitch_type": "SI", "1": 0.03543307086614173, "2": 0.011811023622047244, "3": 0.003937007874015748, "4": 0.1062992125984252, "5": 0.05905511811023622, "6": 0.003937007874015748, "7": 0.14173228346456693, "8": 0.06299212598425197, "9": 0.003937007874015748, "11": 0.16929133858267717, "12": 0.003937007874015748, "13": 0.37401574803149606, "14": 0.023622047244094488}, {"pitch_type": "SL", "1": 0.0, "2": 0.02197802197802198, "3": 0.0, "4": 0.03296703296703297, "5": 0.0989010989010989, "6": 0.0989010989010989, "7": 0.06593406593406594, "8": 0.08791208791208792, "9": 0.10989010989010989, "11": 0.0, "12": 0.01098901098901099, "13": 0.02197802197802198, "14": 0.45054945054945056}]}, "zone_slices": {"zones": [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14], "inner": [1, 2, 3, 4, 5, 6, 7, 8, 9], "outer": [11, 12, 13, 14], "states": ["ahead", "even", "behind"], "pitches": ["FF", "FS", "CU", "FC", "SI", "SL"], "cells": [{"p": "CU", "s": "ahead", "h": "L", "z": 1, "n": 2}, {"p": "CU", "s": "ahead", "h": "L", "z": 2, "n": 1}, {"p": "CU", "s": "ahead", "h": "L", "z": 4, "n": 4}, {"p": "CU", "s": "ahead", "h": "L", "z": 5, "n": 4}, {"p": "CU", "s": "ahead", "h": "L", "z": 6, "n": 2}, {"p": "CU", "s": "ahead", "h": "L", "z": 7, "n": 5}, {"p": "CU", "s": "ahead", "h": "L", "z": 8, "n": 10}, {"p": "CU", "s": "ahead", "h": "L", "z": 9, "n": 6}, {"p": "CU", "s": "ahead", "h": "L", "z": 11, "n": 5}, {"p": "CU", "s": "ahead", "h": "L", "z": 13, "n": 12}, {"p": "CU", "s": "ahead", "h": "L", "z": 14, "n": 22}, {"p": "CU", "s": "ahead", "h": "R", "z": 2, "n": 1}, {"p": "CU", "s": "ahead", "h": "R", "z": 3, "n": 1}, {"p": "CU", "s": "ahead", "h": "R", "z": 4, "n": 5}, {"p": "CU", "s": "ahead", "h": "R", "z": 5, "n": 6}, {"p": "CU", "s": "ahead", "h": "R", "z": 6, "n": 4}, {"p": "CU", "s": "ahead", "h": "R", "z": 7, "n": 3}, {"p": "CU", "s": "ahead", "h": "R", "z": 8, "n": 11}, {"p": "CU", "s": "ahead", "h": "R", "z": 9, "n": 8}, {"p": "CU", "s": "ahead", "h": "R", "z": 14, "n": 32}, {"p": "CU", "s": "behind", "h": "L", "z": 1, "n": 3}, {"p": "CU", "s": "behind", "h": "L", "z": 3, "n": 3}, {"p": "CU", "s": "behind", "h": "L", "z": 4, "n": 10}, {"p": "CU", "s": "behind", "h": "L", "z": 5, "n": 4}, {"p": "CU", "s": "behind", "h": "L", "z": 6, "n": 3}, {"p": "CU", "s": "behind", "h": "L", "z": 7, "n": 9}, {"p": "CU", "s": "behind", "h": "L", "z": 8, "n": 13}, {"p": "CU", "s": "behind", "h": "L", "z": 9, "n": 5}, {"p": "CU", "s": "behind", "h": "L", "z": 11, "n": 11}, {"p": "CU", "s": "behind", "h": "L", "z": 13, "n": 12}, {"p": "CU", "s": "behind", "h": "L", "z": 14, "n": 19}, {"p": "CU", "s": "behind", "h": "R", "z": 1, "n": 4}, {"p": "CU", "s": "behind", "h": "R", "z": 4, "n": 2}, {"p": "CU", "s": "behind", "h": "R", "z": 5, "n": 4}, {"p": "CU", "s": "behind", "h": "R", "z": 6, "n": 2}, {"p": "CU", "s": "behind", "h": "R", "z": 7, "n": 5}, {"p": "CU", "s": "behind", "h": "R", "z": 8, "n": 10}, {"p": "CU", "s": "behind", "h": "R", "z": 9, "n": 4}, {"p": "CU", "s": "behind", "h": "R", "z": 11, "n": 4}, {"p": "CU", "s": "behind", "h": "R", "z": 12, "n": 1}, {"p": "CU", "s": "behind", "h": "R", "z": 13, "n": 8}, {"p": "CU", "s": "behind", "h": "R", "z": 14, "n": 32}, {"p": "CU", "s": "even", "h": "L", "z": 1, "n": 7}, {"p": "CU", "s": "even", "h": "L", "z": 2, "n": 1}, {"p": "CU", "s": "even", "h": "L", "z": 3, "n": 2}, {"p": "CU", "s": "even", "h": "L", "z": 4, "n": 11}, {"p": "CU", "s": "even", "h": "L", "z": 5, "n": 16}, {"p": "CU", "s": "even", "h": "L", "z": 6, "n": 4}, {"p": "CU", "s": "even", "h": "L", "z": 7, "n": 14}, {"p": "CU", "s": "even", "h": "L", "z": 8, "n": 15}, {"p": "CU", "s": "even", "h": "L", "z": 9, "n": 11}, {"p": "CU", "s": "even", "h": "L", "z": 11, "n": 20}, {"p": "CU", "s": "even", "h": "L", "z": 13, "n": 17}, {"p": "CU", "s": "even", "h": "L", "z": 14, "n": 35}, {"p": "CU", "s": "even", "h": "R", "z": 1, "n": 5}, {"p": "CU", "s": "even", "h": "R", "z": 2, "n": 1}, {"p": "CU", "s": "even", "h": "R", "z": 3, "n": 1}, {"p": "CU", "s": "even", "h": "R", "z": 4, "n": 11}, {"p": "CU", "s": "even", "h": "R", "z": 5, "n": 11}, {"p": "CU", "s": "even", "h": "R", "z": 6, "n": 4}, {"p": "CU", "s": "even", "h": "R", "z": 7, "n": 4}, {"p": "CU", "s": "even", "h": "R", "z": 8, "n": 24}, {"p": "CU", "s": "even", "h": "R", "z": 9, "n": 16}, {"p": "CU", "s": "even", "h": "R", "z": 11, "n": 6}, {"p": "CU", "s": "even", "h": "R", "z": 13, "n": 9}, {"p": "CU", "s": "even", "h": "R", "z": 14, "n": 51}, {"p": "FC", "s": "ahead", "h": "L", "z": 2, "n": 4}, {"p": "FC", "s": "ahead", "h": "L", "z": 3, "n": 5}, {"p": "FC", "s": "ahead", "h": "L", "z": 4, "n": 1}, {"p": "FC", "s": "ahead", "h": "L", "z": 5, "n": 1}, {"p": "FC", "s": "ahead", "h": "L", "z": 6, "n": 5}, {"p": "FC", "s": "ahead", "h": "L", "z": 8, "n": 2}, {"p": "FC", "s": "ahead", "h": "L", "z": 9, "n": 4}, {"p": "FC", "s": "ahead", "h": "L", "z": 11, "n": 1}, {"p": "FC", "s": "ahead", "h": "L", "z": 12, "n": 7}, {"p": "FC", "s": "ahead", "h": "L", "z": 13, "n": 1}, {"p": "FC", "s": "ahead", "h": "L", "z": 14, "n": 4}, {"p": "FC", "s": "ahead", "h": "R", "z": 2, "n": 1}, {"p": "FC", "s": "ahead", "h": "R", "z": 6, "n": 5}, {"p": "FC", "s": "ahead", "h": "R", "z": 9, "n": 6}, {"p": "FC", "s": "ahead", "h": "R", "z": 14, "n": 13}, {"p": "FC", "s": "behind", "h": "L", "z": 1, "n": 1}, {"p": "FC", "s": "behind", "h": "L", "z": 2, "n": 6}, {"p": "FC", "s": "behind", "h": "L", "z": 3, "n": 6}, {"p": "FC", "s": "behind", "h": "L", "z": 4, "n": 5}, {"p": "FC", "s": "behind", "h": "L", "z": 5, "n": 7}, {"p": "FC", "s": "behind", "h": "L", "z": 6, "n": 11}, {"p": "FC", "s": "behind", "h": "L", "z": 8, "n": 5}, {"p": "FC", "s": "behind", "h": "L", "z": 9, "n": 15}, {"p": "FC", "s": "behind", "h": "L", "z": 11, "n": 1}, {"p": "FC", "s": "behind", "h": "L", "z": 12, "n": 2}, {"p": "FC", "s": "behind", "h": "L", "z": 14, "n": 16}, {"p": "FC", "s": "behind", "h": "R", "z": 1, "n": 2}, {"p": "FC", "s": "behind", "h": "R", "z": 2, "n": 2}, {"p": "FC", "s": "behind", "h": "R", "z": 3, "n": 3}, {"p": "FC", "s": "behind", "h": "R", "z": 5, "n": 11}, {"p": "FC", "s": "behind", "h": "R", "z": 6, "n": 11}, {"p": "FC", "s": "behind", "h": "R", "z": 7, "n": 1}, {"p": "FC", "s": "behind", "h": "R", "z": 8, "n": 9}, {"p": "FC", "s": "behind", "h": "R", "z": 9, "n": 11}, {"p": "FC", "s": "behind", "h": "R", "z": 11, "n": 2}, {"p": "FC", "s": "behind", "h": "R", "z": 13, "n": 1}, {"p": "FC", "s": "behind", "h": "R", "z": 14, "n": 33}, {"p": "FC", "s": "even", "h": "L", "z": 1, "n": 1}, {"p": "FC", "s": "even", "h": "L", "z": 2, "n": 4}, {"p": "FC", "s": "even", "h": "L", "z": 3, "n": 6}, {"p": "FC", "s": "even", "h": "L", "z": 5, "n": 6}, {"p": "FC", "s": "even", "h": "L", "z": 6, "n": 13}, {"p": "FC", "s": "even", "h": "L", "z": 7, "n": 1}, {"p": "FC", "s": "even", "h": "L", "z": 8, "n": 2}, {"p": "FC", "s": "even", "h": "L", "z": 9, "n": 2}, {"p": "FC", "s": "even", "h": "L", "z": 11, "n": 4}, {"p": "FC", "s": "even", "h": "L", "z": 12, "n": 11}, {"p": "FC", "s": "even", "h": "L", "z": 13, "n": 1}, {"p": "FC", "s": "even", "h": "L", "z": 14, "n": 10}, {"p": "FC", "s": "even", "h": "R", "z": 1, "n": 2}, {"p": "FC", "s": "even", "h": "R", "z": 2, "n": 3}, {"p": "FC", "s": "even", "h": "R", "z": 3, "n": 3}, {"p": "FC", "s": "even", "h": "R", "z": 4, "n": 1}, {"p": "FC", "s": "even", "h": "R", "z": 5, "n": 7}, {"p": "FC", "s": "even", "h": "R", "z": 6, "n": 15}, {"p": "FC", "s": "even", "h": "R", "z": 8, "n": 3}, {"p": "FC", "s": "even", "h": "R", "z": 9, "n": 13}, {"p": "FC", "s": "even", "h": "R", "z": 12, "n": 3}, {"p": "FC", "s": "even", "h": "R", "z": 14, "n": 42}, {"p": "FF", "s": "ahead", "h": "L", "z": 1, "n": 7}, {"p": "FF", "s": "ahead", "h": "L", "z": 2, "n": 12}, {"p": "FF", "s": "ahead", "h": "L", "z": 3, "n": 16}, {"p": "FF", "s": "ahead", "h": "L", "z": 4, "n": 14}, {"p": "FF", "s": "ahead", "h": "L", "z": 5, "n": 9}, {"p": "FF", "s": "ahead", "h": "L", "z": 6, "n": 4}, {"p": "FF", "s": "ahead", "h": "L", "z": 7, "n": 6}, {"p": "FF", "s": "ahead", "h": "L", "z": 8, "n": 1}, {"p": "FF", "s": "ahead", "h": "L", "z": 9, "n": 2}, {"p": "FF", "s": "ahead", "h": "L", "z": 11, "n": 38}, {"p": "FF", "s": "ahead", "h": "L", "z": 12, "n": 19}, {"p": "FF", "s": "ahead", "h": "L", "z": 13, "n": 11}, {"p": "FF", "s": "ahead", "h": "L", "z": 14, "n": 3}, {"p": "FF", "s": "ahead", "h": "R", "z": 1, "n": 9}, {"p": "FF", "s": "ahead", "h": "R", "z": 2, "n": 11}, {"p": "FF", "s": "ahead", "h": "R", "z": 3, "n": 5}, {"p": "FF", "s": "ahead", "h": "R", "z": 4, "n": 5}, {"p": "FF", "s": "ahead", "h": "R", "z": 5, "n": 9}, {"p": "FF", "s": "ahead", "h": "R", "z": 6, "n": 7}, {"p": "FF", "s": "ahead", "h": "R", "z": 7, "n": 4}, {"p": "FF", "s": "ahead", "h": "R", "z": 8, "n": 3}, {"p": "FF", "s": "ahead", "h": "R", "z": 9, "n": 10}, {"p": "FF", "s": "ahead", "h": "R", "z": 11, "n": 29}, {"p": "FF", "s": "ahead", "h": "R", "z": 12, "n": 17}, {"p": "FF", "s": "ahead", "h": "R", "z": 13, "n": 7}, {"p": "FF", "s": "ahead", "h": "R", "z": 14, "n": 10}, {"p": "FF", "s": "behind", "h": "L", "z": 1, "n": 11}, {"p": "FF", "s": "behind", "h": "L", "z": 2, "n": 7}, {"p": "FF", "s": "behind", "h": "L", "z": 3, "n": 2}, {"p": "FF", "s": "behind", "h": "L", "z": 4, "n": 25}, {"p": "FF", "s": "behind", "h": "L", "z": 5, "n": 22}, {"p": "FF", "s": "behind", "h": "L", "z": 6, "n": 4}, {"p": "FF", "s": "behind", "h": "L", "z": 7, "n": 32}, {"p": "FF", "s": "behind", "h": "L", "z": 8, "n": 23}, {"p": "FF", "s": "behind", "h": "L", "z": 9, "n": 6}, {"p": "FF", "s": "behind", "h": "L", "z": 11, "n": 22}, {"p": "FF", "s": "behind", "h": "L", "z": 12, "n": 7}, {"p": "FF", "s": "behind", "h": "L", "z": 13, "n": 31}, {"p": "FF", "s": "behind", "h": "L", "z": 14, "n": 8}, {"p": "FF", "s": "behind", "h": "R", "z": 1, "n": 6}, {"p": "FF", "s": "behind", "h": "R", "z": 2, "n": 12}, {"p": "FF", "s": "behind", "h": "R", "z": 3, "n": 8}, {"p": "FF", "s": "behind", "h": "R", "z": 4, "n": 15}, {"p": "FF", "s": "behind", "h": "R", "z": 5, "n": 19}, {"p": "FF", "s": "behind", "h": "R", "z": 6, "n": 23}, {"p": "FF", "s": "behind", "h": "R", "z": 7, "n": 2}, {"p": "FF", "s": "behind", "h": "R", "z": 8, "n": 12}, {"p": "FF", "s": "behind", "h": "R", "z": 9, "n": 18}, {"p": "FF", "s": "behind", "h": "R", "z": 11, "n": 10}, {"p": "FF", "s": "behind", "h": "R", "z": 12, "n": 3}, {"p": "FF", "s": "behind", "h": "R", "z": 13, "n": 5}, {"p": "FF", "s": "behind", "h": "R", "z": 14, "n": 28}, {"p": "FF", "s": "even", "h": "L", "z": 1, "n": 11}, {"p": "FF", "s": "even", "h": "L", "z": 2, "n": 16}, {"p": "FF", "s": "even", "h": "L", "z": 3, "n": 11}, {"p": "FF", "s": "even", "h": "L", "z": 4, "n": 29}, {"p": "FF", "s": "even", "h": "L", "z": 5, "n": 29}, {"p": "FF", "s": "even", "h": "L", "z": 6, "n": 7}, {"p": "FF", "s": "even", "h": "L", "z": 7, "n": 31}, {"p": "FF", "s": "even", "h": "L", "z": 8, "n": 16}, {"p": "FF", "s": "even", "h": "L", "z": 9, "n": 2}, {"p": "FF", "s": "even", "h": "L", "z": 11, "n": 43}, {"p": "FF", "s": "even", "h": "L", "z": 12, "n": 11}, {"p": "FF", "s": "even", "h": "L", "z": 13, "n": 46}, {"p": "FF", "s": "even", "h": "L", "z": 14, "n": 4}, {"p": "FF", "s": "even", "h": "R", "z": 1, "n": 8}, {"p": "FF", "s": "even", "h": "R", "z": 2, "n": 17}, {"p": "FF", "s": "even", "h": "R", "z": 3, "n": 16}, {"p": "FF", "s": "even", "h": "R", "z": 4, "n": 6}, {"p": "FF", "s": "even", "h": "R", "z": 5, "n": 21}, {"p": "FF", "s": "even", "h": "R", "z": 6, "n": 36}, {"p": "FF", "s": "even", "h": "R", "z": 7, "n": 7}, {"p": "FF", "s": "even", "h": "R", "z": 8, "n": 16}, {"p": "FF", "s": "even", "h": "R", "z": 9, "n": 25}, {"p": "FF", "s": "even", "h": "R", "z": 11, "n": 14}, {"p": "FF", "s": "even", "h": "R", "z": 12, "n": 13}, {"p": "FF", "s": "even", "h": "R", "z": 13, "n": 6}, {"p": "FF", "s": "even", "h": "R", "z": 14, "n": 58}, {"p": "FS", "s": "ahead", "h": "L", "z": 1, "n": 1}, {"p": "FS", "s": "ahead", "h": "L", "z": 4, "n": 15}, {"p": "FS", "s": "ahead", "h": "L", "z": 5, "n": 4}, {"p": "FS", "s": "ahead", "h": "L", "z": 7, "n": 30}, {"p": "FS", "s": "ahead", "h": "L", "z": 8, "n": 15}, {"p": "FS", "s": "ahead", "h": "L", "z": 9, "n": 1}, {"p": "FS", "s": "ahead", "h": "L", "z": 11, "n": 20}, {"p": "FS", "s": "ahead", "h": "L", "z": 13, "n": 121}, {"p": "FS", "s": "ahead", "h": "L", "z": 14, "n": 19}, {"p": "FS", "s": "ahead", "h": "R", "z": 1, "n": 3}, {"p": "FS", "s": "ahead", "h": "R", "z": 2, "n": 1}, {"p": "FS", "s": "ahead", "h": "R", "z": 4, "n": 7}, {"p": "FS", "s": "ahead", "h": "R", "z": 5, "n": 5}, {"p": "FS", "s": "ahead", "h": "R", "z": 6, "n": 2}, {"p": "FS", "s": "ahead", "h": "R", "z": 7, "n": 14}, {"p": "FS", "s": "ahead", "h": "R", "z": 8, "n": 10}, {"p": "FS", "s": "ahead", "h": "R", "z": 9, "n": 9}, {"p": "FS", "s": "ahead", "h": "R", "z": 11, "n": 9}, {"p": "FS", "s": "ahead", "h": "R", "z": 13, "n": 67}, {"p": "FS", "s": "ahead", "h": "R", "z": 14, "n": 50}, {"p": "FS", "s": "behind", "h": "L", "z": 1, "n": 2}, {"p": "FS", "s": "behind", "h": "L", "z": 3, "n": 1}, {"p": "FS", "s": "behind", "h": "L", "z": 4, "n": 2}, {"p": "FS", "s": "behind", "h": "L", "z": 5, "n": 1}, {"p": "FS", "s": "behind", "h": "L", "z": 6, "n": 1}, {"p": "FS", "s": "behind", "h": "L", "z": 7, "n": 13}, {"p": "FS", "s": "behind", "h": "L", "z": 8, "n": 8}, {"p": "FS", "s": "behind", "h": "L", "z": 9, "n": 3}, {"p": "FS", "s": "behind", "h": "L", "z": 11, "n": 3}, {"p": "FS", "s": "behind", "h": "L", "z": 13, "n": 21}, {"p": "FS", "s": "behind", "h": "L", "z": 14, "n": 9}, {"p": "FS", "s": "behind", "h": "R", "z": 1, "n": 1}, {"p": "FS", "s": "behind", "h": "R", "z": 4, "n": 3}, {"p": "FS", "s": "behind", "h": "R", "z": 5, "n": 1}, {"p": "FS", "s": "behind", "h": "R", "z": 7, "n": 7}, {"p": "FS", "s": "behind", "h": "R", "z": 8, "n": 4}, {"p": "FS", "s": "behind", "h": "R", "z": 11, "n": 6}, {"p": "FS", "s": "behind", "h": "R", "z": 13, "n": 20}, {"p": "FS", "s": "behind", "h": "R", "z": 14, "n": 14}, {"p": "FS", "s": "even", "h": "L", "z": 1, "n": 5}, {"p": "FS", "s": "even", "h": "L", "z": 2, "n": 1}, {"p": "FS", "s": "even", "h": "L", "z": 4, "n": 13}, {"p": "FS", "s": "even", "h": "L", "z": 5, "n": 5}, {"p": "FS", "s": "even", "h": "L", "z": 6, "n": 1}, {"p": "FS", "s": "even", "h": "L", "z": 7, "n": 33}, {"p": "FS", "s": "even", "h": "L", "z": 8, "n": 11}, {"p": "FS", "s": "even", "h": "L", "z": 9, "n": 5}, {"p": "FS", "s": "even", "h": "L", "z": 11, "n": 9}, {"p": "FS", "s": "even", "h": "L", "z": 13, "n": 83}, {"p": "FS", "s": "even", "h": "L", "z": 14, "n": 41}, {"p": "FS", "s": "even", "h": "R", "z": 1, "n": 2}, {"p": "FS", "s": "even", "h": "R", "z": 2, "n": 2}, {"p": "FS", "s": "even", "h": "R", "z": 3, "n": 1}, {"p": "FS", "s": "even", "h": "R", "z": 4, "n": 9}, {"p": "FS", "s": "even", "h": "R", "z": 5, "n": 1}, {"p": "FS", "s": "even", "h": "R", "z": 6, "n": 2}, {"p": "FS", "s": "even", "h": "R", "z": 7, "n": 19}, {"p": "FS", "s": "even", "h": "R", "z": 8, "n": 5}, {"p": "FS", "s": "even", "h": "R", "z": 9, "n": 4}, {"p": "FS", "s": "even", "h": "R", "z": 11, "n": 7}, {"p": "FS", "s": "even", "h": "R", "z": 13, "n": 47}, {"p": "FS", "s": "even", "h": "R", "z": 14, "n": 30}, {"p": "SI", "s": "ahead", "h": "L", "z": 7, "n": 1}, {"p": "SI", "s": "ahead", "h": "L", "z": 11, "n": 1}, {"p": "SI", "s": "ahead", "h": "L", "z": 13, "n": 1}, {"p": "SI", "s": "ahead", "h": "R", "z": 1, "n": 3}, {"p": "SI", "s": "ahead", "h": "R", "z": 4, "n": 4}, {"p": "SI", "s": "ahead", "h": "R", "z": 5, "n": 8}, {"p": "SI", "s": "ahead", "h": "R", "z": 7, "n": 10}, {"p": "SI", "s": "ahead", "h": "R", "z": 8, "n": 2}, {"p": "SI", "s": "ahead", "h": "R", "z": 11, "n": 10}, {"p": "SI", "s": "ahead", "h": "R", "z": 13, "n": 25}, {"p": "SI", "s": "ahead", "h": "R", "z": 14, "n": 4}, {"p": "SI", "s": "behind", "h": "L", "z": 7, "n": 1}, {"p": "SI", "s": "behind", "h": "R", "z": 1, "n": 2}, {"p": "SI", "s": "behind", "h": "R", "z": 2, "n": 1}, {"p": "SI", "s": "behind", "h": "R", "z": 4, "n": 12}, {"p": "SI", "s": "behind", "h": "R", "z": 5, "n": 1}, {"p": "SI", "s": "behind", "h": "R", "z": 6, "n": 1}, {"p": "SI", "s": "behind", "h": "R", "z": 7, "n": 14}, {"p": "SI", "s": "behind", "h": "R", "z": 8, "n": 10}, {"p": "SI", "s": "behind", "h": "R", "z": 11, "n": 15}, {"p": "SI", "s": "behind", "h": "R", "z": 13, "n": 32}, {"p": "SI", "s": "behind", "h": "R", "z": 14, "n": 1}, {"p": "SI", "s": "even", "h": "L", "z": 1, "n": 1}, {"p": "SI", "s": "even", "h": "L", "z": 7, "n": 1}, {"p": "SI", "s": "even", "h": "L", "z": 11, "n": 1}, {"p": "SI", "s": "even", "h": "L", "z": 13, "n": 2}, {"p": "SI", "s": "even", "h": "R", "z": 1, "n": 3}, {"p": "SI", "s": "even", "h": "R", "z": 2, "n": 2}, {"p": "SI", "s": "even", "h": "R", "z": 3, "n": 1}, {"p": "SI", "s": "even", "h": "R", "z": 4, "n": 11}, {"p": "SI", "s": "even", "h": "R", "z": 5, "n": 6}, {"p": "SI", "s": "even", "h": "R", "z": 7, "n": 9}, {"p": "SI", "s": "even", "h": "R", "z": 8, "n": 4}, {"p": "SI", "s": "even", "h": "R", "z": 9, "n": 1}, {"p": "SI", "s": "even", "h": "R", "z": 11, "n": 16}, {"p": "SI", "s": "even", "h": "R", "z": 12, "n": 1}, {"p": "SI", "s": "even", "h": "R", "z": 13, "n": 35}, {"p": "SI", "s": "even", "h": "R", "z": 14, "n": 1}, {"p": "SL", "s": "ahead", "h": "L", "z": 5, "n": 1}, {"p": "SL", "s": "ahead", "h": "L", "z": 14, "n": 1}, {"p": "SL", "s": "ahead", "h": "R", "z": 2, "n": 1}, {"p": "SL", "s": "ahead", "h": "R", "z": 4, "n": 1}, {"p": "SL", "s": "ahead", "h": "R", "z": 5, "n": 3}, {"p": "SL", "s": "ahead", "h": "R", "z": 6, "n": 5}, {"p": "SL", "s": "ahead", "h": "R", "z": 7, "n": 2}, {"p": "SL", "s": "ahead", "h": "R", "z": 8, "n": 2}, {"p": "SL", "s": "ahead", "h": "R", "z": 9, "n": 5}, {"p": "SL", "s": "ahead", "h": "R", "z": 13, "n": 1}, {"p": "SL", "s": "ahead", "h": "R", "z": 14, "n": 21}, {"p": "SL", "s": "behind", "h": "R", "z": 5, "n": 3}, {"p": "SL", "s": "behind", "h": "R", "z": 6, "n": 2}, {"p": "SL", "s": "behind", "h": "R", "z": 8, "n": 3}, {"p": "SL", "s": "behind", "h": "R", "z": 9, "n": 1}, {"p": "SL", "s": "behind", "h": "R", "z": 14, "n": 2}, {"p": "SL", "s": "even", "h": "L", "z": 7, "n": 1}, {"p": "SL", "s": "even", "h": "L", "z": 9, "n": 1}, {"p": "SL", "s": "even", "h": "L", "z": 14, "n": 2}, {"p": "SL", "s": "even", "h": "R", "z": 2, "n": 1}, {"p": "SL", "s": "even", "h": "R", "z": 4, "n": 2}, {"p": "SL", "s": "even", "h": "R", "z": 5, "n": 2}, {"p": "SL", "s": "even", "h": "R", "z": 6, "n": 2}, {"p": "SL", "s": "even", "h": "R", "z": 7, "n": 3}, {"p": "SL", "s": "even", "h": "R", "z": 8, "n": 3}, {"p": "SL", "s": "even", "h": "R", "z": 9, "n": 3}, {"p": "SL", "s": "even", "h": "R", "z": 12, "n": 1}, {"p": "SL", "s": "even", "h": "R", "z": 13, "n": 1}, {"p": "SL", "s": "even", "h": "R", "z": 14, "n": 15}], "base": {"CU": {"1": 0.03453947368421053, "2": 0.006578947368421052, "3": 0.011513157894736841, "4": 0.07072368421052631, "5": 0.07401315789473684, "6": 0.03125, "7": 0.06578947368421052, "8": 0.13651315789473684, "9": 0.08223684210526316, "11": 0.0756578947368421, "12": 0.001644736842105263, "13": 0.09539473684210527, "14": 0.31414473684210525}, "FC": {"1": 0.016042780748663103, "2": 0.053475935828877004, "3": 0.06149732620320856, "4": 0.01871657754010695, "5": 0.0855614973262032, "6": 0.16042780748663102, "7": 0.0053475935828877, "8": 0.05614973262032086, "9": 0.13636363636363635, "11": 0.0213903743315508, "12": 0.06149732620320856, "13": 0.008021390374331552, "14": 0.3155080213903743}, "FF": {"1": 0.04609929078014184, "2": 0.06648936170212766, "3": 0.051418439716312055, "4": 0.08333333333333333, "5": 0.09663120567375887, "6": 0.07180851063829788, "7": 0.0726950354609929, "8": 0.06294326241134751, "9": 0.05585106382978723, "11": 0.13829787234042554, "12": 0.06205673758865248, "13": 0.09397163120567376, "14": 0.09840425531914894}, "FS": {"1": 0.01629802095459837, "2": 0.004656577415599534, "3": 0.002328288707799767, "4": 0.0570430733410943, "5": 0.01979045401629802, "6": 0.006984866123399301, "7": 0.1350407450523865, "8": 0.06169965075669383, "9": 0.025611175785797437, "11": 0.06286379511059371, "12": 0.0, "13": 0.4179278230500582, "14": 0.18975552968568102}, "SI": {"1": 0.03543307086614173, "2": 0.011811023622047244, "3": 0.003937007874015748, "4": 0.1062992125984252, "5": 0.05905511811023622, "6": 0.003937007874015748, "7": 0.14173228346456693, "8": 0.06299212598425197, "9": 0.003937007874015748, "11": 0.16929133858267717, "12": 0.003937007874015748, "13": 0.37401574803149606, "14": 0.023622047244094488}, "SL": {"1": 0.0, "2": 0.02197802197802198, "3": 0.0, "4": 0.03296703296703297, "5": 0.0989010989010989, "6": 0.0989010989010989, "7": 0.06593406593406594, "8": 0.08791208791208792, "9": 0.10989010989010989, "11": 0.0, "12": 0.01098901098901099, "13": 0.02197802197802198, "14": 0.45054945054945056}}, "min_slice": 25}, "release": [{"pitch_type": "FF", "n": 1128, "rel_x": -22.555, "rel_z": 65.22691489361702, "rel_x_sd": 1.8212833701714781, "rel_z_sd": 1.5539652071322667, "arm_angle": 41.816489361702125, "arm_angle_sd": 2.8734925522748456, "dx_from_ref": 0.0, "dz_from_ref": 0.0, "dist_from_ref": 0.0}, {"pitch_type": "FS", "n": 859, "rel_x": -22.915250291036088, "rel_z": 64.60358556461001, "rel_x_sd": 1.807892506779444, "rel_z_sd": 1.5636035707337785, "arm_angle": 40.726891734575084, "arm_angle_sd": 2.7256676864118607, "dx_from_ref": -0.3602502910360883, "dz_from_ref": -0.6233293290070065, "dist_from_ref": 0.7199442510305304}, {"pitch_type": "CU", "n": 608, "rel_x": -19.511052631578945, "rel_z": 66.52934210526315, "rel_x_sd": 1.7852166705058636, "rel_z_sd": 1.4687832084462575, "arm_angle": 49.959375, "arm_angle_sd": 2.557511971335723, "dx_from_ref": 3.0439473684210547, "dz_from_ref": 1.3024272116461333, "dist_from_ref": 3.3108808832928114}, {"pitch_type": "FC", "n": 374, "rel_x": -23.159358288770054, "rel_z": 64.63058823529413, "rel_x_sd": 1.7949848558355868, "rel_z_sd": 1.561330695416904, "arm_angle": 40.637967914438505, "arm_angle_sd": 2.8512829789962275, "dx_from_ref": -0.6043582887700545, "dz_from_ref": -0.5963266583228943, "dist_from_ref": 0.8490314626865241}, {"pitch_type": "SI", "n": 254, "rel_x": -21.76677165354331, "rel_z": 65.1755905511811, "rel_x_sd": 1.690746207497043, "rel_z_sd": 1.495962235337054, "arm_angle": 41.76929133858268, "arm_angle_sd": 2.4810749873093227, "dx_from_ref": 0.788228346456691, "dz_from_ref": -0.05132434243591888, "dist_from_ref": 0.7898975340411747}, {"pitch_type": "SL", "n": 91, "rel_x": -21.53142857142857, "rel_z": 64.72747252747253, "rel_x_sd": 1.7852858914710872, "rel_z_sd": 1.448406475641876, "arm_angle": 42.927472527472524, "arm_angle_sd": 2.908877826167714, "dx_from_ref": 1.0235714285714295, "dz_from_ref": -0.49944236614449267, "dist_from_ref": 1.1389210448875577}], "platoon": [{"pitch_type": "SI", "usage_L": 0.005628517823639775, "usage_R": 0.14285714285714285, "gap": -0.13722862503350308, "whiff_L": null, "whiff_R": 0.15384615384615385, "n_L": 9.0, "n_R": 245.0}, {"pitch_type": "FS", "usage_L": 0.31081926203877425, "usage_R": 0.2110787172011662, "gap": 0.09974054483760805, "whiff_L": 0.38257575757575757, "whiff_R": 0.40217391304347827, "n_L": 497.0, "n_R": 362.0}, {"pitch_type": "FF", "usage_L": 0.37398373983739835, "usage_R": 0.30903790087463556, "gap": 0.06494583896276279, "whiff_L": 0.1645021645021645, "whiff_R": 0.1981981981981982, "n_L": 598.0, "n_R": 530.0}, {"pitch_type": "SL", "usage_L": 0.00375234521575985, "usage_R": 0.04956268221574344, "gap": -0.04581033699998359, "whiff_L": null, "whiff_R": 0.24489795918367346, "n_L": 6.0, "n_R": 85.0}, {"pitch_type": "CU", "usage_L": 0.19887429643527205, "usage_R": 0.16909620991253643, "gap": 0.029778086522735614, "whiff_L": 0.2835820895522388, "whiff_R": 0.4, "n_L": 318.0, "n_R": 290.0}, {"pitch_type": "FC", "usage_L": 0.10694183864915573, "usage_R": 0.11836734693877551, "gap": -0.011425508289619787, "whiff_L": 0.16666666666666666, "whiff_R": 0.1958762886597938, "n_L": 171.0, "n_R": 203.0}], "fatigue": {"buckets": ["1-15", "16-30", "31-45", "46-60", "61-75", "76-90", "91-105", "106-120"], "velo": [94.97731629392972, 94.77664233576644, 94.61541353383458, 94.47380073800738, 93.97328244274809, 93.94075630252101, 94.26500000000001, 95.74166666666666], "delta": [0.0, -0.2006739581632786, -0.3619027600951341, -0.5035155559223341, -1.0040338511816316, -1.0365599914087085, -0.7123162939297032, 0.7643503727369421], "outings": [36, 36, 36, 34, 33, 31, 22, 4], "n": [313, 274, 266, 271, 262, 238, 120, 12], "reliable": [true, true, true, true, true, true, true, false], "min_outings": 10}, "tto": [{"tto": 1, "n": 1355, "velo": 94.88342391304347, "whiff_rate": 0.27472527472527475, "xwoba": 0.26361441259655305, "batters": 325, "outings": 36, "reliable": true}, {"tto": 2, "n": 1144, "velo": 94.28985024958402, "whiff_rate": 0.27606177606177607, "xwoba": 0.2591313837982233, "batters": 307, "outings": 35, "reliable": true}, {"tto": 3, "n": 768, "velo": 93.96783042394014, "whiff_rate": 0.25526315789473686, "xwoba": 0.2677956330443028, "batters": 187, "outings": 33, "reliable": true}, {"tto": 4, "n": 48, "velo": 95.71666666666668, "whiff_rate": 0.18518518518518517, "xwoba": 0.22543956481481478, "batters": 12, "outings": 4, "reliable": false}], "tto_decomposition": {"velo_delta": -0.9155934891033297, "xwoba_delta": 0.004181220447749767, "whiff_delta": -0.01946211683053789, "attribution": "neither", "note": "No meaningful third-trip change: velocity -0.9 mph, xwOBA +0.004.", "caveat": "The third trip is also the 70th-to-100th pitch, so trip number and pitch count move together and this comparison cannot say which is responsible. Read it as what happens late, not why.", "reliable": true}, "first_pitch": {"n": 829, "strike_rate": 0.6272617611580217, "primary_pitch": "FF", "primary_share": 0.4161640530759952}, "gates": {"note": "Every claim states its sample size. Thresholds and minimum samples are defined in config.yaml, not in code.", "max_takeaways": 5}}</script>
+<script>
+const D = JSON.parse(document.getElementById('payload').textContent);
+const COLORS = ['#2f6fb2','#c8703a','#4d8c5f','#a8444a','#7a6aa8','#8a7355','#4f7f8f','#96566f'];
+
+const pct  = v => v === null || v === undefined ? '—' : (v * 100).toFixed(1) + '%';
+const pct0 = v => v === null || v === undefined ? '—' : (v * 100).toFixed(0) + '%';
+const num  = (v, d = 1) => v === null || v === undefined ? '—' : v.toFixed(d);
+const int  = v => v === null || v === undefined ? '—' : Math.round(v).toLocaleString();
+const sign = (v, d = 3) => v === null || v === undefined ? '—'
+                           : (v >= 0 ? '+' : '') + v.toFixed(d);
+
+/* ---------------------------------------------------------------- tables */
+/* One renderer for every table. Columns declare their own formatter, so a
+   rate can never be printed as a raw float by accident. */
+function table(id, rows, cols) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!rows || !rows.length) {
+    el.outerHTML = '<p class="nodata">No rows cleared the sample gate.</p>';
+    return;
+  }
+  const present = cols.filter(c => rows.some(r => r[c.f] !== undefined));
+  let state = { col: null, dir: 'desc' };
+
+  function draw(data) {
+    el.querySelector('thead').innerHTML = '<tr>' + present.map(c =>
+      `<th class="${c.n ? 'num' : ''}" data-f="${c.f}">${c.l}${
+        state.col === c.f ? (state.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`
+    ).join('') + '</tr>';
+
+    el.querySelector('tbody').innerHTML = data.map(r => '<tr>' + present.map(c => {
+      const raw = r[c.f];
+      const txt = c.fmt ? c.fmt(raw) : (raw === null || raw === undefined ? '—' : raw);
+      let cls = c.n ? 'num' : '';
+      if (c.tone && typeof raw === 'number') cls += raw > 0 ? ' pos' : ' neg';
+      return `<td class="${cls}">${txt}</td>`;
+    }).join('') + '</tr>').join('');
+
+    el.querySelectorAll('th').forEach(th => th.onclick = () => {
+      const f = th.dataset.f;
+      state.dir = (state.col === f && state.dir === 'desc') ? 'asc' : 'desc';
+      state.col = f;
+      draw([...data].sort((a, b) => {
+        const x = a[f], y = b[f];
+        if (x === null || x === undefined) return 1;
+        if (y === null || y === undefined) return -1;
+        const c = x < y ? -1 : x > y ? 1 : 0;
+        return state.dir === 'asc' ? c : -c;
+      }));
+    });
+  }
+  draw(rows);
+}
+
+table('arsenalTable', D.arsenal, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'usage', l: 'Usage', n: 1, fmt: pct },
+  { f: 'league_usage', l: 'Lg usage', n: 1, fmt: pct },
+  { f: 'usage_ratio', l: 'vs Lg', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
+  { f: 'velo_delta', l: 'Δ velo', n: 1, fmt: v => sign(v, 1) },
+  { f: 'spin', l: 'Spin', n: 1, fmt: int },
+  { f: 'h_break', l: 'H break', n: 1, fmt: v => num(v, 1) },
+  { f: 'v_break', l: 'V break', n: 1, fmt: v => num(v, 1) },
+  { f: 'zone_rate', l: 'Zone%', n: 1, fmt: pct0 },
+  { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
+  { f: 'whiff_delta', l: 'Δ whiff', n: 1, fmt: v => sign(v, 3) },
+  { f: 'chase_rate', l: 'Chase', n: 1, fmt: pct },
+  { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
+  { f: 'xwoba_delta', l: 'Δ xwOBA', n: 1, fmt: v => sign(v, 3), tone: 1 },
+]);
+
+table('predTable', D.predictability, [
+  { f: 'count', l: 'Count' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'top_pitch', l: 'Top pitch' },
+  { f: 'top_share', l: 'Share', n: 1, fmt: pct },
+  { f: 'league_top_share', l: 'Lg share', n: 1, fmt: pct },
+  { f: 'share_delta', l: 'Δ', n: 1, fmt: v => sign(v, 3), tone: 1 },
+  { f: 'share_z', l: 'z', n: 1, fmt: v => num(v, 1) },
+  { f: 'predictability', l: 'Predictability', n: 1, fmt: v => num(v, 3) },
+  { f: 'entropy', l: 'Entropy', n: 1, fmt: v => num(v, 2) },
+]);
+
+table('liftTable', D.count_lifts, [
+  { f: 'count', l: 'Count' },
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'count_n', l: 'in count', n: 1, fmt: int },
+  { f: 'share', l: 'Share', n: 1, fmt: pct },
+  { f: 'own_rate', l: 'His overall', n: 1, fmt: pct },
+  { f: 'lift', l: 'Lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
+  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+]);
+
+table('setupTable', D.setups, [
+  { f: 'setup_pitch', l: 'Setup' },
+  { f: 'setup_band', l: 'Band' },
+  { f: 'next_pitch', l: 'Follow-up' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'p_next', l: 'P(next)', n: 1, fmt: pct },
+  { f: 'baseline_p', l: 'Baseline', n: 1, fmt: pct },
+  { f: 'freq_lift', l: 'Freq lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'effect_lift', l: 'Effect lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'xwoba_when', l: 'xwOBA after', n: 1, fmt: v => num(v, 3) },
+  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+]);
+
+table('putawayTable', D.putaway, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'usage', l: 'Usage', n: 1, fmt: pct },
+  { f: 'league_usage', l: 'Lg usage', n: 1, fmt: pct },
+  { f: 'putaway_rate', l: 'Putaway', n: 1, fmt: pct },
+  { f: 'league_putaway', l: 'Lg putaway', n: 1, fmt: pct },
+  { f: 'putaway_delta', l: 'Δ', n: 1, fmt: v => sign(v, 3) },
+  { f: 'putaway_z', l: 'z', n: 1, fmt: v => num(v, 1) },
+  { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
+]);
+
+table('platoonTable', D.platoon, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'usage_L', l: 'vs LHH', n: 1, fmt: pct },
+  { f: 'usage_R', l: 'vs RHH', n: 1, fmt: pct },
+  { f: 'gap', l: 'Gap', n: 1, fmt: v => sign(v, 3) },
+  { f: 'whiff_L', l: 'Whiff L', n: 1, fmt: pct },
+  { f: 'whiff_R', l: 'Whiff R', n: 1, fmt: pct },
+  { f: 'n_L', l: 'n L', n: 1, fmt: int },
+  { f: 'n_R', l: 'n R', n: 1, fmt: int },
+]);
+
+table('ttoTable', D.tto, [
+  { f: 'tto', l: 'Trip' },
+  { f: 'n', l: 'Pitches', n: 1, fmt: int },
+  { f: 'batters', l: 'Batters', n: 1, fmt: int },
+  { f: 'outings', l: 'Outings', n: 1, fmt: int },
+  { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
+  { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
+  { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
+]);
+
+table('releaseTable', D.release, [
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'rel_x', l: 'Rel x (in)', n: 1, fmt: v => num(v, 1) },
+  { f: 'rel_z', l: 'Rel z (in)', n: 1, fmt: v => num(v, 1) },
+  { f: 'rel_x_sd', l: 'SD x', n: 1, fmt: v => num(v, 2) },
+  { f: 'rel_z_sd', l: 'SD z', n: 1, fmt: v => num(v, 2) },
+  { f: 'arm_angle', l: 'Arm angle', n: 1, fmt: v => num(v, 1) },
+  { f: 'dist_from_ref', l: 'From slot (in)', n: 1, fmt: v => num(v, 2) },
+]);
+
+table('tellsTable', D.location_tells, [
+  { f: 'band', l: 'Band' },
+  { f: 'pitch_type', l: 'Pitch' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'p_pitch', l: 'P(pitch | band)', n: 1, fmt: pct },
+  { f: 'baseline_p', l: 'His baseline', n: 1, fmt: pct },
+  { f: 'lift', l: 'Lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
+  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+]);
+
+table('findingsTable', D.findings, [
+  { f: 'flag', l: 'Flag' },
+  { f: 'severity', l: 'Severity', n: 1, fmt: v => num(v, 2) },
+  { f: 'severity_basis', l: 'Basis' },
+  { f: 'n', l: 'n', n: 1, fmt: int },
+  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
+  { f: 'claim', l: 'Claim' },
+]);
+
+/* ------------------------------------------------------------- zone map */
+const zoneRows = {};
+(D.zone.rows || []).forEach(r => zoneRows[r.pitch_type] = r);
+const zonePitches = Object.keys(zoneRows);
+
+function shade(share, max) {
+  if (share === null || share === undefined || !max) return '#eef1f4';
+  const t = Math.min(share / max, 1);
+  // Interpolate pale blue -> accent blue. Two stops keeps the ramp readable
+  // in print, where a rainbow scale turns into mud.
+  const c0 = [220, 230, 240], c1 = [47, 111, 178];
+  return 'rgb(' + c0.map((v, i) => Math.round(v + (c1[i] - v) * t)).join(',') + ')';
+}
+
+function drawZone(pitch) {
+  const row = zoneRows[pitch];
+  const inner = document.getElementById('zoneInner');
+  const outer = document.getElementById('zoneOuter');
+  if (!row) { inner.innerHTML = ''; outer.innerHTML = ''; return; }
+
+  const all = [...D.zone.inner, ...D.zone.outer].map(z => row[z] || 0);
+  const max = Math.max(...all);
+
+  inner.innerHTML = D.zone.inner.map(z =>
+    `<div class="cell" style="background:${shade(row[z], max)}"
+      title="zone ${z}">${pct0(row[z] || 0)}</div>`).join('');
+
+  // 11 12 / 13 14 maps onto a 2x2 grid in that order, which is how Savant
+  // numbers the outside regions from the catcher's view.
+  outer.innerHTML = D.zone.outer.map(z =>
+    `<div class="cell" style="background:${shade(row[z], max)};font-size:10px;
+      align-items:flex-start;justify-content:flex-start;padding:6px"
+      title="zone ${z}">${pct0(row[z] || 0)}</div>`).join('');
+}
+
+if (zonePitches.length) {
+  const pick = document.getElementById('zonePick');
+  pick.innerHTML = zonePitches.map(p => {
+    const label = (D.display_names || {})[p] || p;
+    return `<option value="${p}">${label}</option>`;
+  }).join('');
+  pick.onchange = () => drawZone(pick.value);
+  drawZone(zonePitches[0]);
+}
+
+/* ------------------------------------------------- sliced zone heatmaps */
+/* Counts come from the payload; shares and lift are computed here so any
+   combination of count state and handedness can be assembled by summing.
+   Shares cannot be averaged across slices of different sizes without
+   weighting, so summing counts first is also the only correct way to do it. */
+const ZS = D.zone_slices || { cells: [], pitches: [] };
+
+/* Both scales are fixed, never fitted to the current selection. A scale that
+   rescales when you change a dropdown makes two slices look identical when
+   their magnitudes differ by a factor of three. */
+const SHARE_MAX = 0.35;         // share of a pitch going to one zone
+const LIFT_MAX  = 3.0;          // and its reciprocal, 0.33x, at the other end
+
+function lerp(a, b, t) {
+  return 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',') + ')';
+}
+
+/* Sequential single hue: absence to presence. */
+function shareColor(v) {
+  if (v === null || v === undefined) return '#f2f4f6';
+  return lerp([233, 239, 245], [31, 84, 140], Math.min(v / SHARE_MAX, 1));
+}
+
+/* Diverging, neutral at 1.0, blue below and orange above — not red/green,
+   which about 8% of men cannot separate. Ratios are placed on a log scale so
+   2x and 0.5x sit the same distance from the midpoint; on a linear scale
+   every "less than usual" cell would crowd into the bottom third. */
+function liftColor(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '#f2f4f6';
+  const span = Math.log(LIFT_MAX);
+  const t = Math.max(-1, Math.min(1, Math.log(v) / span));
+  const neutral = [247, 247, 245];
+  return t >= 0 ? lerp(neutral, [191, 94, 39], t)
+                : lerp(neutral, [39, 104, 168], -t);
+}
+
+function sliceCells(state, hand) {
+  const out = {};
+  ZS.cells.forEach(c => {
+    if (state !== 'all' && c.s !== state) return;
+    if (hand !== 'all' && c.h !== hand) return;
+    (out[c.p] = out[c.p] || {})[c.z] = (out[c.p][c.z] || 0) + c.n;
+  });
+  return out;
+}
+
+function drawSlices() {
+  const state = document.getElementById('sliceState').value;
+  const hand = document.getElementById('sliceHand').value;
+  const mode = document.getElementById('sliceMode').value;
+  const grid = document.getElementById('zgrid');
+  if (!grid) return;
+
+  const byPitch = sliceCells(state, hand);
+  const thin = [];
+
+  grid.innerHTML = ZS.pitches.map(pitch => {
+    const cells = byPitch[pitch] || {};
+    const total = Object.values(cells).reduce((a, b) => a + b, 0);
+    const base = (ZS.base || {})[pitch] || {};
+    const ok = total >= ZS.min_slice;
+    if (!ok) thin.push(pitch);
+
+    const cell = z => {
+      const n = cells[z] || 0;
+      const share = total ? n / total : null;
+      const b = base[z];
+      const lift = (share !== null && b) ? share / b : null;
+      const v = mode === 'lift' ? lift : share;
+      const bg = mode === 'lift' ? liftColor(v) : shareColor(v);
+      const label = v === null ? '—'
+        : mode === 'lift' ? v.toFixed(1) + 'x' : (v * 100).toFixed(0) + '%';
+      return `<div class="zcell" style="background:${bg}"
+        title="zone ${z}: ${n} pitches, ${total ? ((n / total) * 100).toFixed(1) : 0}%">
+        <b>${n ? label : ''}</b><i>${n || ''}</i></div>`;
+    };
+
+    const name = (D.display_names || {})[pitch] || pitch;
+    return `<div class="zpanel${ok ? '' : ' thin'}">
+      <h4>${name}</h4>
+      <div class="sub${ok ? '' : ' warn'}">
+        ${total} pitches${ok ? '' : ' — too thin to read'}
+      </div>
+      <div class="zmap">
+        <div class="outer">${ZS.outer.map(cell).join('')}</div>
+        <div class="inner">${ZS.inner.map(cell).join('')}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const ramp = mode === 'lift'
+    ? `<span class="ramp" style="background:linear-gradient(90deg,
+         ${liftColor(1 / LIFT_MAX)},${liftColor(1)},${liftColor(LIFT_MAX)})"></span>
+       <span>0.33x &nbsp;·&nbsp; 1.0x &nbsp;·&nbsp; 3x+</span>`
+    : `<span class="ramp" style="background:linear-gradient(90deg,
+         ${shareColor(0)},${shareColor(SHARE_MAX)})"></span>
+       <span>0% &nbsp;·&nbsp; ${(SHARE_MAX * 100).toFixed(0)}%+</span>`;
+  document.getElementById('sliceLegend').innerHTML = ramp;
+
+  const explain = mode === 'lift'
+    ? 'Lift is this slice’s share of the zone divided by where that pitch '
+      + 'goes across the whole season, so 1.0x means the situation does not move '
+      + 'it. Orange is more than usual, blue less. Big number is the lift, small '
+      + 'number is the pitch count.'
+    : 'Share is the percentage of this pitch, in this slice, going to each zone. '
+      + 'Mostly it shows where the pitch always goes; switch to lift for what is '
+      + 'specific to the slice.';
+  const caution = thin.length
+    ? ` Hatched panels (${thin.join(', ')}) fall under ${ZS.min_slice} pitches — `
+      + 'a thirteen-zone grid of that many is noise however it is coloured.'
+    : '';
+  document.getElementById('sliceNote').textContent = explain + caution;
+}
+
+if (ZS.pitches.length) {
+  ['sliceState', 'sliceHand', 'sliceMode'].forEach(id => {
+    document.getElementById(id).onchange = drawSlices;
+  });
+  drawSlices();
+}
+
+const bi = D.band_information || {};
+if (bi.v_band) {
+  document.getElementById('bandNote').textContent =
+    `Vertical band removes ${pct(bi.v_band.info_gain_pct)} of pitch-type ` +
+    `uncertainty; quadrant removes ${pct((bi.quadrant || {}).info_gain_pct)}. ` +
+    `Clearest: ${bi.v_band.top_band} → ${bi.v_band.top_pitch} ` +
+    `${pct0(bi.v_band.top_share)}.`;
+}
+
+/* --------------------------------------------------------------- charts */
+/* Chart.js is the one external dependency. If it is blocked the tables above
+   still carry every number, so the page is degraded rather than broken. */
+if (typeof Chart === 'undefined') {
+  document.querySelectorAll('.chartbox .holder').forEach(h => {
+    h.innerHTML = '<p class="nodata">Charts need a network connection. ' +
+                  'Every figure is in the tables below.</p>';
+  });
+} else {
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 11;
+  Chart.defaults.animation = false;
+
+  const cm = D.count_mix;
+  if (cm && cm.counts.length) {
+    new Chart(document.getElementById('countChart'), {
+      type: 'bar',
+      data: {
+        labels: cm.counts,
+        datasets: cm.pitches.map((p, i) => ({
+          label: (D.display_names || {})[p] || p,
+          data: cm.series[p],
+          backgroundColor: COLORS[i % COLORS.length],
+          borderWidth: 0,
+        })),
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: { stacked: true, max: 1, ticks: { callback: v => (v * 100) + '%' },
+               grid: { color: '#f0f2f4' } },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.y)}` } },
+        },
+      },
+    });
+  }
+
+  const ars = D.arsenal || [];
+  if (ars.length) {
+    const sets = [{
+      label: 'His usage',
+      data: ars.map(r => r.usage),
+      backgroundColor: COLORS[0],
+      borderRadius: 3,
+    }];
+    if (D.meta.has_league && ars.some(r => r.league_usage !== null)) {
+      sets.push({
+        label: 'League',
+        data: ars.map(r => r.league_usage),
+        backgroundColor: '#c9d2dc',
+        borderRadius: 3,
+      });
+    }
+    new Chart(document.getElementById('arsenalChart'), {
+      type: 'bar',
+      data: { labels: ars.map(r => r.pitch_type), datasets: sets },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { callback: v => (v * 100).toFixed(0) + '%' },
+               grid: { color: '#f0f2f4' } },
+          y: { grid: { display: false } },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.x)}` } },
+        },
+      },
+    });
+  }
+
+  const fg = D.fatigue;
+  if (fg && fg.buckets.length) {
+    // Buckets built from too few separate outings are greyed, not removed.
+    // A late bucket only contains the starts that got that deep, which are
+    // the starts that were going well, so its rise is selection rather than
+    // recovery. Dropping those points would make the curve look better
+    // supported than it is; greying them says what happened.
+    const ok = fg.reliable || fg.buckets.map(() => true);
+    const solid = '#2f6fb2', faded = '#b9c6d4';
+
+    new Chart(document.getElementById('fatigueChart'), {
+      type: 'line',
+      data: {
+        labels: fg.buckets,
+        datasets: [{
+          label: 'Fastball velo',
+          data: fg.velo,
+          borderColor: solid,
+          backgroundColor: 'rgba(47,111,178,.10)',
+          // Straight segments. A smoothed curve implies measurements between
+          // buckets that do not exist.
+          borderWidth: 2, fill: true, tension: 0,
+          pointRadius: 4, pointHoverRadius: 7,
+          pointBackgroundColor: ctx => ok[ctx.dataIndex] ? solid : faded,
+          pointBorderColor: ctx => ok[ctx.dataIndex] ? solid : faded,
+          segment: {
+            borderColor: ctx =>
+              (ok[ctx.p0DataIndex] && ok[ctx.p1DataIndex]) ? solid : faded,
+            borderDash: ctx =>
+              (ok[ctx.p0DataIndex] && ok[ctx.p1DataIndex]) ? undefined : [5, 4],
+          },
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { grid: { display: false }, title: { display: true, text: 'pitch of outing' } },
+          y: { grid: { color: '#f0f2f4' }, ticks: { callback: v => v.toFixed(1) } },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: c => `${num(c.parsed.y, 2)} mph`,
+              // The outing count is what governs interpretation: a drop seen
+              // in three starts is three starts.
+              afterLabel: c => `${fg.outings[c.dataIndex]} outings, ` +
+                               `n=${fg.n[c.dataIndex]}` +
+                               (ok[c.dataIndex] ? ''
+                                 : `\nUnder ${fg.min_outings} outings — only the ` +
+                                   `starts that got this deep are in here.`),
+            },
+          },
+        },
+      },
+    });
+  }
+
+  const pl = D.platoon || [];
+  if (pl.length) {
+    new Chart(document.getElementById('platoonChart'), {
+      type: 'bar',
+      data: {
+        labels: pl.map(r => r.pitch_type),
+        datasets: [
+          { label: 'vs LHH', data: pl.map(r => r.usage_L),
+            backgroundColor: COLORS[0], borderRadius: 3 },
+          { label: 'vs RHH', data: pl.map(r => r.usage_R),
+            backgroundColor: COLORS[1], borderRadius: 3 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { grid: { display: false } },
+          y: { ticks: { callback: v => (v * 100).toFixed(0) + '%' },
+               grid: { color: '#f0f2f4' } },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.y)}` } },
+        },
+      },
+    });
+  }
+}
+</script>
+</body>
+</html>

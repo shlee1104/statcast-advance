@@ -21,6 +21,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.metrics import events
+
+# events.outcome_delta reads the outcome columns by their ordinary names, so
+# the successor's prefixed copies are renamed back before it sees them.
+_NEXT_OUTCOME_COLUMNS = {
+    "next_delta_run_exp": "delta_run_exp",
+    "next_estimated_woba_using_speedangle": "estimated_woba_using_speedangle",
+}
+
 # A plate appearance is uniquely identified by game and at-bat number.
 PA_KEYS = ["game_pk", "at_bat_number"]
 
@@ -58,7 +67,10 @@ def _pair_pitches(frame: pd.DataFrame) -> pd.DataFrame:
     inside a groupby yields NaN at the end of every group, so the final pitch
     of each PA can never be paired with the first pitch of the next one.
     """
-    columns = ["pitch_type", "description", "zone", "is_swing", "is_whiff"]
+    # delta_run_exp and xwOBA travel with the successor so the outcome of the
+    # follow-up can be measured without a second join.
+    columns = ["pitch_type", "description", "zone", "is_swing", "is_whiff",
+               "delta_run_exp", "estimated_woba_using_speedangle"]
 
     ordered = frame.sort_values(PA_KEYS + ["pitch_number"]).copy()
 
@@ -73,6 +85,23 @@ def _pair_pitches(frame: pd.DataFrame) -> pd.DataFrame:
             ordered[f"next_{column}"] = grouped[column].shift(-1)
 
     return ordered[ordered["next_pitch_type"].notna()].copy()
+
+
+def _follow_outcomes(pairs: pd.DataFrame) -> pd.DataFrame:
+    """Isolate the successor's outcome columns under their ordinary names.
+
+    A paired row carries both the setup pitch's outcome columns and the
+    follow-up's `next_`-prefixed copies. Renaming in place would produce two
+    columns called `delta_run_exp` and silently measure the wrong pitch, so
+    only the prefixed pair is selected before the rename.
+    """
+    present = {
+        old: new for old, new in _NEXT_OUTCOME_COLUMNS.items()
+        if old in pairs.columns
+    }
+    if not present:
+        return pairs.iloc[0:0]
+    return pairs[list(present)].rename(columns=present)
 
 
 def _row_normalize(
@@ -302,6 +331,9 @@ def setup_pairs(
         "setup_pitch", "setup_band", "next_pitch", "n",
         "p_next", "baseline_p", "freq_lift",
         "whiff_after", "whiff_baseline", "effect_lift", "score",
+        "rv_when", "rv_base", "rv_delta", "runs_cost",
+               "runs_lo", "runs_hi", "significant", "rv_p",
+        "xwoba_when", "xwoba_delta",
     ]
 
     pairs = _pair_pitches(frame)
@@ -371,6 +403,15 @@ def setup_pairs(
                 else float("nan")
             )
 
+            # What the follow-up actually produced, against what that pitch
+            # produces generally. effect_lift only sees whiffs, which
+            # understates a sequence that generates weak contact and misses a
+            # sequence whose consequence is called strikes entirely.
+            all_of_next = pairs[pairs["next_pitch_type"] == next_pitch]
+            outcome = events.outcome_delta(
+                _follow_outcomes(follow), _follow_outcomes(all_of_next)
+            )
+
             records.append({
                 "setup_pitch": setup_pitch,
                 "setup_band": band,
@@ -383,6 +424,16 @@ def setup_pairs(
                 "whiff_baseline": base_whiff,
                 "effect_lift": effect_lift,
                 "score": (freq_lift - 1) * n if np.isfinite(freq_lift) else float("nan"),
+                "rv_when": outcome["rv_when"],
+                "rv_base": outcome["rv_base"],
+                "rv_delta": outcome["rv_delta"],
+                "runs_cost": outcome["runs_cost"],
+                "runs_lo": outcome["runs_lo"],
+                "runs_hi": outcome["runs_hi"],
+                "significant": outcome["significant"],
+                "rv_p": outcome["rv_p"],
+                "xwoba_when": outcome["xwoba_when"],
+                "xwoba_delta": outcome["xwoba_delta"],
             })
 
     if not records:

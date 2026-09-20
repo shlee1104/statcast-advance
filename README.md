@@ -23,8 +23,8 @@ outcome), which makes the methodology directly transferable.
 
 ## Status
 
-In development. The data pipeline and metrics layer are working end to end
-against real season data; the report layer is not yet built.
+Working end to end against real season data. A pitcher name goes in and a
+self-contained interactive HTML report comes out.
 
 **Complete**
 
@@ -43,18 +43,30 @@ against real season data; the report layer is not yet built.
   release-point consistency check that flags offerings thrown from a different
   slot than the fastball
 - Splits — platoon usage gaps, in-outing velocity decay, and a times-through-order
-  decomposition that separates fatigue from familiarity
+  comparison that reports what changes late without claiming why, since trip
+  number and pitch count are collinear
 - Location — plate coordinates normalized to the pitcher's arm side and to the
   batter's own strike zone, with per-pitch quadrant concentration, command
   spread, and a conditional-entropy score for how much a location band gives
   away about which pitch is coming
-- 175 unit tests, plus an end-to-end validation suite over live data
+- Weakness-flag rules engine — seven rules over the metrics layer, each finding
+  carrying its sample size in the sentence, ranked on a single severity axis
+  that records whether it came from a league z-score or a weighted threshold
+- Interactive HTML report — takeaways first, then arsenal, location, count,
+  sequencing and splits evidence; a normalized zone heat map; self-contained in
+  one file with no server and no build step
+- Single-command CLI — `python -m src.cli --pitcher "Name"` from name to report
+- Outcome coupling — every tell reports what the pattern costs him in runs, with
+  a confidence interval, and says so when the interval does not exclude zero
+- Multiple-comparison correction — Benjamini-Hochberg across every family, with
+  the number of comparisons printed next to the number of findings
+- 272 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- Weakness-flag rules engine
-- Single-file interactive HTML report
 - Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
+- Hitter reports
+- Swing-disruption metrics from the bat-tracking fields
 
 ## Setup
 
@@ -96,10 +108,19 @@ Run the metrics layer and print every current output:
 python scripts/explore.py --pitcher yamamoto
 ```
 
-The single-command report generator is the next milestone:
+Generate a report. Name in, self-contained HTML out:
 
 ```bash
-python -m src.cli --pitcher "Yoshinobu Yamamoto" --season 2025    # not yet built
+python -m src.cli --pitcher "Yoshinobu Yamamoto" --season 2025
+```
+
+It resolves the name, reads the cache or fetches, cleans, computes every
+metric, runs the flags, and writes `reports/<name>_<season>.html`. League
+baselines are used if they exist and skipped if they do not. To work offline
+from a committed fixture:
+
+```bash
+python -m src.cli --pitcher "Yoshinobu Yamamoto" --fixture yamamoto
 ```
 
 ## Sample output
@@ -144,9 +165,33 @@ logic.
 report that confidently asserts a tendency off 6 pitches is worse than no report,
 because a coach may act on it.
 
-**League baselines are the comparison layer.** "Throws a slider 40% in 1-2" means
-nothing alone. "Throws a slider 40% in 1-2, against a league rate of 22%" is
-actionable.
+**Two baselines, answering two questions.** League rates say who a pitcher is;
+his own rates say what he is about to throw. Only the second is a hitter's
+question, and conflating them buries findings. A splitter specialist beats the
+league rate in every count he uses the pitch in, which reads as twelve findings
+and is one fact — while a pitch he elevates in two specific counts never crosses
+a league threshold at all, because his overall usage of it is ordinary. Counts
+and sequences are therefore measured against his own mix, with league rates
+carried as context.
+
+**The denominator is part of the finding.** A report that surfaces eight
+findings has run far more comparisons than eight. This one runs 120 — 44 count,
+44 location, 32 sequencing — of which about six clear an uncorrected p < .05 by
+chance alone. Benjamini-Hochberg is applied across all of them in the engine,
+where the whole family is visible, and the comparison count is printed next to
+the finding count. On Yamamoto, nine comparisons clear the raw threshold and
+none survive the correction, which is why every run consequence in that report
+is stated as unresolved.
+
+**A tell is not a weakness.** Predictable and exploitable are different claims.
+Hitters know Yamamoto's splitter is coming with two strikes and still post a
+.191 xwOBA against it. So every tell reports what the pattern costs him in runs
+— and reports honestly that one season of one pitcher usually cannot resolve
+that: run value per pitch has a standard deviation near 0.19 against
+pattern-level differences of 0.01 to 0.02. Where the interval spans zero the
+report says the frequency pattern is the finding and the run consequence is
+unresolved, rather than printing a run figure that implies precision it does
+not have.
 
 **The cache is a real data layer.** Pitch data is fetched on demand per player,
 then persisted to a local DuckDB store. Repeat requests skip the network, and the

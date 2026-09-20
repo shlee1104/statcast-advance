@@ -35,6 +35,8 @@ def make_pitches(specs: list[dict]) -> pd.DataFrame:
                 "pitch_type": spec["pitch_type"],
                 "p_throws": spec.get("p_throws", "R"),
                 "stand": spec.get("stand", "R"),
+                "balls": spec.get("balls", 0),
+                "strikes": spec.get("strikes", 0),
                 "plate_x": spec.get("plate_x", 0.0),
                 "plate_z": spec.get("plate_z", 2.5),
                 "sz_top": spec.get("sz_top", 3.5),
@@ -404,6 +406,90 @@ class TestBandInformation:
         info = location.band_information(frame)
         assert info["n"] == 0
         assert info["top_band"] is None
+
+
+class TestCountState:
+    def test_labels_the_three_states(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 5},
+            {"pitch_type": "SL", "n": 5},
+            {"pitch_type": "CU", "n": 5},
+        ])
+        frame.loc[0:4, ["balls", "strikes"]] = [0, 2]
+        frame.loc[5:9, ["balls", "strikes"]] = [1, 1]
+        frame.loc[10:14, ["balls", "strikes"]] = [3, 0]
+        states = location.count_state(frame)
+        assert states.iloc[0] == "ahead"
+        assert states.iloc[5] == "even"
+        assert states.iloc[10] == "behind"
+
+    def test_prefers_the_flags_clean_already_computed(self):
+        """One definition of "ahead" governs the project, so where clean.py has
+        already decided, this must not decide again differently."""
+        frame = make_pitches([{"pitch_type": "FF", "n": 4}])
+        frame["balls"], frame["strikes"] = 0, 0
+        frame["is_ahead"], frame["is_behind"] = True, False
+        assert list(location.count_state(frame)) == ["ahead"] * 4
+
+
+class TestZoneSlices:
+    def build(self):
+        return make_pitches([
+            {"pitch_type": "FF", "n": 60, "zone": 5, "stand": "R"},
+            {"pitch_type": "FF", "n": 40, "zone": 14, "stand": "L"},
+            {"pitch_type": "SL", "n": 50, "zone": 13, "stand": "R"},
+            {"pitch_type": "SL", "n": 10, "zone": 5, "stand": "L"},
+        ])
+
+    def test_shares_sum_to_one_within_each_slice(self):
+        table = location.zone_slices(self.build())
+        totals = table.groupby(["pitch_type", "state", "stand"])["share"].sum()
+        for value in totals:
+            assert value == pytest.approx(1.0)
+
+    def test_every_zone_appears_in_every_slice(self):
+        """The renderer draws a fixed grid, so a slice missing a zone would
+        leave a hole rather than an empty cell."""
+        table = location.zone_slices(self.build())
+        per_slice = table.groupby(["pitch_type", "state", "stand"]).size()
+        assert set(per_slice) == {len(location.ALL_ZONES)}
+
+    def test_lift_is_against_that_pitch_own_distribution(self):
+        """Not the arsenal's and not the league's: a lift above 1.0 means he
+        puts it here more than he usually puts THIS pitch."""
+        frame = self.build()
+        table = location.zone_slices(frame)
+        row = table[(table["pitch_type"] == "FF") & (table["stand"] == "R")
+                    & (table["zone"] == 5)].iloc[0]
+        # FF is 60/100 in zone 5 overall; vs RHH it is 60/60.
+        assert row["base_share"] == pytest.approx(0.60)
+        assert row["share"] == pytest.approx(1.0)
+        assert row["lift"] == pytest.approx(1 / 0.60)
+
+    def test_thin_slices_are_marked_not_dropped(self):
+        """A grid of 10 pitches over thirteen zones is noise however it is
+        coloured, and the honest signal is on the slice, not the cell."""
+        table = location.zone_slices(self.build(), min_cell=25)
+        thin = table[(table["pitch_type"] == "SL") & (table["stand"] == "L")]
+        assert len(thin) == len(location.ALL_ZONES)
+        assert not thin["reliable"].any()
+
+    def test_reliable_slices_are_marked_reliable(self):
+        table = location.zone_slices(self.build(), min_cell=25)
+        thick = table[(table["pitch_type"] == "FF") & (table["stand"] == "R")]
+        assert thick["reliable"].all()
+
+    def test_counts_reconcile_with_the_arsenal(self):
+        """The check that proves a slice did not lose or duplicate rows."""
+        frame = self.build()
+        table = location.zone_slices(frame)
+        for pitch, total in frame["pitch_type"].value_counts().items():
+            if pitch in set(table["pitch_type"]):
+                assert table[table["pitch_type"] == pitch]["n"].sum() == total
+
+    def test_empty_frame(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
+        assert len(location.zone_slices(frame)) == 0
 
 
 class TestZoneTable:

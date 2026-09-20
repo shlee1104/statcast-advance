@@ -12,6 +12,8 @@ if you assume otherwise.
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 # Every description that involves the batter offering at the pitch.
@@ -123,3 +125,140 @@ def _safe_mean(frame: pd.DataFrame, column: str) -> float:
     if len(frame) == 0:
         return float("nan")
     return float(frame[column].mean())
+
+
+# ---------------------------------------------------------------------------
+# Outcome coupling
+# ---------------------------------------------------------------------------
+#
+# A tell and a weakness are different things, and a report that only measures
+# frequency cannot tell them apart. Yamamoto's splitter is the case in point:
+# hitters know it is coming with two strikes and still post a .191 xwOBA
+# against it. That pattern is predictable and worthless to a hitter, and a
+# report that flags it without saying so is handing a coach a plan that does
+# not work.
+#
+# So every tell carries what happens when the pattern holds, against what
+# normally happens, in runs.
+#
+# `delta_run_exp` is Savant's change in run expectancy on the pitch. The sign
+# convention is not documented consistently in public sources, so it was
+# established from the data: home runs average +1.43 and strikeouts −0.22 in
+# this fixture, so POSITIVE FAVOURS THE BATTER. A positive delta therefore
+# means the pattern is costing the pitcher, which is the direction a reader
+# expects a "bad for him" number to point.
+
+RUN_VALUE_COLUMN = "delta_run_exp"
+XWOBA_COLUMN = "estimated_woba_using_speedangle"
+
+
+def outcome_delta(subset: pd.DataFrame, baseline: pd.DataFrame) -> dict:
+    """What happens when a pattern holds, against what normally happens.
+
+    Returns:
+      rv_when     float, mean run value on the pattern's pitches
+      rv_base     float, mean run value on the baseline pitches
+      rv_delta    float, when minus base; positive means it costs the pitcher
+      runs_cost   float, rv_delta * n, total runs over the season
+      xwoba_when  float, contact quality when the pattern holds
+      xwoba_base  float, contact quality normally
+      xwoba_delta float, when minus base; positive is worse for the pitcher
+
+    Run value is the primary measure and xwOBA the secondary, because xwOBA is
+    only defined on batted balls while run value exists on every pitch — a tell
+    whose consequence is extra called strikes is invisible to xwOBA and plain
+    in run value.
+
+    `runs_cost` is the closest thing this project has to a common currency.
+    Frequency lifts, velocity drops and share deltas cannot be ranked against
+    each other; runs can.
+    """
+    blank = {
+        "rv_when": float("nan"), "rv_base": float("nan"),
+        "rv_delta": float("nan"), "runs_cost": float("nan"),
+        "runs_lo": float("nan"), "runs_hi": float("nan"),
+        "rv_se": float("nan"), "rv_p": float("nan"), "significant": False,
+        "xwoba_when": float("nan"), "xwoba_base": float("nan"),
+        "xwoba_delta": float("nan"),
+    }
+    if len(subset) == 0 or len(baseline) == 0:
+        return blank
+
+    rv_when = _column_mean(subset, RUN_VALUE_COLUMN)
+    rv_base = _column_mean(baseline, RUN_VALUE_COLUMN)
+    xw_when = _column_mean(subset, XWOBA_COLUMN)
+    xw_base = _column_mean(baseline, XWOBA_COLUMN)
+
+    rv_delta = rv_when - rv_base
+    n = len(subset)
+
+    # Run value per pitch has a standard deviation around 0.19, because most
+    # pitches move run expectancy barely at all and a home run moves it by
+    # 1.4. The differences being measured here are 0.01 to 0.02. That ratio
+    # means a season of one pitcher cannot resolve them, and the interval says
+    # so: a "3.4 runs" estimate on 393 pitches carries a 95% interval of
+    # roughly [-4, +11].
+    #
+    # This is reported rather than hidden because the alternative is a report
+    # that states a run cost to one decimal place and implies a precision that
+    # does not exist. A frequency pattern on 393 pitches is solid; its run
+    # consequence, from the same 393 pitches, is not.
+    se_delta = _welch_se(subset, baseline, RUN_VALUE_COLUMN)
+    runs_cost = rv_delta * n
+    margin = 1.96 * se_delta * n if se_delta == se_delta else float("nan")
+
+    return {
+        "rv_when": rv_when,
+        "rv_base": rv_base,
+        "rv_delta": rv_delta,
+        "rv_se": se_delta,
+        "runs_cost": runs_cost,
+        "runs_lo": runs_cost - margin,
+        "runs_hi": runs_cost + margin,
+        # An UNCORRECTED p-value for this one comparison. It is deliberately
+        # not a verdict: a report runs well over a hundred of these, so the
+        # decision about which survive belongs to whatever can see the whole
+        # family at once. flags.evaluate() applies Benjamini-Hochberg across
+        # all of them.
+        "rv_p": _two_sided_p(rv_delta, se_delta),
+        # Uncorrected. Kept for diagnostics only — read `resolved` on a
+        # finding instead.
+        "significant": bool(
+            margin == margin and abs(rv_delta) > 1.96 * se_delta
+        ),
+        "xwoba_when": xw_when,
+        "xwoba_base": xw_base,
+        "xwoba_delta": xw_when - xw_base,
+    }
+
+
+def _two_sided_p(delta: float, se: float) -> float:
+    """Two-sided normal p-value for a difference in means.
+
+    Normal rather than t because every comparison here rests on dozens to
+    hundreds of pitches, where the difference between the two is far smaller
+    than the thing being measured.
+    """
+    if not (delta == delta and se == se) or se <= 0:
+        return float("nan")
+    z = abs(delta / se)
+    return float(math.erfc(z / math.sqrt(2)))
+
+
+def _welch_se(a: pd.DataFrame, b: pd.DataFrame, column: str) -> float:
+    """Standard error of the difference in means, unequal variances."""
+    if column not in a.columns or column not in b.columns:
+        return float("nan")
+    x = pd.to_numeric(a[column], errors="coerce").dropna()
+    y = pd.to_numeric(b[column], errors="coerce").dropna()
+    if len(x) < 2 or len(y) < 2:
+        return float("nan")
+    return float((x.var(ddof=1) / len(x) + y.var(ddof=1) / len(y)) ** 0.5)
+
+
+def _column_mean(frame: pd.DataFrame, column: str) -> float:
+    """Mean of a numeric column, tolerating absence and all-null."""
+    if column not in frame.columns:
+        return float("nan")
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    return float(values.mean()) if len(values) else float("nan")

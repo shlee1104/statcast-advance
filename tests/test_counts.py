@@ -40,6 +40,115 @@ def make_pitches(specs: list[tuple[str, str, int]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+class TestCountLifts:
+    """Lift against his own overall rate, over every count-pitch pair.
+
+    predictability() reports only the most-used pitch in each count, and the
+    useful pattern is often not the plurality. Yamamoto goes to his cutter 27%
+    of the time in 2-1 — 2.4x his own rate — while the four-seam is still the
+    most-thrown pitch there, so a top-pitch-only table never mentions it.
+    """
+
+    def test_finds_a_pitch_that_is_not_the_plurality(self):
+        frame = make_pitches([
+            # 2-1: FF is the plurality at 40%, but SL is 30% against a 10%
+            # overall rate, which is the exploitable one.
+            ("2-1", "FF", 40), ("2-1", "SL", 30), ("2-1", "CU", 30),
+            ("0-0", "FF", 400), ("0-0", "CU", 200), ("0-0", "SL", 40),
+        ])
+        table = counts.count_lifts(frame, min_n=20)
+        row = table[(table["count"] == "2-1") & (table["pitch_type"] == "SL")]
+        assert len(row) == 1
+        assert row.iloc[0]["lift"] > 2.0
+
+    def test_lift_is_against_his_own_overall_rate(self):
+        frame = make_pitches([
+            ("0-2", "SL", 50), ("0-2", "FF", 50),
+            ("0-0", "FF", 300), ("0-0", "SL", 100),
+        ])
+        table = counts.count_lifts(frame, min_n=20)
+        row = table[(table["count"] == "0-2") & (table["pitch_type"] == "SL")].iloc[0]
+        # SL is 150/500 = 30% overall, 50% in 0-2, so lift is 5/3.
+        assert row["own_rate"] == pytest.approx(0.30)
+        assert row["share"] == pytest.approx(0.50)
+        assert row["lift"] == pytest.approx(5 / 3)
+
+    def test_score_is_excess_lift_times_sample(self):
+        frame = make_pitches([
+            ("0-2", "SL", 50), ("0-2", "FF", 50),
+            ("0-0", "FF", 300), ("0-0", "SL", 100),
+        ])
+        table = counts.count_lifts(frame, min_n=20)
+        row = table[(table["count"] == "0-2") & (table["pitch_type"] == "SL")].iloc[0]
+        assert row["score"] == pytest.approx((5 / 3 - 1) * 50)
+
+    def test_sorted_by_score_descending(self):
+        frame = make_pitches([
+            ("0-2", "SL", 50), ("0-2", "FF", 50),
+            ("2-1", "CU", 30), ("2-1", "FF", 70),
+            ("0-0", "FF", 300), ("0-0", "SL", 100), ("0-0", "CU", 80),
+        ])
+        scores = list(counts.count_lifts(frame, min_n=20)["score"])
+        assert scores == sorted(scores, reverse=True)
+
+    def test_thin_pairs_are_gated(self):
+        frame = make_pitches([
+            ("0-2", "SL", 5), ("0-2", "FF", 50),
+            ("0-0", "FF", 300), ("0-0", "SL", 100),
+        ])
+        table = counts.count_lifts(frame, min_n=20)
+        assert not ((table["count"] == "0-2") & (table["pitch_type"] == "SL")).any()
+
+    def test_empty_frame(self):
+        frame = make_pitches([("0-0", "FF", 1)]).iloc[0:0]
+        assert len(counts.count_lifts(frame)) == 0
+
+
+class TestArsenalConsistency:
+    """One definition of "what he throws", shared by every section.
+
+    Yamamoto's 2025 season contains exactly one pitch labelled a sweeper. It
+    was correctly excluded from the arsenal table and the predictability
+    scores, and carried into the count chart as a seventh column, because
+    mix_by_count applied no gate. Neither number was wrong on its own, which
+    is what made the disagreement invisible.
+    """
+
+    def test_mix_by_count_excludes_a_stray_label(self):
+        frame = make_pitches([
+            ("0-0", "FF", 200), ("0-0", "SL", 150), ("0-0", "ST", 1),
+        ])
+        assert "ST" not in counts.mix_by_count(frame).columns
+
+    def test_mix_by_count_matches_primary_arsenal(self):
+        frame = make_pitches([
+            ("0-0", "FF", 200), ("1-1", "SL", 150), ("0-2", "ST", 1),
+        ])
+        assert set(counts.mix_by_count(frame).columns) == set(
+            counts.primary_arsenal(frame)
+        )
+
+    def test_raw_labels_still_reachable(self):
+        """The gate is a default, not a wall — inspecting the raw feed is a
+        legitimate thing to want."""
+        frame = make_pitches([
+            ("0-0", "FF", 200), ("0-0", "SL", 150), ("0-0", "ST", 1),
+        ])
+        assert "ST" in counts.mix_by_count(frame, arsenal_only=False).columns
+
+    def test_rows_still_sum_to_one_after_gating(self):
+        frame = make_pitches([
+            ("0-0", "FF", 200), ("0-0", "SL", 150), ("0-0", "ST", 1),
+        ])
+        table = counts.mix_by_count(frame)
+        for _, row in table.iterrows():
+            assert row.sum() == pytest.approx(1.0)
+
+    def test_restrict_to_arsenal_returns_empty_for_no_arsenal(self):
+        frame = make_pitches([("0-0", "FF", 1)])
+        assert len(counts.restrict_to_arsenal(frame)) == 0
+
+
 class TestPitchMix:
     def test_shares_sum_to_one(self):
         frame = make_pitches([("0-0", "FF", 60), ("0-0", "SL", 40)])

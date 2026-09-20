@@ -77,6 +77,23 @@ PITCH_SCHEMA: dict[str, str] = {
     "estimated_woba_using_speedangle": "DOUBLE",
     "woba_value": "DOUBLE",
     "delta_run_exp": "DOUBLE",
+    # Context and measurement fields the metrics layer reads.
+    #
+    # These were missing for a while, and the way they failed is worth
+    # remembering: nothing errored. times_through_order() returned an empty
+    # frame and the report printed "insufficient data" over 831 batters faced,
+    # while the same code run against a raw fixture worked perfectly — because
+    # the fixture has all 119 feed columns and the cache only had these 40. A
+    # report built from the cache was quietly missing a section that a report
+    # built from a fixture had.
+    "n_thruorder_pitcher": "INTEGER",
+    "arm_angle": "DOUBLE",
+    # Bat tracking. Not yet used, cached now because they are the input to the
+    # swing-disruption and timing work, and backfilling a season costs a
+    # re-fetch of everything.
+    "bat_speed": "DOUBLE",
+    "swing_length": "DOUBLE",
+    "intercept_ball_minus_batter_pos_y_inches": "DOUBLE",
 }
 
 # A pitch is uniquely identified by game, plate appearance, and its number
@@ -138,6 +155,31 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+
+    _add_missing_columns(conn)
+
+
+def _add_missing_columns(conn: duckdb.DuckDBPyConnection) -> None:
+    """Bring an existing cache up to the current schema.
+
+    CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so
+    adding a column to PITCH_SCHEMA leaves every cache built before that change
+    silently one column short — and the symptom is a metric returning nothing
+    rather than an error. Widening in place costs one ALTER per new column and
+    means a schema addition never requires anyone to delete their data.
+
+    New columns are NULL for rows already stored. Re-fetch a player-season to
+    populate them; `is_cached()` will report a completed season as fresh, so
+    that is a deliberate act rather than something that happens by itself.
+    """
+    for table in ("pitches", "league_pitches"):
+        existing = {
+            row[0] for row in conn.execute(f"DESCRIBE {table}").fetchall()
+        }
+        for name, sql_type in PITCH_SCHEMA.items():
+            if name not in existing:
+                log.info("Adding column %s to %s", name, table)
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
 
 
 def is_cached(

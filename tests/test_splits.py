@@ -144,6 +144,25 @@ class TestPlatoonGaps:
         assert slider["whiff_L"] == pytest.approx(1.0)
 
 
+class TestMissingColumnIsNotThinData:
+    """A missing feed column and a thin sample both produce no result, and
+    they call for opposite responses. Saying "insufficient data" for both hid
+    a caching bug behind a plausible message across 831 batters faced."""
+
+    def test_says_so_when_the_column_is_absent(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 400, "tto": 1}])
+        frame = frame.drop(columns=["n_thruorder_pitcher"])
+        result = splits.decompose_tto(frame)
+        assert result["attribution"] == "unknown"
+        assert "n_thruorder_pitcher" in result["note"]
+        assert "re-fetch" in result["note"].lower()
+
+    def test_still_says_insufficient_when_the_data_is_merely_thin(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 20, "tto": 1}])
+        result = splits.decompose_tto(frame)
+        assert result["note"] == "insufficient data"
+
+
 class TestFatigue:
     def test_buckets_by_pitch_count_within_the_outing(self):
         frame = make_pitches([{"pitch_type": "FF", "n": 45}])
@@ -209,26 +228,46 @@ class TestDecomposeTTO:
         assert result["velo_delta"] == pytest.approx(-2.0)
         assert result["attribution"] == "both"
 
-    def test_detects_familiarity_when_velocity_holds(self):
-        """Velocity steady, results decay -> he is being solved, not tiring.
-
-        This is the distinction the whole function exists for: the two cases
-        look identical in an xwOBA-by-trip table and call for opposite advice.
+    def test_reports_results_decay_without_claiming_a_cause(self):
+        """Velocity steady while results worsen used to be reported as
+        "familiarity" — hitters solving him. This design cannot support that:
+        the third trip is also the 70th-to-100th pitch, so trip number and
+        pitch count are nearly collinear and a marginal comparison cannot
+        separate them. The output describes what moved, not why.
         """
         frame = make_pitches([
             {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
             {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.9, "xwoba": 0.360},
         ])
         result = splits.decompose_tto(frame)
-        assert result["attribution"] == "familiarity"
-        assert "solving" in result["note"]
+        assert result["attribution"] == "results_decay"
+        assert "solving" not in result["note"]
+        assert "familiarity" not in result["note"].lower()
 
-    def test_reports_none_when_nothing_declines(self):
+    def test_carries_the_collinearity_caveat(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
+            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.9, "xwoba": 0.360},
+        ])
+        caveat = splits.decompose_tto(frame)["caveat"]
+        assert "pitch count" in caveat
+        assert "cannot say which" in caveat
+
+    def test_reports_neither_when_nothing_moves(self):
         frame = make_pitches([
             {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.300},
             {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 96.0, "xwoba": 0.300},
         ])
-        assert splits.decompose_tto(frame)["attribution"] == "none"
+        assert splits.decompose_tto(frame)["attribution"] == "neither"
+
+    def test_a_noise_sized_xwoba_change_is_not_decay(self):
+        """The old version printed an xwOBA change of +0.004 alongside a
+        velocity claim as if it were corroboration. It is noise."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.300},
+            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 96.0, "xwoba": 0.304},
+        ])
+        assert splits.decompose_tto(frame)["attribution"] == "neither"
 
     def test_missing_third_trip_returns_unknown(self):
         frame = make_pitches([
