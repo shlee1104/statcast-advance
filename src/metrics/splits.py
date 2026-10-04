@@ -411,6 +411,141 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
     }
 
 
+def primary_fastball(frame: pd.DataFrame) -> str | None:
+    """His main fastball: the more-used of four-seam and sinker.
+
+    Velocity trends are read off one pitch, not a blend. Folding a cutter into
+    a fastball average makes the average move whenever his cutter usage moves,
+    which reads as a velocity change and is actually a pitch-mix change.
+    """
+    candidates = frame[frame["pitch_type"].isin(["FF", "SI"])]["pitch_type"]
+    if len(candidates) == 0:
+        return None
+    return str(candidates.value_counts().index[0])
+
+
+def _two_proportion_z(x1: int, n1: int, x2: int, n2: int) -> float:
+    """z for the difference between two observed proportions, pooled SE."""
+    if n1 <= 0 or n2 <= 0:
+        return float("nan")
+    pooled = (x1 + x2) / (n1 + n2)
+    if pooled in (0.0, 1.0):
+        return float("nan")
+    se = (pooled * (1 - pooled) * (1 / n1 + 1 / n2)) ** 0.5
+    return (x1 / n1 - x2 / n2) / se
+
+
+def recent_form(
+    frame: pd.DataFrame,
+    last_n: int = 5,
+    min_delta: float = 0.05,
+    min_z: float = 2.5,
+) -> dict:
+    """What he has been doing in his last few starts, against before that.
+
+    Returns a dict:
+      last_n        int, starts in the recent window
+      dates         list[str], their dates, most recent first
+      starts        DataFrame, one row per recent start: date, pitches,
+                    fb_velo, whiff_rate, strikeouts, walks
+      shifts        DataFrame, per pitch: recent_share, earlier_share, delta,
+                    z, notable
+      fastball      str, the pitch the velocity numbers are read from
+      velo_recent, velo_earlier, velo_delta   float, mph
+      n_recent, n_earlier                     int, pitches in each window
+
+    A season average is the wrong default for an advance report, which is
+    written for the next game. Scouts watch the last few weeks because hitters
+    and pitchers both drift — a pitcher who added a cutter in August looks, in
+    a full-season table, like a pitcher who throws a few cutters.
+
+    The comparison is recent against EARLIER, not against the full season,
+    because the full season contains the recent starts and would mute any
+    change by the share of the season they make up.
+
+    A shift is marked `notable` only if it moves at least `min_delta` and
+    clears |z| >= `min_z`. The bar is higher than the usual 2 because every
+    pitch in the arsenal is tested at once, and five or six comparisons at 2
+    will produce a false "change" regularly.
+    """
+    blank = {
+        "last_n": 0, "dates": [], "starts": pd.DataFrame(),
+        "shifts": pd.DataFrame(), "fastball": None,
+        "velo_recent": float("nan"), "velo_earlier": float("nan"),
+        "velo_delta": float("nan"), "n_recent": 0, "n_earlier": 0,
+    }
+    if len(frame) == 0 or "game_date" not in frame.columns:
+        return blank
+
+    working = counts.restrict_to_arsenal(frame).copy()
+    if len(working) == 0:
+        return blank
+
+    working["game_date"] = pd.to_datetime(working["game_date"])
+    games = (
+        working.groupby("game_pk")["game_date"].min()
+        .sort_values(ascending=False)
+    )
+    recent_games = list(games.index[:last_n])
+    if not recent_games:
+        return blank
+
+    recent = working[working["game_pk"].isin(recent_games)]
+    earlier = working[~working["game_pk"].isin(recent_games)]
+    fastball = primary_fastball(working)
+
+    start_rows = []
+    for game in recent_games:
+        g = recent[recent["game_pk"] == game]
+        swings = int(g["is_swing"].eq(True).sum())
+        whiffs = int(g["is_whiff"].eq(True).sum())
+        pa_end = g["events"].dropna() if "events" in g else pd.Series(dtype=object)
+        start_rows.append({
+            "date": games[game].strftime("%Y-%m-%d"),
+            "pitches": len(g),
+            "fb_velo": _mean(g[g["pitch_type"] == fastball], "release_speed"),
+            "whiff_rate": whiffs / swings if swings else float("nan"),
+            "strikeouts": int(pa_end.isin(["strikeout", "strikeout_double_play"]).sum()),
+            "walks": int(pa_end.isin(["walk", "intent_walk"]).sum()),
+        })
+
+    shift_rows = []
+    n_recent, n_earlier = len(recent), len(earlier)
+    for pitch in working["pitch_type"].value_counts().index:
+        x1 = int((recent["pitch_type"] == pitch).sum())
+        x2 = int((earlier["pitch_type"] == pitch).sum())
+        r_share = x1 / n_recent if n_recent else float("nan")
+        e_share = x2 / n_earlier if n_earlier else float("nan")
+        delta = r_share - e_share
+        z = _two_proportion_z(x1, n_recent, x2, n_earlier)
+        shift_rows.append({
+            "pitch_type": pitch,
+            "recent_share": r_share,
+            "earlier_share": e_share,
+            "delta": delta,
+            "z": z,
+            "notable": bool(
+                z == z and abs(delta) >= min_delta and abs(z) >= min_z
+            ),
+        })
+
+    velo_recent = _mean(recent[recent["pitch_type"] == fastball], "release_speed")
+    velo_earlier = _mean(earlier[earlier["pitch_type"] == fastball], "release_speed")
+
+    return {
+        "last_n": len(recent_games),
+        "dates": [games[g].strftime("%Y-%m-%d") for g in recent_games],
+        "starts": pd.DataFrame(start_rows),
+        "shifts": pd.DataFrame(shift_rows),
+        "fastball": fastball,
+        "velo_recent": velo_recent,
+        "velo_earlier": velo_earlier,
+        "velo_delta": velo_recent - velo_earlier,
+        "n_recent": n_recent,
+        "n_earlier": n_earlier,
+    }
+
+
 def _mean(group: pd.DataFrame, column: str) -> float:
     if column not in group.columns or len(group) == 0:
         return float("nan")

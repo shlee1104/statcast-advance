@@ -30,7 +30,7 @@ from typing import Any
 
 import pandas as pd
 
-from src import baselines, config, flags
+from src import baselines, config, flags, gameplan
 from src.metrics import arsenal, counts, events, location, sequencing, splits
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -177,7 +177,7 @@ def build_payload(
             ),
         },
         "data_gaps": _data_gaps(frame),
-        "kpis": _build_kpis(frame, profile, first_pitch, predictability),
+        "card": _build_card(frame),
         "takeaways": _records(takeaways),
         "findings": _records(all_findings),
         "finding_count": int(len(all_findings)),
@@ -313,62 +313,59 @@ def _build_fatigue(fatigue: pd.DataFrame) -> dict:
     }
 
 
-def _build_kpis(
-    frame: pd.DataFrame,
-    profile: pd.DataFrame,
-    first_pitch: dict,
-    predictability: pd.DataFrame,
-) -> list[dict]:
-    """The four headline numbers, chosen to orient rather than to impress.
+def _build_card(frame: pd.DataFrame, last_n: int = 5) -> dict:
+    """The dugout card: page one of the report, the part a coach takes out.
 
-    Arsenal size and overall whiff rate say what kind of pitcher this is;
-    first-pitch strike rate is the number every pitching coach already knows
-    by heart; the most predictable count is the one a hitter can use.
+    Front offices describe paring "a phone book's amount of information" down
+    to a few pages, with one-sentence notes for use mid-game. This is that
+    page. It carries five things, in the order a hitter reads them: the season
+    line, the hitting plan split by side, the arsenal as a scout writes it,
+    the count tendencies split by side, and what he has done lately.
+
+    It replaced a strip of headline numbers whose most prominent cell was
+    "most predictable count: 3-0, four-seam 82%". That is 32 pitches, a count
+    in which every pitcher throws a fastball, and one of the few patterns whose
+    run consequence actually resolves — in his favour. It was the least useful
+    true fact on the page and it was in the most prominent position.
     """
-    whiff = events.whiff_rate(frame)
-    top_count = None
-    if len(predictability):
-        best = predictability["predictability"].idxmax()
-        top_count = {
-            "count": str(best),
-            "pitch": str(predictability.loc[best, "top_pitch"]),
-            "share": _clean(predictability.loc[best, "top_share"]),
-        }
+    usage = counts.situational_usage(frame)
+    tendencies = []
+    for situation in counts.SITUATIONS:
+        row = {"situation": situation,
+               "label": counts.SITUATION_LABELS[situation]}
+        for side in ("L", "R"):
+            cell = usage[(usage["situation"] == situation) & (usage["stand"] == side)]
+            cell = cell.sort_values("share", ascending=False)
+            row[side] = {
+                "n": int(cell["situation_n"].iloc[0]) if len(cell) else 0,
+                "reliable": bool(cell["reliable"].iloc[0]) if len(cell) else False,
+                "top": [
+                    {"pitch": r.pitch_type, "share": _clean(r.share)}
+                    for r in cell.head(3).itertuples()
+                ],
+            }
+        tendencies.append(row)
 
-    kpis = [
-        {
-            "label": "Pitches",
-            "value": f"{len(frame):,}",
-            "note": f"{frame['game_pk'].nunique()} games",
-        },
-        {
-            "label": "Arsenal",
-            "value": str(len(profile)),
-            "note": ", ".join(profile.index) if len(profile) else "—",
-        },
-        {
-            "label": "Whiff rate",
-            "value": f"{whiff:.1%}" if not math.isnan(whiff) else "—",
-            "note": "per swing",
-        },
-        {
-            "label": "First-pitch strikes",
-            "value": (
-                f"{first_pitch['strike_rate']:.1%}"
-                if first_pitch["n"] else "—"
-            ),
-            "note": f"n={first_pitch['n']}",
-        },
-    ]
+    form = splits.recent_form(frame, last_n=last_n)
 
-    if top_count:
-        kpis.append({
-            "label": "Most predictable count",
-            "value": top_count["count"],
-            "note": f"{top_count['pitch']} {top_count['share']:.0%}",
-        })
-
-    return kpis
+    return {
+        "season": {k: _clean(v) for k, v in events.season_line(frame).items()},
+        "arsenal": _records(arsenal.scout_arsenal(frame), index_name="pitch_type"),
+        "tendencies": tendencies,
+        "recent": {
+            "last_n": form["last_n"],
+            "dates": form["dates"],
+            "fastball": form["fastball"],
+            "velo_recent": _clean(form["velo_recent"]),
+            "velo_earlier": _clean(form["velo_earlier"]),
+            "velo_delta": _clean(form["velo_delta"]),
+            "n_recent": form["n_recent"],
+            "starts": _records(form["starts"]),
+            "shifts": _records(form["shifts"]),
+        },
+        "plan": gameplan.build(frame, last_n=last_n),
+        "coach_names": gameplan.COACH_NAMES,
+    }
 
 
 def render(payload: dict, template_dir: Path | None = None) -> str:

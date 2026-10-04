@@ -60,10 +60,19 @@ self-contained interactive HTML report comes out.
   a confidence interval, and says so when the interval does not exclude zero
 - Multiple-comparison correction — Benjamini-Hochberg across every family, with
   the number of comparisons printed next to the number of findings
-- 272 unit tests, plus an end-to-end validation suite over live data
+- Dugout card — page one is laid out like a pro advance report: a short season
+  line, a plain-language hitting plan split by batter side, the arsenal with
+  velocity ranges and usage against each side, count tendencies by side, and
+  the pitcher's last five outings against the rest of his season
+- 308 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
+- Count-state grid (balls × strikes, coloured by lift over his own rate) to
+  replace the stacked pitch-mix chart; platoon slope chart; movement plot
+- Run the pipeline across 25–30 pitchers to set thresholds from real
+  distributions rather than two pitchers
+- Check whether first-half tendencies hold in the second half
 - Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Hitter reports
 - Swing-disruption metrics from the bat-tracking fields
@@ -145,6 +154,18 @@ logic.
 
 ## Report contents
 
+The structure follows how teams describe their own advance reports: a short
+dugout version first, and the detail behind it after.
+
+- **Dugout card** — one printable page. Season line (K%, BB%, whiff, chase,
+  zone, xwOBA). A hitting plan for lefties and for righties: what he starts
+  hitters with and whether taking is a good idea, what to sit on when ahead in
+  the count, his two-strike pitch and where it finishes, and which pitches he
+  essentially never shows that side. Every line carries its sample size. Below
+  that, the arsenal as a scout writes it ("sits 94–97, touches 98", ride,
+  arm-side run, usage vs each side), count tendencies by side, and his last
+  five outings. The running game — time to the plate, pickoff move, tipping —
+  is named as not covered, because it needs video rather than pitch data.
 - **Arsenal** — velocity, spin, movement, usage, and whiff rate by pitch type
 - **Count tendencies** — pitch mix across all 12 counts, plus a normalized-entropy
   predictability score identifying the counts where selection is most anticipatable
@@ -155,8 +176,9 @@ logic.
   arm side and the batter's own zone, command spread, and how much knowing the
   region narrows down which pitch is coming
 - **Splits** — platoon splits, velocity decay within outings, times-through-order
-- **Key takeaways** — up to five auto-generated findings, ranked by severity, each
-  carrying its sample size and the league baseline it deviates from
+- **Findings** — the rule-based findings behind the plan, ranked, each carrying
+  its sample size, with run consequences stated as unresolved where they do not
+  survive correction
 
 ## Design notes
 

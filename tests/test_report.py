@@ -201,6 +201,36 @@ class TestFatigueReliability:
         assert len(f["buckets"]) == len(f["reliable"]) == len(f["velo"])
 
 
+class TestDugoutCard:
+    def test_payload_carries_the_card(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        card = payload["card"]
+        assert {"season", "arsenal", "tendencies", "recent", "plan"} <= set(card)
+
+    def test_headline_strip_is_gone(self):
+        """It led with "most predictable count: 3-0, four-seam 82%" — 32
+        pitches, a count where every pitcher throws a fastball."""
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        assert "kpis" not in payload
+
+    def test_card_renders_first_and_without_javascript(self):
+        """The card is the page that gets printed and folded, so it is drawn by
+        the template, not by scripts."""
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        html = report.render(payload)
+        card_at = html.find("Dugout card")
+        findings_at = html.find("Findings, with their evidence")
+        assert 0 < card_at < findings_at
+        assert "Hitting plan vs lefties" in html
+        assert "Not covered:" in html
+
+    def test_tendency_rows_cover_every_situation(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        situations = [t["situation"] for t in payload["card"]["tendencies"]]
+        from src.metrics import counts
+        assert situations == counts.SITUATIONS
+
+
 class TestRender:
     def test_produces_a_complete_document(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)

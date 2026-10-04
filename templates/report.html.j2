@@ -32,13 +32,36 @@ header.top h1{font-size:22px;font-weight:650;letter-spacing:-.01em}
 header.top .sub{color:#9fb0c4;font-size:13px;margin-top:4px}
 header.top .sub b{color:#d7e2ee;font-weight:600}
 
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--gap);
-      margin-bottom:var(--gap)}
-.kpi{background:var(--card);border-radius:var(--radius);padding:16px 18px;
-     box-shadow:0 1px 2px rgba(16,24,40,.06)}
-.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-.kpi .v{font-size:26px;font-weight:700;margin:2px 0;letter-spacing:-.02em}
-.kpi .n{font-size:12px;color:var(--muted)}
+/* Dugout card. The page a coach takes out, so it is set like a printed
+   sheet: dense, ruled, readable at arm's length, and nothing on it that
+   needs JavaScript. */
+.dugout{background:var(--card);border-radius:var(--radius);padding:20px 24px 14px;
+        margin-bottom:var(--gap);box-shadow:0 1px 2px rgba(16,24,40,.06);
+        border-top:4px solid var(--head)}
+.dg-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.dg-head h2{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.dg-sub{font-size:12px;color:var(--muted)}
+.dg-h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+       color:#3a4654;margin:20px 0 6px}
+.seasonline{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;padding:10px 12px;
+            background:#f4f6f8;border-radius:6px;margin-bottom:16px}
+.seasonline b{font-variant-numeric:tabular-nums;font-size:14px}
+.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.planside,.planboth{border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.planboth{margin-top:14px;background:#fbfbf7}
+.plan h3,.planboth h3{font-size:12px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:.06em;color:var(--head);margin-bottom:6px}
+.plan ul,.planboth ul{list-style:none;padding:0;margin:0}
+.plan li,.planboth li{font-size:13.5px;line-height:1.45;padding:6px 0;
+                      border-bottom:1px dashed #e8eaed}
+.plan li:last-child,.planboth li:last-child{border-bottom:none}
+.plan .n,.planboth .n,.tend .n{font-size:11px;color:var(--muted);white-space:nowrap}
+table.static th{cursor:default}
+/* Stat tables scroll sideways on a phone instead of wrapping; a velocity
+   range broken across three lines is harder to read than a scroll. Only
+   the tendency table wraps, because its cells are short sentences. */
+.tend td{font-size:13px;white-space:normal}
+.gapnote{border-left:3px solid #e1c79a;padding-left:10px}
 
 section.card{background:var(--card);border-radius:var(--radius);padding:20px 24px;
              margin-bottom:var(--gap);box-shadow:0 1px 2px rgba(16,24,40,.06)}
@@ -142,12 +165,13 @@ button.more{background:none;border:1px solid var(--line);border-radius:6px;paddi
 button.more:hover{background:#f3f6fa}
 
 @media (max-width:720px){
-  .kpis{grid-template-columns:repeat(2,1fr)}
   .charts{grid-template-columns:1fr}
 }
 @media print{
   body{background:#fff}
-  .chartbox,section.card,.kpi{box-shadow:none;border:1px solid var(--line)}
+  .chartbox,section.card,.dugout{box-shadow:none;border:1px solid var(--line)}
+  /* The card is its own printed page. */
+  .dugout{break-after:page}
   .controls,button.more{display:none}
   section.card,.chartbox{break-inside:avoid}
 }
@@ -178,21 +202,164 @@ button.more:hover{background:#f3f6fa}
 </div>
 {% endif %}
 
-<div class="kpis">
-{% for kpi in payload.kpis %}
-  <div class="kpi">
-    <div class="l">{{ kpi.label }}</div>
-    <div class="v">{{ kpi.value }}</div>
-    <div class="n">{{ kpi.note }}</div>
+{# ------------------------------------------------------------ dugout card
+   Page one. Rendered here in the template rather than in JavaScript so it
+   prints, and so it still works if scripts are blocked: this is the page that
+   gets folded into a back pocket. #}
+{% set c = payload.card %}
+{% set names = payload.display_names %}
+{% macro pct(v, d=0) %}{% if v is none %}—{% else %}{{ ("%." ~ d ~ "f")|format(v * 100) }}%{% endif %}{% endmacro %}
+{% macro num(v, d=1) %}{% if v is none %}—{% else %}{{ ("%." ~ d ~ "f")|format(v) }}{% endif %}{% endmacro %}
+{# wOBA-scale numbers print the way scouts write them: .262, not 0.262. #}
+{% macro woba(v) %}{% if v is none %}—{% else %}{{ ("%.3f"|format(v)).replace("0.", ".", 1) if v >= 0 else "%.3f"|format(v) }}{% endif %}{% endmacro %}
+
+<section class="dugout">
+  <div class="dg-head">
+    <h2>Dugout card</h2>
+    <span class="dg-sub">{{ payload.meta.pitcher }} · {{ payload.meta.hand }}HP · {{ payload.meta.season }}</span>
   </div>
-{% endfor %}
-</div>
+
+  <div class="seasonline">
+    <span><b>{{ pct(c.season.k_rate, 1) }}</b> K</span>
+    <span><b>{{ pct(c.season.bb_rate, 1) }}</b> BB</span>
+    <span><b>{{ pct(c.season.k_minus_bb, 1) }}</b> K−BB</span>
+    <span><b>{{ pct(c.season.whiff_rate, 1) }}</b> whiff / swing</span>
+    <span><b>{{ pct(c.season.chase_rate, 1) }}</b> chase</span>
+    <span><b>{{ pct(c.season.zone_rate, 1) }}</b> in zone</span>
+    <span><b>{{ pct(c.season.first_strike_rate, 1) }}</b> 1st-pitch strike</span>
+    <span><b>{{ woba(c.season.xwoba) }}</b> xwOBA</span>
+    <span class="dim">{{ c.season.batters }} batters · {{ c.season.games }} games</span>
+  </div>
+
+  <div class="plan">
+    {% for side, title in [("L", "vs lefties"), ("R", "vs righties")] %}
+    <div class="planside">
+      <h3>Hitting plan {{ title }}</h3>
+      <ul>
+      {% for k in c.plan[side] %}
+        <li><b>{{ k.label }}.</b> {{ k.text }} <span class="n">n={{ "{:,}".format(k.n) }}</span></li>
+      {% else %}
+        <li class="dim">Not enough pitches to this side to write a plan.</li>
+      {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+  {% if c.plan.both %}
+  <div class="planboth">
+    <h3>Either side</h3>
+    <ul>
+    {% for k in c.plan.both %}
+      <li><b>{{ k.label }}.</b> {{ k.text }} <span class="n">n={{ "{:,}".format(k.n) }}</span></li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <p class="note">{{ c.plan.basis }}</p>
+
+  <h3 class="dg-h3">Arsenal</h3>
+  <div class="scroll">
+  <table class="static">
+    <thead><tr>
+      <th>Pitch</th><th class="num">Velo</th><th class="num">Usage</th>
+      <th class="num">vs L</th><th class="num">vs R</th>
+      <th class="num">Ride (in)</th><th class="num">Arm-side (in)</th>
+      <th class="num">Spin</th><th class="num">Whiff</th><th class="num">Chase</th>
+      <th class="num">xwOBA</th>
+    </tr></thead>
+    <tbody>
+    {% for a in c.arsenal %}
+      <tr>
+        <td><b>{{ names.get(a.pitch_type, a.pitch_type) }}</b></td>
+        <td class="num">{{ "%.0f"|format(a.sits_lo) }}–{{ "%.0f"|format(a.sits_hi) }}
+          <span class="dim">· T{{ "%.0f"|format(a.touches) }}</span></td>
+        <td class="num">{{ pct(a.usage) }}</td>
+        <td class="num{% if a.usage_L is not none and a.usage_L < 0.03 %} dim{% endif %}">{{ pct(a.usage_L) }}</td>
+        <td class="num{% if a.usage_R is not none and a.usage_R < 0.03 %} dim{% endif %}">{{ pct(a.usage_R) }}</td>
+        <td class="num">{{ num(a.ivb) }}</td>
+        <td class="num">{{ num(a.arm_run) }}</td>
+        <td class="num">{{ "{:,.0f}".format(a.spin) if a.spin is not none else "—" }}</td>
+        <td class="num">{{ pct(a.whiff_rate) }}</td>
+        <td class="num">{{ pct(a.chase_rate) }}</td>
+        <td class="num">{{ woba(a.xwoba) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">
+    Velo is where he sits (10th–90th percentile) and T is what he touches. Ride is
+    induced vertical break; arm-side is horizontal break toward his throwing arm,
+    with glove-side negative. Greyed usage means he essentially never shows that side
+    the pitch.
+  </p>
+
+  <h3 class="dg-h3">What he throws, by count</h3>
+  <div class="scroll">
+  <table class="static tend">
+    <thead><tr><th>Situation</th><th>vs lefties</th><th>vs righties</th></tr></thead>
+    <tbody>
+    {% for t in c.tendencies %}
+      <tr>
+        <td><b>{{ t.label }}</b></td>
+        {% for side in ["L", "R"] %}
+        <td class="{% if not t[side].reliable %}dim{% endif %}">
+          {% for p in t[side].top %}{{ names.get(p.pitch, p.pitch) }} <b>{{ pct(p.share) }}</b>{% if not loop.last %} · {% endif %}{% endfor %}
+          <span class="n">n={{ t[side].n }}</span>
+        </td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">
+    "Ahead" and "behind" are from his side: when he's behind, it's a hitter's
+    count. Two strikes overlaps the other rows on purpose — it's the put-away
+    question. Greyed cells rest on fewer than 30 pitches.
+  </p>
+
+  {% if c.recent.last_n %}
+  <h3 class="dg-h3">Lately — last {{ c.recent.last_n }} outings</h3>
+  <div class="scroll">
+  <table class="static">
+    <thead><tr>
+      <th>Date</th><th class="num">Pitches</th>
+      <th class="num">{{ names.get(c.recent.fastball, c.recent.fastball) }} velo</th>
+      <th class="num">Whiff / swing</th><th class="num">K</th><th class="num">BB</th>
+    </tr></thead>
+    <tbody>
+    {% for s in c.recent.starts %}
+      <tr>
+        <td>{{ s.date }}</td><td class="num">{{ s.pitches }}</td>
+        <td class="num">{{ num(s.fb_velo) }}</td><td class="num">{{ pct(s.whiff_rate) }}</td>
+        <td class="num">{{ s.strikeouts }}</td><td class="num">{{ s.walks }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">
+    Velocity {{ num(c.recent.velo_recent) }} mph lately against
+    {{ num(c.recent.velo_earlier) }} before
+    ({{ "%+.1f"|format(c.recent.velo_delta) if c.recent.velo_delta is not none else "—" }}).
+    Usage changes are only called out in the plan when they clear a strict test,
+    because every pitch is compared at once.
+  </p>
+  {% endif %}
+
+  <p class="note gapnote">
+    <b>Not covered:</b> time to the plate, pickoff move, slide step and pitch tipping.
+    Those are standard in an advance report but are not in pitch-tracking data — they
+    need video or a stopwatch.
+  </p>
+</section>
 
 <section class="card">
-  <h2>Key takeaways</h2>
+  <h2>Findings, with their evidence</h2>
   <p class="lede">
-    Ranked by severity, one per category, each carrying the sample it rests on.
-    A claim without its sample size is not in this report.
+    The rule-based findings behind the plan, ranked, one per category, each carrying
+    the sample it rests on. A claim without its sample size is not in this report.
   </p>
 {% if payload.takeaways %}
   {% for t in payload.takeaways %}
@@ -204,8 +371,14 @@ button.more:hover{background:#f3f6fa}
         <span class="chip">{{ t.flag }}</span>
         <span>n = {{ t.n }}</span>
         <span>severity {{ "%.2f"|format(t.severity) }}</span>
+        {# A run chip is only shown as a cost or a saving when the estimate
+           survived the correction. Otherwise a chip saying "costs him 3.4
+           runs" sits next to a sentence saying the cost is unresolved, and
+           the chip is what a skimming reader sees. #}
         {% if t.runs_cost is not none %}
-          {% if t.runs_cost > 0 %}
+          {% if not t.resolved %}
+          <span class="chip">run cost unresolved</span>
+          {% elif t.runs_cost > 0 %}
           <span class="chip cost">costs him {{ "%.1f"|format(t.runs_cost) }} runs</span>
           {% else %}
           <span class="chip works">saves him {{ "%.1f"|format(-t.runs_cost) }} runs</span>

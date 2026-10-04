@@ -120,6 +120,62 @@ def called_strike_rate(frame: pd.DataFrame) -> float:
     return float(frame["is_called_strike"].sum() / takes)
 
 
+STRIKEOUT_EVENTS: frozenset[str] = frozenset({"strikeout", "strikeout_double_play"})
+WALK_EVENTS: frozenset[str] = frozenset({"walk", "intent_walk"})
+
+
+def season_line(frame: pd.DataFrame) -> dict:
+    """The short stat line at the top of a scouting report.
+
+    Returns a dict of: pitches, games, batters (plate appearances with a
+    recorded outcome), k_rate, bb_rate, k_minus_bb, whiff_rate, chase_rate,
+    zone_rate, first_strike_rate, xwoba.
+
+    Deliberately small. People who build these reports for a living are
+    consistent that ERA and batting average against tell a hitter nothing he
+    can use in the box, and should not take up space. Strikeout and walk rate
+    stay because they say how much he lives in and around the zone; whiff,
+    chase and zone rate say how he gets there.
+
+    Rates use plate appearances with an outcome as the denominator. A handful
+    of plate appearances end on a play that is not a pitch — a pickoff, a
+    caught stealing — and have no outcome row, so this can run a few short of
+    the batters-faced count in the header.
+    """
+    blank = {k: float("nan") for k in (
+        "k_rate", "bb_rate", "k_minus_bb", "whiff_rate", "chase_rate",
+        "zone_rate", "first_strike_rate", "xwoba")}
+    blank.update({"pitches": len(frame), "games": 0, "batters": 0})
+    if len(frame) == 0:
+        return blank
+
+    outcomes = frame["events"].dropna() if "events" in frame else pd.Series(dtype=object)
+    outcomes = outcomes[outcomes.astype(str) != ""]
+    batters = len(outcomes)
+
+    k_rate = float(outcomes.isin(STRIKEOUT_EVENTS).mean()) if batters else float("nan")
+    bb_rate = float(outcomes.isin(WALK_EVENTS).mean()) if batters else float("nan")
+
+    first = frame[(frame["balls"] == 0) & (frame["strikes"] == 0)]
+    first_strike = (
+        float(first["type"].isin(["S", "X"]).mean()) if len(first) else float("nan")
+    )
+
+    return {
+        "pitches": int(len(frame)),
+        "games": int(frame["game_pk"].nunique()),
+        "batters": int(batters),
+        "k_rate": k_rate,
+        "bb_rate": bb_rate,
+        "k_minus_bb": k_rate - bb_rate,
+        "whiff_rate": whiff_rate(frame),
+        "chase_rate": chase_rate(frame),
+        "zone_rate": zone_rate(frame),
+        "first_strike_rate": first_strike,
+        "xwoba": _column_mean(frame, XWOBA_COLUMN),
+    }
+
+
 def _safe_mean(frame: pd.DataFrame, column: str) -> float:
     """Mean of a boolean column, returning NaN rather than dividing by zero."""
     if len(frame) == 0:

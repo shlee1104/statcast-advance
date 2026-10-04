@@ -179,6 +179,104 @@ def first_pitch_tendencies(frame: pd.DataFrame) -> dict:
     }
 
 
+# The situations a scouting report's tendency table is built from, in the
+# order it prints them. "Ahead" and "behind" are from the PITCHER's side, as
+# scouting reports conventionally write them; "behind" is a hitter's count.
+SITUATIONS: list[str] = [
+    "first_pitch", "pitcher_ahead", "even", "pitcher_behind", "two_strikes",
+]
+
+SITUATION_LABELS: dict[str, str] = {
+    "first_pitch": "First pitch",
+    "pitcher_ahead": "He's ahead",
+    "even": "Even",
+    "pitcher_behind": "He's behind (hitter's count)",
+    "two_strikes": "Two strikes",
+}
+
+
+def _situation_masks(frame: pd.DataFrame) -> dict[str, pd.Series]:
+    """Boolean masks for each situation.
+
+    "Even" excludes 0-0, because the first pitch has its own row and a hitter
+    approaches it differently from 1-1 or 2-2. "Two strikes" overlaps the
+    others on purpose: 1-2 is both "ahead" and "two strikes", and a report
+    shows the two-strike row because it is the put-away question, which is
+    asked separately from the count-leverage one.
+    """
+    balls, strikes = frame["balls"], frame["strikes"]
+    first = (balls == 0) & (strikes == 0)
+    return {
+        "first_pitch": first,
+        "pitcher_ahead": strikes > balls,
+        "even": (balls == strikes) & ~first,
+        "pitcher_behind": balls > strikes,
+        "two_strikes": strikes == 2,
+    }
+
+
+def situational_usage(
+    frame: pd.DataFrame,
+    min_situation: int = 30,
+) -> pd.DataFrame:
+    """Pitch usage by situation, against each batter hand and overall.
+
+    Returns one row per (situation, stand, pitch_type), where `stand` is "L",
+    "R" or "All":
+
+      situation     str, one of SITUATIONS
+      stand         str
+      pitch_type    str
+      n             int, pitches of this type in this situation and side
+      situation_n   int, all pitches in this situation and side
+      share         float, n / situation_n
+      reliable      bool, whether situation_n clears `min_situation`
+
+    This is the tendency chart every advance report carries, and it is split
+    by batter hand because pitchers often run entirely different plans to each
+    side. An overall first-pitch mix averages a lefty plan with a righty plan
+    and describes neither.
+
+    Restricted to the arsenal so the rows agree with every other section of
+    the report about which pitches exist.
+    """
+    columns = ["situation", "stand", "pitch_type", "n", "situation_n",
+               "share", "reliable"]
+
+    working = restrict_to_arsenal(frame)
+    if len(working) == 0:
+        return pd.DataFrame(columns=columns)
+
+    sides = {"All": working}
+    for side in ("L", "R"):
+        sides[side] = working[working["stand"] == side]
+
+    records = []
+    for stand, side_frame in sides.items():
+        if len(side_frame) == 0:
+            continue
+        masks = _situation_masks(side_frame)
+        for situation in SITUATIONS:
+            subset = side_frame[masks[situation]]
+            situation_n = len(subset)
+            if situation_n == 0:
+                continue
+            for pitch_type, n in subset["pitch_type"].value_counts().items():
+                records.append({
+                    "situation": situation,
+                    "stand": stand,
+                    "pitch_type": pitch_type,
+                    "n": int(n),
+                    "situation_n": situation_n,
+                    "share": n / situation_n,
+                    "reliable": situation_n >= min_situation,
+                })
+
+    if not records:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(records)[columns]
+
+
 def count_lifts(
     frame: pd.DataFrame,
     min_n: int = 20,

@@ -96,6 +96,98 @@ def profile(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame
     return table.sort_values("usage", ascending=False)[columns]
 
 
+def scout_arsenal(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame:
+    """The arsenal table in the form a scouting report prints it.
+
+    Returns a DataFrame indexed by pitch_type, sorted by usage descending:
+
+      n            int, pitches thrown
+      usage        float, share of all pitches
+      usage_L      float, share of pitches to left-handed hitters
+      usage_R      float, share of pitches to right-handed hitters
+      sits_lo      float, 10th percentile velocity
+      sits_hi      float, 90th percentile velocity
+      touches      float, 99th percentile velocity
+      ivb          float, induced vertical break, inches (positive is "ride")
+      arm_run      float, horizontal break toward his arm side, inches
+      spin         float, average spin rate (rpm)
+      whiff_rate   float, whiffs per swing
+      chase_rate   float, swings per pitch outside the zone
+      xwoba        float, expected wOBA on contact
+
+    Three choices here follow how scouts actually read a pitch, not how the
+    data arrives.
+
+    Velocity is a range — "sits 94-97, touches 98" — because an average hides
+    the thing a hitter needs, which is how hard the hardest one will be. The
+    range is the 10th to 90th percentile, and "touches" is the 99th rather than
+    the maximum, so one mis-tracked reading cannot set the top of his range.
+
+    Usage is split by batter hand inside the same table, because that is the
+    first thing a hitter checks: a pitcher who never throws his slider to
+    lefties is a four-pitch pitcher to a lefty, and the overall usage column
+    hides that.
+
+    Horizontal break is expressed toward the pitcher's ARM side, positive,
+    matching `location.py`. Raw `pfx_x` is from the catcher's view and flips
+    sign with pitcher hand, so the same sinker would read negative for a
+    right-hander and positive for a left-hander.
+    """
+    columns = [
+        "n", "usage", "usage_L", "usage_R", "sits_lo", "sits_hi", "touches",
+        "ivb", "arm_run", "spin", "whiff_rate", "chase_rate", "xwoba",
+    ]
+
+    if len(frame) == 0:
+        return pd.DataFrame(columns=columns)
+
+    keep = counts.primary_arsenal(frame, min_share=None, min_pitches=min_pitches)
+    if not keep:
+        return pd.DataFrame(columns=columns)
+
+    subset = frame[frame["pitch_type"].isin(keep)]
+    total = len(subset)
+    side_totals = subset["stand"].value_counts() if "stand" in subset else pd.Series()
+
+    hand = str(subset["p_throws"].mode().iloc[0]) if "p_throws" in subset else "R"
+    # A right-hander's arm side is negative pfx_x from the catcher's view.
+    arm_sign = -1.0 if hand == "R" else 1.0
+
+    records = []
+    for pitch_type, group in subset.groupby("pitch_type"):
+        velo = pd.to_numeric(group["release_speed"], errors="coerce").dropna()
+        swings = int(group["is_swing"].eq(True).sum())
+        whiffs = int(group["is_whiff"].eq(True).sum())
+        out_of_zone = group[group["zone"].notna() & ~group["is_in_zone"].eq(True)]
+        chases = int(out_of_zone["is_swing"].eq(True).sum())
+
+        def side_usage(side: str) -> float:
+            side_n = int(side_totals.get(side, 0))
+            if not side_n:
+                return float("nan")
+            return float((group["stand"] == side).sum() / side_n)
+
+        records.append({
+            "pitch_type": pitch_type,
+            "n": len(group),
+            "usage": len(group) / total,
+            "usage_L": side_usage("L"),
+            "usage_R": side_usage("R"),
+            "sits_lo": float(velo.quantile(0.10)) if len(velo) else float("nan"),
+            "sits_hi": float(velo.quantile(0.90)) if len(velo) else float("nan"),
+            "touches": float(velo.quantile(0.99)) if len(velo) else float("nan"),
+            "ivb": _mean(group, "pfx_z") * FEET_TO_INCHES,
+            "arm_run": _mean(group, "pfx_x") * FEET_TO_INCHES * arm_sign,
+            "spin": _mean(group, "release_spin_rate"),
+            "whiff_rate": whiffs / swings if swings else float("nan"),
+            "chase_rate": chases / len(out_of_zone) if len(out_of_zone) else float("nan"),
+            "xwoba": _mean(group, "estimated_woba_using_speedangle"),
+        })
+
+    table = pd.DataFrame(records).set_index("pitch_type")
+    return table.sort_values("usage", ascending=False)[columns]
+
+
 def release_consistency(
     frame: pd.DataFrame,
     min_pitches: int | None = None,
