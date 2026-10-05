@@ -64,12 +64,14 @@ self-contained interactive HTML report comes out.
   line, a plain-language hitting plan split by batter side, the arsenal with
   velocity ranges and usage against each side, count tendencies by side, and
   the pitcher's last five outings against the rest of his season
-- 308 unit tests, plus an end-to-end validation suite over live data
+- Count grid — one balls-by-strikes lattice per pitch, coloured by how far each
+  count moves him from his own habit, with an auto-written headline stating
+  what it shows; it replaced a stacked bar chart that hid the count's structure
+- 321 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- Count-state grid (balls × strikes, coloured by lift over his own rate) to
-  replace the stacked pitch-mix chart; platoon slope chart; movement plot
+- Platoon slope chart and movement plot
 - Run the pipeline across 25–30 pitchers to set thresholds from real
   distributions rather than two pitchers
 - Check whether first-half tendencies hold in the second half

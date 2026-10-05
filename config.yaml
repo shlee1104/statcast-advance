@@ -50,6 +50,12 @@ report:
   output_dir: "reports"
   max_takeaways: 5
 
+  # The balls-by-strikes grid greys out a count only when the COUNT is thin.
+  # A share's precision is set by how many pitches were thrown in that count,
+  # so a pitch he threw 5 times out of 225 in 0-2 is a well-measured 2% and
+  # stays visible — that near-empty cell is often the finding.
+  count_grid_min_count: 30
+
   # Findings arrive in different units — a share delta, a velocity drop in mph,
   # a lift ratio — and the top takeaways have to be ranked against each other.
   #

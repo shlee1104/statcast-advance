@@ -277,6 +277,137 @@ def situational_usage(
     return pd.DataFrame(records)[columns]
 
 
+# Counts where the hitter is ahead, and two-strike counts. 3-0 is left out of
+# the hitter's set: nearly every pitcher throws a fastball there, so it says
+# something about the count rather than about him.
+HITTERS_COUNTS: list[str] = ["1-0", "2-0", "2-1", "3-1"]
+TWO_STRIKE_COUNTS: list[str] = ["0-2", "1-2", "2-2", "3-2"]
+
+
+def count_grid(
+    frame: pd.DataFrame,
+    min_count: int | None = None,
+    min_usage: float = 0.05,
+) -> pd.DataFrame:
+    """Every pitch in every count, laid out for a balls-by-strikes grid.
+
+    Returns one row per (pitch_type, count) for every pitch with at least
+    `min_usage` of his total and every one of the twelve counts, including
+    counts where he never threw that pitch:
+
+      pitch_type, count, balls, strikes
+      n          int, pitches of this type in this count
+      count_n    int, all pitches in this count
+      share      float, n / count_n
+      own_rate   float, his overall rate for this pitch
+      lift       float, share / own_rate
+      log2_lift  float, log2(lift), floored at -5 for a lift of zero
+      reliable   bool, whether count_n clears `min_count`
+
+    A count is a coordinate, not a category. 2-1 and 1-2 are neighbours on a
+    balls-by-strikes lattice, and laying the counts out that way is what lets a
+    pitch that clusters in one corner be seen clustering there.
+
+    The reliability gate is on the COUNT'S total, not on how many of this
+    pitch were thrown in it, and that is a deliberate departure from the
+    reviewer's version of this chart. Gating on the pitch blanked every cell
+    where he rarely throws it — Yamamoto's cutter in 0-2 is 5 of 225 pitches,
+    in 1-2 it is 6 of 330 — and those near-empty cells are the finding: he
+    abandons the cutter with two strikes. A share's precision is governed by
+    its denominator, so 5 of 225 is a well-measured 2%, not a missing value.
+    The same principle governs the platoon table.
+
+    Pitches below `min_usage` get no grid at all. A pitch thrown 3% of the time
+    appears a handful of times per count, and its lift swings by a factor of two
+    on a single pitch.
+    """
+    columns = ["pitch_type", "count", "balls", "strikes", "n", "count_n",
+               "share", "own_rate", "lift", "log2_lift", "reliable"]
+
+    if min_count is None:
+        min_count = int(config.get("report.count_grid_min_count", 30))
+
+    working = restrict_to_arsenal(frame)
+    if len(working) == 0:
+        return pd.DataFrame(columns=columns)
+
+    overall = pitch_mix(working)
+    pitches = [p for p in overall.index if overall[p] >= min_usage]
+    per_count = working["count"].value_counts()
+    tallies = working.groupby(["count", "pitch_type"]).size()
+
+    records = []
+    for pitch in pitches:
+        own = float(overall[pitch])
+        for count in ALL_COUNTS:
+            count_n = int(per_count.get(count, 0))
+            n = int(tallies.get((count, pitch), 0))
+            share = n / count_n if count_n else float("nan")
+            lift = share / own if (own and share == share) else float("nan")
+            if lift != lift:
+                log2_lift = float("nan")
+            elif lift > 0:
+                log2_lift = max(float(np.log2(lift)), -5.0)
+            else:
+                log2_lift = -5.0
+            balls, strikes = (int(x) for x in count.split("-"))
+            records.append({
+                "pitch_type": pitch,
+                "count": count,
+                "balls": balls,
+                "strikes": strikes,
+                "n": n,
+                "count_n": count_n,
+                "share": share,
+                "own_rate": own,
+                "lift": lift,
+                "log2_lift": log2_lift,
+                "reliable": count_n >= min_count,
+            })
+
+    if not records:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(records)[columns]
+
+
+def count_region_lifts(frame: pd.DataFrame, min_usage: float = 0.05) -> pd.DataFrame:
+    """Each pitch's lift pooled over hitter's counts and over two-strike counts.
+
+    Returns one row per pitch: own_rate, hitter_lift, hitter_n, two_strike_lift,
+    two_strike_n. Pooled by summing pitches across the counts in each region
+    before dividing, so a big count weighs more than a small one — averaging
+    the per-count lifts would let 3-1's 83 pitches count as much as 1-0's 307.
+    """
+    columns = ["own_rate", "hitter_lift", "hitter_n",
+               "two_strike_lift", "two_strike_n"]
+
+    working = restrict_to_arsenal(frame)
+    if len(working) == 0:
+        return pd.DataFrame(columns=columns)
+
+    overall = pitch_mix(working)
+    hitters = working[working["count"].isin(HITTERS_COUNTS)]
+    two = working[working["count"].isin(TWO_STRIKE_COUNTS)]
+
+    records = []
+    for pitch in [p for p in overall.index if overall[p] >= min_usage]:
+        own = float(overall[pitch])
+        h_share = (hitters["pitch_type"] == pitch).mean() if len(hitters) else float("nan")
+        t_share = (two["pitch_type"] == pitch).mean() if len(two) else float("nan")
+        records.append({
+            "pitch_type": pitch,
+            "own_rate": own,
+            "hitter_lift": h_share / own if own else float("nan"),
+            "hitter_n": len(hitters),
+            "two_strike_lift": t_share / own if own else float("nan"),
+            "two_strike_n": len(two),
+        })
+
+    if not records:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(records).set_index("pitch_type")[columns]
+
+
 def count_lifts(
     frame: pd.DataFrame,
     min_n: int = 20,

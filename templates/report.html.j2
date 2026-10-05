@@ -109,7 +109,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 /* Zone map: Savant's 3x3 strike zone floating inside the four outside
    regions, which is how a hitter pictures it. */
 .zonewrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
-.zone{position:relative;width:250px;height:280px;flex:0 0 auto}
+.zone{position:relative;width:250px;height:280px;flex:0 0 auto;margin-bottom:24px}
 .zone .outer{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
              grid-template-rows:1fr 1fr;border-radius:6px;overflow:hidden}
 .zone .inner{position:absolute;left:22%;top:20%;width:56%;height:60%;
@@ -117,7 +117,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
              border:2px solid rgba(20,28,40,.65);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
 .cell{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;
        border:1px solid rgba(255,255,255,.45);color:#16202e}
-.zone .legend{position:absolute;bottom:-4px;width:100%;text-align:center;font-size:11px;
+.zone .legend{position:absolute;bottom:-20px;width:100%;text-align:center;font-size:11px;
               color:var(--muted)}
 /* Small multiples: all six pitches at once, so comparison is by eye rather
    than by memory. A dropdown that swaps one grid forces the reader to hold
@@ -146,6 +146,48 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
                color:var(--muted);margin-left:4px}
 .legend-inline .ramp{display:inline-block;width:110px;height:11px;border-radius:3px;
                      border:1px solid var(--line)}
+/* Count grid: one balls-by-strikes lattice per pitch. Colour is the lift, the
+   text repeats it as a number, so the chart reads in black and white too. */
+.cglegend{width:260px;max-width:100%;margin:4px 0 22px 4px;font-size:11px;color:var(--muted)}
+.cglegend .ramp{height:11px;border-radius:3px;border:1px solid var(--line);
+                -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cglegend .ticks{position:relative;height:14px;margin-top:3px}
+.cglegend .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:16px}
+.cgpanel h4{font-size:13px;font-weight:700;margin-bottom:0}
+.cgpanel .sub{font-size:11px;color:var(--muted);margin-bottom:6px}
+.cg{display:grid;grid-template-columns:16px repeat(3,1fr);gap:2px}
+.cg-head{font-size:10px;color:var(--muted);display:flex;align-items:center;
+         justify-content:center}
+.cgc{aspect-ratio:1/0.82;display:flex;flex-direction:column;align-items:center;
+     justify-content:center;border-radius:3px;color:#16202e;line-height:1.15;
+     font-variant-numeric:tabular-nums;
+     -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cgc b{font-size:13px;font-weight:700}
+.cgc i{font-style:normal;font-size:9.5px;opacity:.75}
+.cgc.dark{color:#fff}
+.cgc.dark i{opacity:.9}
+.cgc.gated{background:#eef1f4;color:#9aa4ae;font-size:14px}
+.cg-cap{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
+        margin:3px 0 0 18px}
+/* Outside-the-zone regions. The map draws four quadrants and lays the strike
+   zone over their middle, so a label centred in a quadrant — or placed in the
+   corner nearest the zone — ends up underneath the strike-zone box. Each label
+   is pinned to its quadrant's OUTER corner, the only part of the quadrant the
+   box can never cover. Before this, zone 14 (low, catcher's right) was hidden
+   on the single map and all four outside labels were hidden on the small
+   grids — including the 35% of Skubal's changeups that finish in zone 14. */
+.oz{position:relative;border:1px solid rgba(255,255,255,.45);
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.oz .lab{position:absolute;display:flex;flex-direction:column;padding:5px 7px;
+         line-height:1.15;color:#16202e;font-variant-numeric:tabular-nums}
+.oz .lab b{font-size:11px;font-weight:700}
+.oz .lab i{font-style:normal;font-size:8.5px;opacity:.7}
+.oz-11 .lab{top:0;left:0;align-items:flex-start}
+.oz-12 .lab{top:0;right:0;align-items:flex-end}
+.oz-13 .lab{bottom:0;left:0;align-items:flex-start}
+.oz-14 .lab{bottom:0;right:0;align-items:flex-end}
+.oz.dark .lab,.cell.dark,.zcell.dark{color:#fff}
 .zonekey{font-size:12px;color:var(--muted);max-width:34ch}
 .zonekey .sw{display:flex;align-items:center;gap:6px;margin-top:8px}
 .zonekey .sw i{width:14px;height:14px;border-radius:3px;display:inline-block}
@@ -418,12 +460,84 @@ button.more:hover{background:#f3f6fa}
 {% endif %}
 </section>
 
-<div class="charts">
-  <div class="chartbox">
-    <h3>Pitch mix by count</h3>
-    <p class="lede">Each column sums to 100%. The question is "given this count, what is coming".</p>
-    <div class="holder"><canvas id="countChart"></canvas></div>
+{# ----------------------------------------------------------- count grid
+   Drawn by the template, like the dugout card, so it prints and needs no
+   script. Colour comes from log2 of the lift, supplied by the payload, so the
+   scale is symmetric: 2x and 0.5x are equally far from "his rate". #}
+{% set cg = payload.count_grid %}
+{% macro lift_bg(l2) -%}
+  {%- if l2 is none -%}#eef1f4{%- else -%}
+  {%- set t = [[l2, 1.0]|min, -1.0]|max -%}
+  {%- if t >= 0 -%}
+rgb({{ (247 + (191 - 247) * t)|round|int }},{{ (247 + (94 - 247) * t)|round|int }},{{ (245 + (39 - 245) * t)|round|int }})
+  {%- else -%}{%- set u = 0 - t -%}
+rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int }},{{ (245 + (168 - 245) * u)|round|int }})
+  {%- endif -%}{%- endif -%}
+{%- endmacro %}
+{% if cg.pitches %}
+<section class="card">
+  <h2>{{ cg.headline or "What he throws in each count, against his own habits" }}</h2>
+  <p class="lede">
+    Each grid is one pitch, laid out balls down and strikes across, so neighbouring
+    counts sit next to each other. Colour is how much more or less often he throws
+    that pitch in that count than he does overall — orange more, blue less, white at
+    his normal rate. The big number is that ratio; underneath is the pitch's share of
+    the count and how many he threw there.
+  </p>
+  {# Tick labels sit at their true positions on the log2 scale: 0.67x and
+     1.5x are log2 = -/+0.585, which is 20.7% and 79.3% of the way along. #}
+  <div class="cglegend">
+    <div class="ramp" style="background:linear-gradient(90deg,{{ lift_bg(-1.0) }},{{ lift_bg(-0.585) }} 20.7%,{{ lift_bg(0) }} 50%,{{ lift_bg(0.585) }} 79.3%,{{ lift_bg(1.0) }})"></div>
+    <div class="ticks">
+      <span style="left:0%">≤0.5×</span><span style="left:20.7%">0.67×</span>
+      <span style="left:50%">his rate</span><span style="left:79.3%">1.5×</span>
+      <span style="left:100%">≥2×</span>
+    </div>
   </div>
+  <div class="cgrid">
+  {% for p in cg.pitches %}
+    <div class="cgpanel">
+      <h4>{{ names.get(p.pitch, p.pitch) }}</h4>
+      <div class="sub">season rate {{ "%.0f"|format(p.own_rate * 100) }}%</div>
+      <div class="cg">
+        <div class="cg-axis"></div>
+        {% for s in range(3) %}<div class="cg-head">{{ s }}</div>{% endfor %}
+        {% for b in range(4) %}
+          <div class="cg-head">{{ b }}</div>
+          {% for s in range(3) %}
+            {% set cell = p.cells[b ~ "-" ~ s] %}
+            {% if not cell.reliable or cell.lift is none %}
+            <div class="cgc gated" title="{{ b }}-{{ s }}: {{ cell.count_n }} pitches in this count — too few to read">—</div>
+            {% else %}
+            {% set t = [[cell.log2_lift, 1.0]|min, -1.0]|max %}
+            <div class="cgc{% if t > 0.55 or t < -0.55 %} dark{% endif %}"
+                 style="background:{{ lift_bg(cell.log2_lift) }}"
+                 title="{{ b }}-{{ s }}: {{ cell.n }} of {{ cell.count_n }} pitches">
+              <b>{{ "%.2f"|format(cell.lift) }}×</b>
+              <i>{{ "%.0f"|format(cell.share * 100) }}% · n={{ cell.n }}</i>
+            </div>
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+      </div>
+      <div class="cg-cap"><span>balls ↓</span><span>strikes →</span></div>
+    </div>
+  {% endfor %}
+  </div>
+  <p class="note">
+    A dash means fewer than {{ cg.min_count }} pitches were thrown in that count, so
+    no share there is worth reading. A near-empty cell in a well-sampled count is
+    kept, because "he almost never throws it here" is often the point.
+    {% if cg.excluded %}
+    Not shown:
+    {% for e in cg.excluded %}{{ names.get(e.pitch, e.pitch) }} ({{ "%.0f"|format(e.share * 100) }}%){% if not loop.last %}, {% endif %}{% endfor %}
+    — thrown too rarely to read count by count.
+    {% endif %}
+  </p>
+</section>
+{% endif %}
+
+<div class="charts">
   <div class="chartbox">
     <h3>Arsenal usage{% if payload.meta.has_league %} vs league{% endif %}</h3>
     <p class="lede">
@@ -501,9 +615,11 @@ button.more:hover{background:#f3f6fa}
       <option value="R">vs RHH</option>
     </select>
     <label for="sliceMode">Colour</label>
+    {# Share first: lift against the whole season is 1.0x everywhere when
+       nothing is sliced, so it cannot be the opening view. #}
     <select id="sliceMode">
+      <option value="share">Share of the pitch</option>
       <option value="lift">Lift vs his own pattern</option>
-      <option value="share">Raw share of the pitch</option>
     </select>
     <span id="sliceLegend" class="legend-inline"></span>
   </div>
@@ -802,6 +918,13 @@ function shade(share, max) {
   return 'rgb(' + c0.map((v, i) => Math.round(v + (c1[i] - v) * t)).join(',') + ')';
 }
 
+/* An outside-the-zone quadrant with its label pinned to the outer corner —
+   see the .oz styles for why the corner matters. */
+function outerCell(z, bg, labelHtml, title, dark) {
+  return `<div class="oz oz-${z}${dark ? ' dark' : ''}" style="background:${bg}"
+    title="${title}"><span class="lab">${labelHtml}</span></div>`;
+}
+
 function drawZone(pitch) {
   const row = zoneRows[pitch];
   const inner = document.getElementById('zoneInner');
@@ -811,16 +934,17 @@ function drawZone(pitch) {
   const all = [...D.zone.inner, ...D.zone.outer].map(z => row[z] || 0);
   const max = Math.max(...all);
 
+  const darkAt = z => max && (row[z] || 0) / max >= 0.6;
+
   inner.innerHTML = D.zone.inner.map(z =>
-    `<div class="cell" style="background:${shade(row[z], max)}"
+    `<div class="cell${darkAt(z) ? ' dark' : ''}" style="background:${shade(row[z], max)}"
       title="zone ${z}">${pct0(row[z] || 0)}</div>`).join('');
 
   // 11 12 / 13 14 maps onto a 2x2 grid in that order, which is how Savant
   // numbers the outside regions from the catcher's view.
   outer.innerHTML = D.zone.outer.map(z =>
-    `<div class="cell" style="background:${shade(row[z], max)};font-size:10px;
-      align-items:flex-start;justify-content:flex-start;padding:6px"
-      title="zone ${z}">${pct0(row[z] || 0)}</div>`).join('');
+    outerCell(z, shade(row[z], max), `<b>${pct0(row[z] || 0)}</b>`,
+              `zone ${z}`, darkAt(z))).join('');
 }
 
 if (zonePitches.length) {
@@ -905,9 +1029,15 @@ function drawSlices() {
       const bg = mode === 'lift' ? liftColor(v) : shareColor(v);
       const label = v === null ? '—'
         : mode === 'lift' ? v.toFixed(1) + 'x' : (v * 100).toFixed(0) + '%';
-      return `<div class="zcell" style="background:${bg}"
-        title="zone ${z}: ${n} pitches, ${total ? ((n / total) * 100).toFixed(1) : 0}%">
-        <b>${n ? label : ''}</b><i>${n || ''}</i></div>`;
+      const t = v === null ? 0 : mode === 'lift'
+        ? Math.abs(Math.log(v || 1e-9) / Math.log(LIFT_MAX))
+        : Math.min(v / SHARE_MAX, 1);
+      const dark = n > 0 && t >= 0.6;
+      const title = `zone ${z}: ${n} pitches, ${total ? ((n / total) * 100).toFixed(1) : 0}%`;
+      const text = `<b>${n ? label : ''}</b><i>${n || ''}</i>`;
+      if (ZS.outer.includes(z)) return outerCell(z, bg, text, title, dark);
+      return `<div class="zcell${dark ? ' dark' : ''}" style="background:${bg}"
+        title="${title}">${text}</div>`;
     };
 
     const name = (D.display_names || {})[pitch] || pitch;
@@ -940,11 +1070,19 @@ function drawSlices() {
     : 'Share is the percentage of this pitch, in this slice, going to each zone. '
       + 'Mostly it shows where the pitch always goes; switch to lift for what is '
       + 'specific to the slice.';
+  // Lift is a slice divided by his whole season. With every count and both
+  // sides selected, the slice IS the whole season and every cell is 1.0x by
+  // construction, which looks like a finding ("he's perfectly even") and is
+  // actually arithmetic. Say so instead of drawing it silently.
+  const trivial = mode === 'lift' && state === 'all' && hand === 'all'
+    ? ' With every count and both sides selected, lift is 1.0× everywhere by '
+      + 'definition — pick a count or a batter side to see what changes.'
+    : '';
   const caution = thin.length
     ? ` Hatched panels (${thin.join(', ')}) fall under ${ZS.min_slice} pitches — `
       + 'a thirteen-zone grid of that many is noise however it is coloured.'
     : '';
-  document.getElementById('sliceNote').textContent = explain + caution;
+  document.getElementById('sliceNote').textContent = explain + trivial + caution;
 }
 
 if (ZS.pitches.length) {
@@ -975,34 +1113,6 @@ if (typeof Chart === 'undefined') {
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   Chart.defaults.font.size = 11;
   Chart.defaults.animation = false;
-
-  const cm = D.count_mix;
-  if (cm && cm.counts.length) {
-    new Chart(document.getElementById('countChart'), {
-      type: 'bar',
-      data: {
-        labels: cm.counts,
-        datasets: cm.pitches.map((p, i) => ({
-          label: (D.display_names || {})[p] || p,
-          data: cm.series[p],
-          backgroundColor: COLORS[i % COLORS.length],
-          borderWidth: 0,
-        })),
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        scales: {
-          x: { stacked: true, grid: { display: false } },
-          y: { stacked: true, max: 1, ticks: { callback: v => (v * 100) + '%' },
-               grid: { color: '#f0f2f4' } },
-        },
-        plugins: {
-          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
-          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.y)}` } },
-        },
-      },
-    });
-  }
 
   const ars = D.arsenal || [];
   if (ars.length) {

@@ -138,7 +138,6 @@ def build_payload(
     else:
         arsenal_rows = _records(profile, index_name="pitch_type")
 
-    mix_table = counts.mix_by_count(frame, min_pitches=5)
     predictability = counts.predictability(frame, min_pitches=20)
     if has_league and league_mix is not None and len(predictability):
         predictability_rows = _records(
@@ -185,14 +184,7 @@ def build_payload(
         "comparisons": flags.comparison_count(frame, league_mix),
         "arsenal": arsenal_rows,
         "display_names": _display_names(frame),
-        "count_mix": {
-            "counts": list(mix_table.index),
-            "pitches": list(mix_table.columns),
-            "series": {
-                str(pitch): [_clean(v) for v in mix_table[pitch].tolist()]
-                for pitch in mix_table.columns
-            },
-        },
+        "count_grid": _build_count_grid(frame),
         "predictability": predictability_rows,
         "count_lifts": _records(counts.count_lifts(frame, min_n=20)),
         "putaway": putaway_rows,
@@ -232,6 +224,66 @@ def build_payload(
             ),
             "max_takeaways": int(config.get("report.max_takeaways", 5)),
         },
+    }
+
+
+def _build_count_grid(frame: pd.DataFrame) -> dict:
+    """Balls-by-strikes grids, one per pitch, for the count section.
+
+    Replaces a 100% stacked bar of pitch mix by count. That chart had three
+    problems a reviewer identified, all structural. It laid twelve counts out
+    as a flat row of labels, throwing away the fact that a count is a
+    coordinate — 2-1 and 1-2 are neighbours — so a pitch clustering in one
+    corner of the lattice could not be seen clustering. Only its bottom series
+    could be read accurately, since every other segment started at a
+    different height. And it plotted raw share, so most of what it showed was
+    his season mix repeated twelve times.
+
+    Each cell here carries the lift over his own rate (the colour), plus the
+    share and the pitch count (the text), so colour is never the only channel.
+    `log2_lift` is supplied so the template can place ratios on a symmetric
+    scale without computing logarithms: 2x and 0.5x sit the same distance from
+    centre, where on a linear scale "half as often" would be squashed.
+    """
+    grid = counts.count_grid(frame)
+    if len(grid) == 0:
+        return {"pitches": [], "excluded": [], "headline": None, "min_count": 0}
+
+    min_count = int(config.get("report.count_grid_min_count", 30))
+    working = counts.restrict_to_arsenal(frame)
+    overall = counts.pitch_mix(working)
+    shown = list(dict.fromkeys(grid["pitch_type"]))
+
+    pitches = []
+    for pitch in shown:
+        rows = grid[grid["pitch_type"] == pitch].set_index("count")
+        cells = {}
+        for count in counts.ALL_COUNTS:
+            r = rows.loc[count]
+            cells[count] = {
+                "n": int(r["n"]),
+                "count_n": int(r["count_n"]),
+                "share": _clean(r["share"]),
+                "lift": _clean(r["lift"]),
+                "log2_lift": _clean(r["log2_lift"]),
+                "reliable": bool(r["reliable"]),
+            }
+        pitches.append({
+            "pitch": pitch,
+            "own_rate": _clean(float(rows["own_rate"].iloc[0])),
+            "cells": cells,
+        })
+
+    excluded = [
+        {"pitch": p, "share": _clean(float(overall[p]))}
+        for p in overall.index if p not in shown
+    ]
+
+    return {
+        "pitches": pitches,
+        "excluded": excluded,
+        "headline": gameplan.count_headline(frame),
+        "min_count": min_count,
     }
 
 

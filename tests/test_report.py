@@ -115,7 +115,7 @@ class TestBuildPayload:
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         assert payload["meta"]["has_league"] is False
         assert payload["arsenal"]
-        assert payload["count_mix"]["counts"]
+        assert payload["count_grid"]["pitches"]
 
     def test_payload_is_json_serializable_with_no_nan(self):
         """The one that stops a blank page in the browser."""
@@ -135,11 +135,18 @@ class TestBuildPayload:
             total = sum(row.get(str(z)) or 0 for z in zones)
             assert total == pytest.approx(1.0)
 
-    def test_count_mix_columns_align_with_series(self):
+    def test_count_grid_covers_all_twelve_counts(self):
+        """The grid draws a fixed 4x3 lattice, so every pitch needs every
+        count, including counts where he never threw it."""
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        mix = payload["count_mix"]
-        for pitch in mix["pitches"]:
-            assert len(mix["series"][pitch]) == len(mix["counts"])
+        for pitch in payload["count_grid"]["pitches"]:
+            assert len(pitch["cells"]) == 12
+
+    def test_stacked_count_chart_is_gone(self):
+        """Its data would be a field nothing reads."""
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        assert "count_mix" not in payload
+        assert "countChart" not in report.render(payload)
 
     def test_takeaways_are_a_subset_of_findings(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
@@ -168,7 +175,7 @@ class TestDataGaps:
         ]).reset_index(drop=True)
         payload = report.build_payload(frame, "Test Pitcher", 2025)
         assert "ST" not in payload["display_names"]
-        assert "ST" not in payload["count_mix"]["pitches"]
+        assert "ST" not in [p["pitch"] for p in payload["count_grid"]["pitches"]]
 
 
 class TestFatigueReliability:
@@ -229,6 +236,41 @@ class TestDugoutCard:
         situations = [t["situation"] for t in payload["card"]["tendencies"]]
         from src.metrics import counts
         assert situations == counts.SITUATIONS
+
+
+class TestZoneMapLayout:
+    """Two layout bugs that hid real numbers.
+
+    The strike-zone box is drawn over the middle of the four outside quadrants.
+    Labels placed in a quadrant's centre, or in the corner nearest the zone,
+    end up underneath it — which hid zone 14 on the single map and all four
+    outside labels on the small grids, including the 35% of Skubal's changeups
+    that finish low and to the catcher's right.
+    """
+
+    def render(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        return report.render(payload)
+
+    def test_outside_labels_are_pinned_to_outer_corners(self):
+        html = self.render()
+        assert ".oz-11 .lab{top:0;left:0" in html
+        assert ".oz-12 .lab{top:0;right:0" in html
+        assert ".oz-13 .lab{bottom:0;left:0" in html
+        assert ".oz-14 .lab{bottom:0;right:0" in html
+
+    def test_both_maps_use_the_pinned_labels(self):
+        html = self.render()
+        assert "outerCell(z, shade(" in html          # single map
+        assert "return outerCell(z, bg, text" in html  # small grids
+
+    def test_small_grids_open_on_share_not_lift(self):
+        """Lift against the whole season is 1.0x in every cell when nothing is
+        sliced, which reads as a finding and is only arithmetic."""
+        html = self.render()
+        select = html[html.index('<select id="sliceMode">'):]
+        first_option = select[:select.index("</option>")]
+        assert 'value="share"' in first_option
 
 
 class TestRender:

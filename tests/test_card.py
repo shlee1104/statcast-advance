@@ -359,6 +359,98 @@ class TestPlanKeys:
         assert gameplan.count_tell_key(frame) is None
 
 
+class TestCountGrid:
+    def build(self):
+        """Cutter in hitter's counts, splitter with two strikes, four-seam
+        everywhere — the Yamamoto shape in miniature."""
+        return make_frame([
+            {"pitch_type": "FF", "n": 60, "balls": 0, "strikes": 0},
+            {"pitch_type": "FS", "n": 10, "balls": 0, "strikes": 0},
+            {"pitch_type": "FC", "n": 10, "balls": 0, "strikes": 0},
+            {"pitch_type": "FF", "n": 30, "balls": 2, "strikes": 1},
+            {"pitch_type": "FC", "n": 30, "balls": 2, "strikes": 1},
+            {"pitch_type": "FF", "n": 30, "balls": 1, "strikes": 2},
+            {"pitch_type": "FS", "n": 38, "balls": 1, "strikes": 2},
+            {"pitch_type": "FC", "n": 2, "balls": 1, "strikes": 2},
+            {"pitch_type": "FF", "n": 5, "balls": 3, "strikes": 0},
+        ])
+
+    def test_every_pitch_gets_all_twelve_counts(self):
+        grid = counts.count_grid(self.build(), min_count=30)
+        per_pitch = grid.groupby("pitch_type").size()
+        assert set(per_pitch) == {12}
+
+    def test_lift_is_against_his_own_rate(self):
+        grid = counts.count_grid(self.build(), min_count=30)
+        cell = grid[(grid.pitch_type == "FC") & (grid["count"] == "2-1")].iloc[0]
+        own = 42 / 215
+        assert cell["share"] == pytest.approx(0.5)
+        assert cell["lift"] == pytest.approx(0.5 / own)
+
+    def test_a_rare_pitch_in_a_well_sampled_count_stays_visible(self):
+        """Gated on the COUNT, not the pitch: 2 cutters out of 70 pitches in
+        1-2 is a measured 3%, and "he almost never throws it here" is the
+        point. Gating on the pitch would blank exactly this cell."""
+        grid = counts.count_grid(self.build(), min_count=30)
+        cell = grid[(grid.pitch_type == "FC") & (grid["count"] == "1-2")].iloc[0]
+        assert cell["n"] == 2
+        assert bool(cell["reliable"])
+        assert cell["lift"] < 0.25
+
+    def test_a_thin_count_is_marked(self):
+        grid = counts.count_grid(self.build(), min_count=30)
+        cell = grid[(grid.pitch_type == "FF") & (grid["count"] == "3-0")].iloc[0]
+        assert not bool(cell["reliable"])
+
+    def test_log2_is_symmetric_and_floored(self):
+        grid = counts.count_grid(self.build(), min_count=30)
+        zero = grid[(grid.pitch_type == "FS") & (grid["count"] == "2-1")].iloc[0]
+        assert zero["lift"] == 0
+        assert zero["log2_lift"] == -5.0
+
+    def test_rare_pitches_get_no_grid(self):
+        frame = pd.concat([self.build(), make_frame([{"pitch_type": "SL", "n": 6}])])
+        grid = counts.count_grid(frame.reset_index(drop=True), min_count=30, min_usage=0.05)
+        assert "SL" not in set(grid["pitch_type"])
+
+
+class TestCountHeadline:
+    def test_names_both_pitches_and_their_separation(self):
+        """The chart title should state the finding, not name the metric."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 100, "balls": 0, "strikes": 0},
+            {"pitch_type": "FC", "n": 60, "balls": 2, "strikes": 1},
+            {"pitch_type": "FF", "n": 40, "balls": 2, "strikes": 1},
+            {"pitch_type": "FS", "n": 60, "balls": 1, "strikes": 2},
+            {"pitch_type": "FF", "n": 40, "balls": 1, "strikes": 2},
+            {"pitch_type": "FS", "n": 10, "balls": 0, "strikes": 0},
+            {"pitch_type": "FC", "n": 10, "balls": 0, "strikes": 0},
+        ])
+        text = gameplan.count_headline(frame)
+        assert "cutter" in text and "hitter's counts" in text
+        assert "splitter" in text and "two strikes" in text
+        assert "each rarely shows up" in text
+
+    def test_does_not_crash_when_a_region_is_empty(self):
+        """A pitcher with no two-strike pitches in the sample once took the
+        whole report down here."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 50, "balls": 0, "strikes": 0},
+            {"pitch_type": "SL", "n": 50, "balls": 0, "strikes": 0},
+        ])
+        assert gameplan.count_headline(frame) is None
+
+    def test_silent_when_nothing_moves(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 50, "balls": b, "strikes": s}
+            for b in range(3) for s in range(3)
+        ] + [
+            {"pitch_type": "SL", "n": 50, "balls": b, "strikes": s}
+            for b in range(3) for s in range(3)
+        ])
+        assert gameplan.count_headline(frame) is None
+
+
 class TestPlanAssembly:
     def build(self):
         specs = []

@@ -358,6 +358,57 @@ def location_key(frame: pd.DataFrame) -> dict | None:
     return _key("Read the height", text, int(top.n))
 
 
+def count_headline(frame: pd.DataFrame, min_lift: float = 1.25) -> str | None:
+    """One sentence stating what the count grid shows, for its title.
+
+    A chart title should state the finding, not name the metric. This finds the
+    pitch that rises most in hitter's counts and the one that rises most with
+    two strikes, and says so — adding that they stay out of each other's counts
+    when that is also true. Returns None when neither rises enough to be worth
+    a headline, and the chart gets a plain title instead.
+    """
+    regions = counts.count_region_lifts(frame)
+    if len(regions) == 0:
+        return None
+
+    # A pitcher with no pitches in one region has no lift there. That must
+    # leave the headline out, not raise — an earlier version crashed the whole
+    # report on a pitcher who had never thrown a two-strike pitch in the
+    # sample, which a short-season pitcher can genuinely produce.
+    h_lifts = regions["hitter_lift"].dropna()
+    t_lifts = regions["two_strike_lift"].dropna()
+    if h_lifts.empty and t_lifts.empty:
+        return None
+
+    hitter = h_lifts.idxmax() if len(h_lifts) else None
+    two = t_lifts.idxmax() if len(t_lifts) else None
+    h_lift = float(h_lifts.max()) if len(h_lifts) else 0.0
+    t_lift = float(t_lifts.max()) if len(t_lifts) else 0.0
+
+    if h_lift < min_lift and t_lift < min_lift:
+        return None
+    if hitter is not None and hitter == two:
+        return (f"The {name(hitter)} rises both in hitter's counts and with "
+                f"two strikes.")
+
+    parts = []
+    if h_lift >= min_lift:
+        parts.append(f"the {name(hitter)} comes out in hitter's counts")
+    if t_lift >= min_lift:
+        parts.append(f"the {name(two)} with two strikes")
+    sentence = " and ".join(parts)
+    sentence = sentence[0].upper() + sentence[1:]
+
+    apart = (
+        h_lift >= min_lift and t_lift >= min_lift
+        and float(regions.loc[hitter, "two_strike_lift"]) < 0.8
+        and float(regions.loc[two, "hitter_lift"]) < 0.8
+    )
+    if apart:
+        sentence += ", and each rarely shows up in the other's counts"
+    return sentence + "."
+
+
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
