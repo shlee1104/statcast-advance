@@ -67,11 +67,13 @@ self-contained interactive HTML report comes out.
 - Count grid — one balls-by-strikes lattice per pitch, coloured by how far each
   count moves him from his own habit, with an auto-written headline stating
   what it shows; it replaced a stacked bar chart that hid the count's structure
-- 321 unit tests, plus an end-to-end validation suite over live data
+- Platoon slope chart and movement plot — usage against each side drawn as one
+  line per pitch, and ride against arm-side run with league-average markers;
+  both titled with an auto-written sentence stating what they show
+- 340 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- Platoon slope chart and movement plot
 - Run the pipeline across 25–30 pitchers to set thresholds from real
   distributions rather than two pitchers
 - Check whether first-half tendencies hold in the second half

@@ -206,7 +206,14 @@ def pitch_outcomes(
     Whiff rate uses swings as the denominator, matching metrics.events, so the
     two are directly comparable. Mismatched denominators here would produce
     percentile ranks that look plausible and mean nothing.
+
+    Movement comes back in the same convention as `arsenal.scout_arsenal`:
+    `avg_ivb` is induced vertical break in inches, and `avg_arm_run` is
+    horizontal break toward the pitcher's ARM side in inches. Raw `pfx_x` flips
+    sign with handedness, so it is multiplied by -1 for right-handers here,
+    once, rather than in every chart that reads it.
     """
+    arm_sign = -1.0 if p_throws == "R" else 1.0
     return conn.execute(
         """
         WITH tagged AS (
@@ -223,7 +230,9 @@ def pitch_outcomes(
                 zone BETWEEN 1 AND 9                            AS in_zone,
                 estimated_woba_using_speedangle                 AS xwoba,
                 release_speed,
-                delta_run_exp
+                delta_run_exp,
+                pfx_x,
+                pfx_z
             FROM league_pitches
             WHERE game_year = ? AND p_throws = ? AND pitch_type IS NOT NULL
         )
@@ -238,13 +247,15 @@ def pitch_outcomes(
                  THEN SUM(is_whiff::INT)::DOUBLE / SUM(is_swing::INT)
             END                                                 AS whiff_rate,
             AVG(xwoba)                                          AS avg_xwoba,
-            AVG(delta_run_exp)                                  AS avg_run_value
+            AVG(delta_run_exp)                                  AS avg_run_value,
+            AVG(pfx_z) * 12                                     AS avg_ivb,
+            AVG(pfx_x) * 12 * ?                                 AS avg_arm_run
         FROM tagged
         GROUP BY pitch_type
         HAVING COUNT(*) >= ?
         ORDER BY n DESC
         """,
-        [season, p_throws, min_pitches],
+        [season, p_throws, arm_sign, min_pitches],
     ).df()
 
 

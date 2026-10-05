@@ -30,7 +30,7 @@ from typing import Any
 
 import pandas as pd
 
-from src import baselines, config, flags, gameplan
+from src import baselines, charts, config, flags, gameplan
 from src.metrics import arsenal, counts, events, location, sequencing, splits
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -185,6 +185,8 @@ def build_payload(
         "arsenal": arsenal_rows,
         "display_names": _display_names(frame),
         "count_grid": _build_count_grid(frame),
+        "platoon_slope": _build_platoon_slope(frame),
+        "movement": _build_movement(frame, league_outcomes),
         "predictability": predictability_rows,
         "count_lifts": _records(counts.count_lifts(frame, min_n=20)),
         "putaway": putaway_rows,
@@ -284,6 +286,82 @@ def _build_count_grid(frame: pd.DataFrame) -> dict:
         "excluded": excluded,
         "headline": gameplan.count_headline(frame),
         "min_count": min_count,
+    }
+
+
+def _build_platoon_slope(frame: pd.DataFrame) -> dict:
+    """Usage against lefties and righties, as a two-point slope chart.
+
+    Replaces grouped bars, which made the reader subtract one bar from another
+    to see a split. A line from one side to the other turns the gap into a
+    slope you see at once, and a pitch that one side never sees becomes a line
+    that starts at the floor.
+
+    Lines are drawn solid whatever the pitch count on one side. The reviewer's
+    version dotted the sinker and slider for being under 25 pitches to lefties,
+    but usage is a share of every pitch thrown to that side — Yamamoto's 9
+    sinkers to lefties are 9 of about 1,600, a precisely measured 0.6%. The
+    small number is the finding, not a doubt about it; dotting it would say the
+    opposite. The same principle governs the count grid and the platoon table.
+    """
+    gaps = splits.platoon_gaps(frame, min_rate_pitches=0)
+    if len(gaps) == 0:
+        return {"pitches": [], "headline": None}
+
+    rows = [
+        {"pitch_type": r.pitch_type,
+         "usage_L": _clean(r.usage_L) or 0.0,
+         "usage_R": _clean(r.usage_R) or 0.0}
+        for r in gaps.itertuples()
+    ]
+    layout = charts.slope_layout(rows)
+    side_n = frame["stand"].value_counts()
+    return {
+        **layout,
+        "headline": gameplan.platoon_headline(frame),
+        "side_n": {"L": int(side_n.get("L", 0)), "R": int(side_n.get("R", 0))},
+    }
+
+
+def _build_movement(frame: pd.DataFrame, league_outcomes: pd.DataFrame | None) -> dict:
+    """Ride against arm-side run, per pitch, with the league's version behind it.
+
+    The single most standard chart in pitching analysis, and it was missing:
+    the numbers existed only as two columns of the arsenal table, where nobody
+    sees that a splitter sits in empty space between the fastballs and the
+    breaking balls.
+
+    League markers appear only when the league table carries movement columns
+    (`avg_ivb`, `avg_arm_run`), which older exports do not. A report built
+    without them draws his pitches alone rather than failing.
+    """
+    table = arsenal.scout_arsenal(frame)
+    if len(table) == 0:
+        return {"bubbles": [], "league": [], "headline": None}
+    velo = arsenal.profile(frame)["velo"]
+    names = _display_names(frame)
+
+    rows = [
+        {"pitch_type": p, "name": names.get(p, p),
+         "arm_run": float(r.arm_run), "ivb": float(r.ivb),
+         "usage": float(r.usage), "whiff_rate": _clean(r.whiff_rate),
+         "velo": _clean(float(velo.get(p, float("nan"))))}
+        for p, r in table.iterrows()
+        if r.arm_run == r.arm_run and r.ivb == r.ivb
+    ]
+
+    league = []
+    if league_outcomes is not None and {"avg_ivb", "avg_arm_run"} <= set(league_outcomes.columns):
+        for r in league_outcomes.itertuples():
+            if r.pitch_type in table.index:
+                league.append({"pitch_type": r.pitch_type,
+                               "arm_run": _clean(r.avg_arm_run),
+                               "ivb": _clean(r.avg_ivb)})
+
+    return {
+        **charts.movement_layout(rows, league),
+        "headline": gameplan.movement_headline(frame),
+        "has_league": bool(league),
     }
 
 

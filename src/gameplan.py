@@ -409,6 +409,128 @@ def count_headline(frame: pd.DataFrame, min_lift: float = 1.25) -> str | None:
     return sentence + "."
 
 
+def platoon_headline(frame: pd.DataFrame, rare: float = 0.03) -> str | None:
+    """One sentence stating what the platoon slope chart shows.
+
+    Two kinds of split get named. A pitch one side almost never sees is the
+    sharpest — it shrinks that side's problem — and a large usage gap on a pitch
+    both sides do see. When the largest gap is big (15 points or more) it leads,
+    because it changes the plan for every at-bat on one side; otherwise the
+    never-see list leads and the biggest remaining gap follows.
+    """
+    usage = counts.restrict_to_arsenal(frame)
+    if len(usage) == 0:
+        return None
+
+    shares = {
+        side: usage[usage["stand"] == side]["pitch_type"].value_counts(normalize=True)
+        for side in ("L", "R")
+    }
+    if any(len(s) == 0 for s in shares.values()):
+        return None
+    pitches = list(usage["pitch_type"].value_counts().index)
+
+    def share(side: str, p: str) -> float:
+        return float(shares[side].get(p, 0.0))
+
+    unseen = {
+        side: [p for p in pitches
+               if share(side, p) < rare and share("R" if side == "L" else "L", p) >= rare]
+        for side in ("L", "R")
+    }
+    gaps = sorted(
+        ((p, share("L", p) - share("R", p)) for p in pitches
+         if p not in unseen["L"] + unseen["R"]),
+        key=lambda pair: -abs(pair[1]),
+    )
+
+    def gap_clause(p: str, g: float) -> str:
+        more, less = ("lefties", "righties") if g > 0 else ("righties", "lefties")
+        hi = share("L" if g > 0 else "R", p)
+        lo = share("R" if g > 0 else "L", p)
+        return f"{more} get the {name(p)} {_pct(hi)} of the time and {less} {_pct(lo)}"
+
+    unseen_clauses = [
+        f"{SIDE_NAMES[side]} almost never see the {' or the '.join(name(p) for p in ps)}"
+        for side, ps in unseen.items() if ps
+    ]
+
+    if gaps and abs(gaps[0][1]) >= 0.15:
+        text = gap_clause(*gaps[0])
+        if unseen_clauses:
+            text += ", and " + " and ".join(unseen_clauses)
+    elif unseen_clauses:
+        text = " and ".join(unseen_clauses)
+        if gaps and abs(gaps[0][1]) >= 0.08:
+            p, g = gaps[0]
+            more = "L" if g > 0 else "R"
+            if len([s for s in unseen if unseen[s]]) == 1 and unseen[more]:
+                # Same side as the never-see clause: continue the sentence
+                # rather than naming the side again.
+                other = "R" if more == "L" else "L"
+                text += (f", and get the {name(p)} more often "
+                         f"({_pct(share(more, p))} to {_pct(share(other, p))} "
+                         f"for {SIDE_NAMES[other]})")
+            else:
+                text += "; " + gap_clause(p, g)
+    elif gaps and abs(gaps[0][1]) >= 0.08:
+        text = gap_clause(*gaps[0])
+    else:
+        return "His mix barely changes with the hitter's side."
+
+    return text[0].upper() + text[1:] + "."
+
+
+def movement_headline(frame: pd.DataFrame, min_usage: float = 0.05) -> str | None:
+    """One sentence on how his best swing-and-miss pitch moves against his fastball.
+
+    Separation is what makes a secondary pitch hard to hit: the same arm speed
+    with very different movement. So the headline compares his best whiff pitch
+    (by whiffs per swing, among non-fastballs he uses at least `min_usage`) with
+    his primary fastball — how much more it drops, how much more it runs, and
+    how much slower it is. "Only N mph slower" is said only when the gap is
+    small enough to be a reason the pitch works.
+
+    It says nothing about whether the two look alike out of the hand. That is a
+    tunneling claim, and nothing in this project measures it yet.
+    """
+    from src.metrics import arsenal
+
+    table = arsenal.scout_arsenal(frame)
+    profile = arsenal.profile(frame)
+    fastball = splits.primary_fastball(counts.restrict_to_arsenal(frame))
+    if len(table) == 0 or fastball not in table.index:
+        return None
+
+    candidates = table[
+        (table["usage"] >= min_usage)
+        & (~table.index.map(lambda p: PITCH_FAMILY.get(p) == "hard"))
+    ].dropna(subset=["whiff_rate"])
+    if len(candidates) == 0:
+        return None
+
+    best = candidates["whiff_rate"].idxmax()
+    drop = float(table.loc[fastball, "ivb"] - table.loc[best, "ivb"])
+    run = float(table.loc[best, "arm_run"] - table.loc[fastball, "arm_run"])
+    slower = float(profile.loc[fastball, "velo"] - profile.loc[best, "velo"])
+
+    moves = []
+    if abs(drop) >= 4:
+        moves.append(f"drops {abs(drop):.0f} inches {'more' if drop > 0 else 'less'}")
+    if abs(run) >= 6:
+        side = "his arm side" if run > 0 else "his glove side"
+        moves.append(f"moves {abs(run):.0f} inches more to {side}")
+    if not moves:
+        return (f"The {name(best)} is his best swing-and-miss pitch "
+                f"({_pct(table.loc[best, 'whiff_rate'])} of swings miss).")
+
+    speed = (f" at only {slower:.0f} mph slower" if 0 < slower <= 6
+             else f", {slower:.0f} mph slower")
+    return (f"The {name(best)} is his best swing-and-miss pitch "
+            f"({_pct(table.loc[best, 'whiff_rate'])} of swings miss): it "
+            f"{' and '.join(moves)} than his {name(fastball)}{speed}.")
+
+
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------

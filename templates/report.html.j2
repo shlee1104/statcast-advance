@@ -188,6 +188,17 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .oz-13 .lab{bottom:0;left:0;align-items:flex-start}
 .oz-14 .lab{bottom:0;right:0;align-items:flex-end}
 .oz.dark .lab,.cell.dark,.zcell.dark{color:#fff}
+/* Hand-drawn SVG charts (slope, movement): sized by viewBox so they scale to
+   the column and print at full resolution. */
+.svgchart{width:100%;height:auto;display:block;font-family:inherit}
+.svgchart .grid{stroke:#eceff2;stroke-width:1}
+.svgchart .zero{stroke:#c3cad2;stroke-width:1.2}
+.svgchart .tick{font-size:10.5px;fill:#6b7280}
+.svgchart .axis{font-size:11.5px;fill:#55606b}
+.svgchart .slab{font-size:12.5px}
+.svgchart .blab{font-size:12px;font-weight:700;fill:#1c2024}
+.svgchart .bsub{font-size:10.5px;fill:#55606b}
+.svgchart.move{max-width:640px}
 .zonekey{font-size:12px;color:var(--muted);max-width:34ch}
 .zonekey .sw{display:flex;align-items:center;gap:6px;margin-top:8px}
 .zonekey .sw i{width:14px;height:14px;border-radius:3px;display:inline-block}
@@ -537,6 +548,75 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 </section>
 {% endif %}
 
+{# Movement plot, SVG from the template; layout from charts.movement_layout. #}
+{% set mv = payload.movement %}
+{% if mv.bubbles %}
+<section class="card">
+  <h2>{{ mv.headline or "How each pitch moves" }}</h2>
+  <p class="lede">
+    Each bubble is one pitch: across is horizontal break toward his throwing arm
+    (right) or glove side (left), up is ride — how much less it drops than gravity
+    alone would make it. Bubble size is how often he throws it; colour is how often
+    hitters miss when they swing.
+    {% if mv.has_league %}The hollow ring and thin line show where the league's
+    average version of each pitch sits, for pitchers of the same hand.{% endif %}
+  </p>
+  <svg class="svgchart move" viewBox="0 0 {{ mv.width }} {{ mv.height }}" role="img"
+       aria-label="Pitch movement: horizontal and vertical break by pitch type">
+    <defs>
+      <linearGradient id="whiffRamp" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0" stop-color="{{ mv.whiff_ramp[0] }}"/>
+        <stop offset="0.5" stop-color="{{ mv.whiff_ramp[1] }}"/>
+        <stop offset="1" stop-color="{{ mv.whiff_ramp[2] }}"/>
+      </linearGradient>
+    </defs>
+    {% for t in mv.x_ticks %}
+    <line x1="{{ t.x }}" x2="{{ t.x }}" y1="{{ mv.plot.y0 }}" y2="{{ mv.plot.y1 }}" class="{{ 'zero' if t.value == 0 else 'grid' }}"/>
+    <text x="{{ t.x }}" y="{{ mv.plot.y1 + 16 }}" text-anchor="middle" class="tick">{{ t.value }}</text>
+    {% endfor %}
+    {% for t in mv.y_ticks %}
+    <line x1="{{ mv.plot.x0 }}" x2="{{ mv.plot.x1 }}" y1="{{ t.y }}" y2="{{ t.y }}" class="{{ 'zero' if t.value == 0 else 'grid' }}"/>
+    <text x="{{ mv.plot.x0 - 6 }}" y="{{ t.y + 4 }}" text-anchor="end" class="tick">{{ t.value }}</text>
+    {% endfor %}
+    <text x="{{ (mv.plot.x0 + mv.plot.x1) / 2 }}" y="{{ mv.height - 8 }}" text-anchor="middle" class="axis">← glove side · horizontal break (in) · arm side →</text>
+    <text transform="translate(14,{{ (mv.plot.y0 + mv.plot.y1) / 2 }}) rotate(-90)" text-anchor="middle" class="axis">ride (in) — less drop ↑</text>
+
+    {% for h in mv.league %}
+    <line x1="{{ h.cx }}" y1="{{ h.cy }}" x2="{{ h.to_x }}" y2="{{ h.to_y }}" stroke="{{ h.stroke }}" stroke-width="1.2" stroke-dasharray="3 3" opacity=".7"/>
+    <circle cx="{{ h.cx }}" cy="{{ h.cy }}" r="6" fill="#fff" stroke="{{ h.stroke }}" stroke-width="1.6" stroke-dasharray="2 2"/>
+    {% endfor %}
+
+    {% for b in mv.bubbles|sort(attribute="r", reverse=True) %}
+    <circle cx="{{ b.cx }}" cy="{{ b.cy }}" r="{{ b.r }}" fill="{{ b.fill }}" stroke="{{ b.stroke }}" stroke-width="2.5" opacity=".94">
+      <title>{{ b.name }}: {{ "%.0f"|format(b.usage * 100) }}% usage, {{ "%.0f"|format((b.whiff_rate or 0) * 100) }}% whiff per swing</title>
+    </circle>
+    {% endfor %}
+    {% for b in mv.bubbles %}
+    <text x="{{ b.label_x }}" y="{{ b.label_y }}" text-anchor="middle" class="blab">{{ b.name }}</text>
+    <text x="{{ b.label_x }}" y="{{ b.label_y + 13 }}" text-anchor="middle" class="bsub">{% if b.velo is not none %}{{ "%.0f"|format(b.velo) }} mph · {% endif %}{{ "%.0f"|format(b.usage * 100) }}%</text>
+    {% endfor %}
+
+    <g transform="translate({{ mv.plot.x1 - 170 }},{{ mv.plot.y0 + 8 }})">
+      <rect width="162" height="{{ 46 if mv.has_league else 32 }}" rx="5" fill="#fff" opacity=".9"/>
+      <rect x="8" y="8" width="90" height="9" rx="2" fill="url(#whiffRamp)" stroke="#d6dbe0"/>
+      <text x="104" y="16" class="tick">whiff / swing</text>
+      <text x="8" y="28" class="tick">{{ "%.0f"|format(mv.whiff_lo * 100) }}%</text>
+      <text x="98" y="28" class="tick" text-anchor="end">{{ "%.0f"|format(mv.whiff_hi * 100) }}%+</text>
+      {% if mv.has_league %}
+      <circle cx="13" cy="39" r="4.5" fill="#fff" stroke="#55606b" stroke-width="1.4" stroke-dasharray="2 2"/>
+      <text x="24" y="42" class="tick">league average</text>
+      {% endif %}
+    </g>
+  </svg>
+  <p class="note">
+    Axes are fixed, not fitted to this pitcher, so the same pitch shape lands in the
+    same place in every report.
+    {% if not mv.has_league %}League-average markers appear once the league tables are
+    rebuilt with movement columns.{% endif %}
+  </p>
+</section>
+{% endif %}
+
 <div class="charts">
   <div class="chartbox">
     <h3>Arsenal usage{% if payload.meta.has_league %} vs league{% endif %}</h3>
@@ -559,10 +639,44 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
     </p>
     <div class="holder"><canvas id="fatigueChart"></canvas></div>
   </div>
+  {# Slope chart, drawn as SVG by the template. Coordinates and label
+     positions come from charts.slope_layout; nothing is computed here. #}
+  {% set ps = payload.platoon_slope %}
   <div class="chartbox">
-    <h3>Usage by batter handedness</h3>
-    <p class="lede">A pitch one side rarely sees is a pitch that side has not learned.</p>
-    <div class="holder"><canvas id="platoonChart"></canvas></div>
+    <h3>{{ ps.headline or "Usage by batter handedness" }}</h3>
+    <p class="lede">
+      Each line is one pitch: its share of everything he throws to lefties on the
+      left, to righties on the right. A steep line is a pitch whose use depends on
+      the hitter's side; a line starting at the floor is one that side barely sees.
+    </p>
+    {% if ps.pitches %}
+    <svg class="svgchart" viewBox="0 0 {{ ps.width }} {{ ps.height }}" role="img"
+         aria-label="Pitch usage against left- and right-handed hitters">
+      {% for t in ps.ticks %}
+      <line x1="44" x2="{{ ps.width - 8 }}" y1="{{ t.y }}" y2="{{ t.y }}" class="grid"/>
+      <text x="38" y="{{ t.y + 4 }}" class="tick" text-anchor="end">{{ "%.0f"|format(t.value * 100) }}%</text>
+      {% endfor %}
+      {% for p in ps.pitches %}
+      <g opacity="{{ 1 if p.strong else 0.5 }}">
+        <line x1="{{ ps.x_left }}" y1="{{ p.y_L }}" x2="{{ ps.x_right }}" y2="{{ p.y_R }}"
+              stroke="{{ p.color }}" stroke-width="{{ 3.2 if p.strong else 2 }}" stroke-linecap="round"/>
+        <circle cx="{{ ps.x_left }}" cy="{{ p.y_L }}" r="4.5" fill="{{ p.color }}"/>
+        <circle cx="{{ ps.x_right }}" cy="{{ p.y_R }}" r="4.5" fill="{{ p.color }}"/>
+        <text x="{{ ps.x_left - 12 }}" y="{{ p.label_y_L + 4 }}" text-anchor="end" class="slab" fill="{{ p.color }}">{{ names.get(p.pitch, p.pitch) }} <tspan font-weight="700">{{ "%.0f"|format(p.usage_L * 100) }}%</tspan></text>
+        <text x="{{ ps.x_right + 12 }}" y="{{ p.label_y_R + 4 }}" text-anchor="start" class="slab" fill="{{ p.color }}"><tspan font-weight="700">{{ "%.0f"|format(p.usage_R * 100) }}%</tspan> {{ names.get(p.pitch, p.pitch) }}</text>
+      </g>
+      {% endfor %}
+      <text x="{{ ps.x_left }}" y="{{ ps.height - 12 }}" text-anchor="middle" class="axis">vs lefties ({{ "{:,}".format(ps.side_n.L) }})</text>
+      <text x="{{ ps.x_right }}" y="{{ ps.height - 12 }}" text-anchor="middle" class="axis">vs righties ({{ "{:,}".format(ps.side_n.R) }})</text>
+    </svg>
+    <p class="note">
+      Every line is solid on purpose. A share of everything thrown to a side is measured
+      over that side's whole sample, so 9 sinkers out of 1,600 pitches is a precise
+      1%, not an uncertain one. Faded lines barely change between sides.
+    </p>
+    {% else %}
+    <p class="nodata">Not enough pitches to both sides to compare.</p>
+    {% endif %}
   </div>
 </div>
 
@@ -1206,33 +1320,6 @@ if (typeof Chart === 'undefined') {
     });
   }
 
-  const pl = D.platoon || [];
-  if (pl.length) {
-    new Chart(document.getElementById('platoonChart'), {
-      type: 'bar',
-      data: {
-        labels: pl.map(r => r.pitch_type),
-        datasets: [
-          { label: 'vs LHH', data: pl.map(r => r.usage_L),
-            backgroundColor: COLORS[0], borderRadius: 3 },
-          { label: 'vs RHH', data: pl.map(r => r.usage_R),
-            backgroundColor: COLORS[1], borderRadius: 3 },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        scales: {
-          x: { grid: { display: false } },
-          y: { ticks: { callback: v => (v * 100).toFixed(0) + '%' },
-               grid: { color: '#f0f2f4' } },
-        },
-        plugins: {
-          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
-          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.y)}` } },
-        },
-      },
-    });
-  }
 }
 </script>
 </body>
