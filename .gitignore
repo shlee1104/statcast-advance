@@ -17,6 +17,8 @@ pybaseball_cache/
 
 # Generated reports. One curated sample lives in docs/ instead.
 reports/*.html
+# Calibration runs: thirty reports and their summaries, all regenerable.
+reports/calibration/
 
 # --- macOS ---
 .DS_Store

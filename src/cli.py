@@ -61,7 +61,20 @@ def load_from_fixture(stem: str, season: int) -> pd.DataFrame:
 
 
 def load_from_savant(pitcher: str, season: int, refresh: bool = False) -> pd.DataFrame:
-    """Resolve the name, then read the cache or fetch and cache.
+    """Resolve the name, then read the cache or fetch and cache."""
+    from src import fetch
+
+    player = fetch.resolve_player(pitcher)
+    print(f"  Resolved to MLBAM {player.mlbam_id} ({player.full_name})")
+    return load_by_id(player.mlbam_id, season, refresh=refresh)
+
+
+def load_by_id(mlbam_id: int, season: int, refresh: bool = False) -> pd.DataFrame:
+    """Read a pitcher-season from the cache, or fetch it and cache it.
+
+    Split from name resolution so a batch run can resolve once, record who the
+    name actually resolved to, and then load — a name that resolves to the
+    wrong player would otherwise produce a confident report on someone else.
 
     Cached rows come back through the schema, which means they have already
     been coerced to the stored column set. A fresh fetch returns Savant's raw
@@ -70,17 +83,14 @@ def load_from_savant(pitcher: str, season: int, refresh: bool = False) -> pd.Dat
     """
     from src import fetch
 
-    player = fetch.resolve_player(pitcher)
-    print(f"  Resolved to MLBAM {player.mlbam_id} ({player.full_name})")
-
     conn = store.connect()
     try:
         # A completed season never expires, which is correct — the data cannot
         # change. But it also means that widening PITCH_SCHEMA leaves cached
         # rows with NULLs in the new columns forever, since nothing will ever
         # decide to re-fetch them. --refresh is the escape hatch for that.
-        if not refresh and store.is_cached(conn, player.mlbam_id, season):
-            frame = store.load_pitcher_season(conn, player.mlbam_id, season)
+        if not refresh and store.is_cached(conn, mlbam_id, season):
+            frame = store.load_pitcher_season(conn, mlbam_id, season)
             if len(frame):
                 print(f"  Cache hit: {len(frame):,} pitches")
                 return frame
@@ -89,9 +99,9 @@ def load_from_savant(pitcher: str, season: int, refresh: bool = False) -> pd.Dat
             log.warning("Cache reported a hit but returned no rows; refetching")
 
         print("  Fetching from Baseball Savant (5-20s)...")
-        frame = fetch.fetch_player_season(player.mlbam_id, season)
+        frame = fetch.fetch_player_season(mlbam_id, season)
         if len(frame):
-            store.save_pitches(conn, frame, player.mlbam_id, season)
+            store.save_pitches(conn, frame, mlbam_id, season)
         return frame
     finally:
         conn.close()

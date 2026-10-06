@@ -70,12 +70,14 @@ self-contained interactive HTML report comes out.
 - Platoon slope chart and movement plot — usage against each side drawn as one
   line per pitch, and ride against arm-side run with league-average markers;
   both titled with an auto-written sentence stating what they show
-- 340 unit tests, plus an end-to-end validation suite over live data
+- Calibration run — `scripts/batch_reports.py` runs the report across 30
+  deliberately varied pitchers and prints, for every hitting-plan cutoff, how the
+  measured values spread and how often the cutoff fires
+- 352 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- Run the pipeline across 25–30 pitchers to set thresholds from real
-  distributions rather than two pitchers
+- Reset the hitting-plan cutoffs in `config.yaml` from the calibration run
 - Check whether first-half tendencies hold in the second half
 - Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Hitter reports
@@ -120,6 +122,17 @@ Run the metrics layer and print every current output:
 ```bash
 python scripts/explore.py --pitcher yamamoto
 ```
+
+Run the calibration list — 30 pitchers chosen to cover starters and
+relievers, both hands, sinkerballers, splitter and forkball pitchers, two-pitch
+closers, soft-tossers and short seasons — and see where each plan cutoff lands:
+
+```bash
+python scripts/batch_reports.py
+```
+
+Reports and three CSVs (`summary.csv`, `plan_lines.csv`, `thresholds.csv`) go to
+`reports/calibration/`. A pitcher that fails is recorded and the run carries on.
 
 Generate a report. Name in, self-contained HTML out:
 

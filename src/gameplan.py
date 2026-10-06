@@ -97,6 +97,127 @@ def _list_pitches(rows: pd.DataFrame, limit: int = 3) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _cut(key: str, default: float) -> float:
+    """A plan cutoff from config.yaml's `plan` section.
+
+    Every threshold that decides which sentence a hitter reads lives in config,
+    not here, so the calibration run across many pitchers can move them without
+    touching the wording.
+    """
+    return float(config.get(f"plan.{key}", default))
+
+
+# ---------------------------------------------------------------------------
+# Measurements behind each per-side rule
+#
+# Each returns the numbers a rule reads, or None when the sample is below its
+# gate. They are separate from the sentence-writing functions below so that a
+# calibration run can record the numbers for every pitcher — including the
+# ones where the rule stays silent, which are exactly the cases needed to see
+# whether a cutoff is in the right place.
+# ---------------------------------------------------------------------------
+
+
+def first_pitch_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
+    """First-pitch mix to this side, and how often TAKEN first pitches are strikes."""
+    min_n = int(config.get("flags.min_n.first_pitch", 30))
+    rows = _top(usage, "first_pitch", side)
+    if len(rows) == 0 or int(rows.iloc[0]["situation_n"]) < min_n:
+        return None
+
+    side_frame = frame[(frame["stand"] == side)
+                       & (frame["balls"] == 0) & (frame["strikes"] == 0)]
+    taken = side_frame[~side_frame["is_swing"].eq(True)]
+    called = (
+        float(taken["is_called_strike"].eq(True).mean())
+        if len(taken) >= min_n else float("nan")
+    )
+    lead = rows.iloc[0]
+    second = rows.iloc[1] if len(rows) > 1 else None
+    return {
+        "n": int(lead["situation_n"]),
+        "top": lead.pitch_type,
+        "top_share": float(lead.share),
+        "second": second.pitch_type if second is not None else None,
+        "second_share": float(second.share) if second is not None else float("nan"),
+        "takes": int(len(taken)),
+        "called_on_takes": called,
+    }
+
+
+def hitters_count_numbers(usage: pd.DataFrame, side: str) -> dict | None:
+    """The mix when the hitter is ahead: hard-family share and the top pitch."""
+    min_n = int(config.get("flags.min_n.predictable_count", 20)) + 10
+    rows = _top(usage, "pitcher_behind", side)
+    if len(rows) == 0 or int(rows.iloc[0]["situation_n"]) < min_n:
+        return None
+
+    families = rows.assign(
+        family=rows["pitch_type"].map(PITCH_FAMILY).fillna("other")
+    ).groupby("family")["share"].sum()
+    lead = rows.iloc[0]
+    return {
+        "n": int(lead["situation_n"]),
+        "hard_share": float(families.get("hard", 0.0)),
+        "top": lead.pitch_type,
+        "top_share": float(lead.share),
+        "rows": rows,
+    }
+
+
+def two_strike_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
+    """His two-strike pitch to this side, its miss rate, and how often it ends low."""
+    min_n = int(config.get("flags.min_n.first_pitch", 30))
+    rows = _top(usage, "two_strikes", side)
+    if len(rows) == 0 or int(rows.iloc[0]["situation_n"]) < min_n:
+        return None
+
+    lead = rows.iloc[0]
+    pitches = frame[(frame["stand"] == side) & (frame["strikes"] == 2)
+                    & (frame["pitch_type"] == lead.pitch_type)]
+    swings = int(pitches["is_swing"].eq(True).sum())
+    whiffs = int(pitches["is_whiff"].eq(True).sum())
+    located = pitches.dropna(subset=["plate_z", "sz_bot"])
+    return {
+        "n": int(lead["situation_n"]),
+        "top": lead.pitch_type,
+        "top_share": float(lead.share),
+        "swings": swings,
+        "whiff": whiffs / swings if swings else float("nan"),
+        "below": (
+            float((located["plate_z"] < located["sz_bot"]).mean())
+            if len(located) else float("nan")
+        ),
+    }
+
+
+def rare_pitches(frame: pd.DataFrame, side: str, max_share: float | None = None) -> dict | None:
+    """Arsenal pitches this side sees less than `max_share` of the time."""
+    if max_share is None:
+        max_share = _cut("rare_share", 0.03)
+    working = counts.restrict_to_arsenal(frame)
+    side_frame = working[working["stand"] == side]
+    if len(side_frame) < 100:
+        return None
+
+    shares = side_frame["pitch_type"].value_counts(normalize=True)
+    arsenal = list(working["pitch_type"].value_counts().index)
+    return {
+        "n": int(len(side_frame)),
+        "arsenal_size": len(arsenal),
+        "rare": [(p, float(shares.get(p, 0.0))) for p in arsenal
+                 if shares.get(p, 0.0) < max_share],
+        # How close this side comes to the cutoff, recorded even when nothing
+        # is rare, so a calibration run can see where the line sits.
+        "min_share": min(float(shares.get(p, 0.0)) for p in arsenal),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-side keys: the sentences
+# ---------------------------------------------------------------------------
+
+
 def first_pitch_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
     """How he starts hitters on this side, and whether to take or swing.
 
@@ -112,41 +233,31 @@ def first_pitch_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict
     strike only 45% of the time. The first version of this rule used the
     inflated number and gave the opposite advice.
     """
-    min_n = int(config.get("flags.min_n.first_pitch", 30))
-    rows = _top(usage, "first_pitch", side)
-    if len(rows) == 0 or int(rows.iloc[0]["situation_n"]) < min_n:
+    m = first_pitch_numbers(frame, usage, side)
+    if m is None:
         return None
 
-    side_frame = frame[(frame["stand"] == side)
-                       & (frame["balls"] == 0) & (frame["strikes"] == 0)]
-    taken = side_frame[~side_frame["is_swing"].eq(True)]
-    called = (
-        float(taken["is_called_strike"].eq(True).mean())
-        if len(taken) >= min_n else float("nan")
-    )
-
-    lead, n = rows.iloc[0], int(rows.iloc[0]["situation_n"])
     # The label already says "First pitch", so the sentence starts with the
     # pitch rather than repeating it.
-    text = f"{name(lead.pitch_type).capitalize()} {_pct(lead.share)}"
-    if len(rows) > 1 and rows.iloc[1].share >= 0.10:
-        second = rows.iloc[1]
-        text += f", then {name(second.pitch_type)} {_pct(second.share)}"
+    text = f"{name(m['top']).capitalize()} {_pct(m['top_share'])}"
+    if m["second"] and m["second_share"] >= 0.10:
+        text += f", then {name(m['second'])} {_pct(m['second_share'])}"
     text += "."
 
+    called = m["called_on_takes"]
     if called == called:
-        if called >= 0.55:
+        if called >= _cut("first_pitch_swing_above", 0.55):
             text += (f" Taken first pitches are called strikes {_pct(called)} of "
                      f"the time, so taking usually puts you down 0-1 — be ready to "
                      f"swing at a strike.")
-        elif called <= 0.45:
+        elif called <= _cut("first_pitch_take_below", 0.45):
             text += (f" Taken first pitches are called strikes only {_pct(called)} "
                      f"of the time — you can make him throw one.")
         else:
             text += (f" Taken first pitches are called strikes {_pct(called)} of "
                      f"the time — no strong case for taking or swinging.")
 
-    return _key("First pitch", text, n)
+    return _key("First pitch", text, m["n"])
 
 
 def hitters_count_key(usage: pd.DataFrame, side: str) -> dict | None:
@@ -156,32 +267,25 @@ def hitters_count_key(usage: pd.DataFrame, side: str) -> dict | None:
     how a hitter thinks about it: he cannot sit on four-seam AND sinker AND
     cutter separately, but he can be on time for velocity.
     """
-    min_n = int(config.get("flags.min_n.predictable_count", 20)) + 10
-    rows = _top(usage, "pitcher_behind", side)
-    if len(rows) == 0 or int(rows.iloc[0]["situation_n"]) < min_n:
+    m = hitters_count_numbers(usage, side)
+    if m is None:
         return None
+    rows = m["rows"]
 
-    n = int(rows.iloc[0]["situation_n"])
-    families = rows.assign(
-        family=rows["pitch_type"].map(PITCH_FAMILY).fillna("other")
-    ).groupby("family")["share"].sum()
-    hard = float(families.get("hard", 0.0))
-    lead = rows.iloc[0]
-
-    if hard >= 0.60:
+    if m["hard_share"] >= _cut("sit_hard_share", 0.60):
         # A pitch he throws 0% of the time in this count is not part of the
         # instruction, even if it belongs to the family.
         hard_rows = rows[(rows["pitch_type"].map(PITCH_FAMILY) == "hard")
                          & (rows["share"] >= 0.03)]
-        text = (f"Sit hard — he goes to a fastball {_pct(hard)} of the time "
-                f"({_list_pitches(hard_rows)}).")
-    elif lead.share >= 0.40:
-        text = (f"Sit {name(lead.pitch_type)} — {_pct(lead.share)} of the time.")
+        text = (f"Sit hard — he goes to a fastball {_pct(m['hard_share'])} of the "
+                f"time ({_list_pitches(hard_rows)}).")
+    elif m["top_share"] >= _cut("sit_pitch_share", 0.40):
+        text = f"Sit {name(m['top'])} — {_pct(m['top_share'])} of the time."
     else:
         text = (f"He still mixes ({_list_pitches(rows)}), so look for a zone, "
                 f"not a pitch.")
 
-    return _key("Ahead in the count", text, n)
+    return _key("Ahead in the count", text, m["n"])
 
 
 def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
@@ -191,64 +295,40 @@ def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict 
     the splitter with two strikes" tells a hitter what is coming; "and most of
     them finish below the zone" tells him to lay off it.
     """
-    min_n = int(config.get("flags.min_n.first_pitch", 30))
-    rows = _top(usage, "two_strikes", side)
-    if len(rows) == 0 or int(rows.iloc[0]["situation_n"]) < min_n:
+    m = two_strike_numbers(frame, usage, side)
+    if m is None:
         return None
 
-    lead, n = rows.iloc[0], int(rows.iloc[0]["situation_n"])
-    pitches = frame[(frame["stand"] == side) & (frame["strikes"] == 2)
-                    & (frame["pitch_type"] == lead.pitch_type)]
+    low = m["below"] == m["below"] and m["below"] >= _cut("lay_off_low_share", 0.50)
+    text = f"Expect the {name(m['top'])} ({_pct(m['top_share'])})."
+    if m["whiff"] == m["whiff"] and m["swings"] >= _cut("min_two_strike_swings", 20):
+        text += f" It misses bats on {_pct(m['whiff'])} of swings"
+        text += (f", and {_pct(m['below'])} of them finish below the zone — "
+                 f"lay off it low.") if low else "."
+    elif low:
+        text += f" {_pct(m['below'])} of them finish below the zone — lay off it low."
 
-    swings = int(pitches["is_swing"].eq(True).sum())
-    whiffs = int(pitches["is_whiff"].eq(True).sum())
-    whiff = whiffs / swings if swings else float("nan")
-
-    located = pitches.dropna(subset=["plate_z", "sz_bot"])
-    below = (
-        float((located["plate_z"] < located["sz_bot"]).mean())
-        if len(located) else float("nan")
-    )
-
-    text = f"Expect the {name(lead.pitch_type)} ({_pct(lead.share)})."
-    if whiff == whiff and swings >= 20:
-        text += f" It misses bats on {_pct(whiff)} of swings"
-        if below == below and below >= 0.50:
-            text += (f", and {_pct(below)} of them finish below the zone — "
-                     f"lay off it low.")
-        else:
-            text += "."
-    elif below == below and below >= 0.50:
-        text += f" {_pct(below)} of them finish below the zone — lay off it low."
-
-    return _key("Two strikes", text, n)
+    return _key("Two strikes", text, m["n"])
 
 
-def wont_show_key(frame: pd.DataFrame, side: str, max_share: float = 0.03) -> dict | None:
+def wont_show_key(frame: pd.DataFrame, side: str, max_share: float | None = None) -> dict | None:
     """Pitches he essentially never throws to this side.
 
     The single most useful line for shrinking a hitter's problem: a pitcher who
     never shows lefties his slider is a smaller arsenal to a lefty, and the
     hitter can stop thinking about it.
     """
-    working = counts.restrict_to_arsenal(frame)
-    side_frame = working[working["stand"] == side]
-    if len(side_frame) < 100:
+    m = rare_pitches(frame, side, max_share)
+    if m is None or not m["rare"]:
         return None
 
-    shares = side_frame["pitch_type"].value_counts(normalize=True)
-    arsenal = working["pitch_type"].value_counts().index
-    rare = [p for p in arsenal if shares.get(p, 0.0) < max_share]
-    if not rare:
-        return None
-
-    remaining = len(arsenal) - len(rare)
-    rare_text = " or the ".join(name(p) for p in rare)
-    detail = ", ".join(f"{name(p)} {_pct(shares.get(p, 0.0))}" for p in rare)
-    words = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    remaining = m["arsenal_size"] - len(m["rare"])
+    rare_text = " or the ".join(name(p) for p, _ in m["rare"])
+    detail = ", ".join(f"{name(p)} {_pct(share)}" for p, share in m["rare"])
+    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
     text = (f"He basically won't show you the {rare_text} ({detail}). "
             f"Treat him as a {words.get(remaining, remaining)}-pitch pitcher.")
-    return _key("Won't see", text, len(side_frame))
+    return _key("Won't see", text, m["n"])
 
 
 # ---------------------------------------------------------------------------
@@ -308,12 +388,14 @@ def recent_change_key(frame: pd.DataFrame, last_n: int = 5) -> dict | None:
     return _key("Lately", text, form["n_recent"])
 
 
-def count_tell_key(frame: pd.DataFrame, min_lift: float = 2.0) -> dict | None:
+def count_tell_key(frame: pd.DataFrame, min_lift: float | None = None) -> dict | None:
     """A pitch that jumps in specific counts to more than double his norm.
 
     3-0 is excluded. Nearly every pitcher throws a fastball 3-0, so a lift there
     describes the count, not the pitcher, and a coach already knows it.
     """
+    if min_lift is None:
+        min_lift = _cut("count_tell_lift", 2.0)
     min_n = int(config.get("flags.min_n.predictable_count", 20))
     lifts = counts.count_lifts(frame, min_n=min_n)
     if len(lifts) == 0:

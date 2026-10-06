@@ -1,0 +1,31 @@
+name,group,why
+Yoshinobu Yamamoto,reference,Fixture the cutoffs were first set on; RHP splitter
+Tarik Skubal,reference,Fixture the cutoffs were first set on; LHP sinker/changeup
+Paul Skenes,RHP starter,Hard-throwing starter with a deep arsenal
+Zack Wheeler,RHP starter,Four-seam/sweeper workhorse
+Logan Gilbert,RHP starter,Four-seam with splitter and slider
+George Kirby,RHP starter,Strike-thrower; tests the first-pitch take rule
+Hunter Greene,RHP starter,Close to a two-pitch starter
+Kevin Gausman,RHP starter,Four-seam/splitter
+Dylan Cease,RHP starter,Slider-heavy
+Logan Webb,RHP starter,Sinker/changeup groundballer
+Kodai Senga,RHP starter,Forkball; clean.py folds FO into splitter
+Kyle Hendricks,RHP starter,Soft-tosser; tests velocity ranges at the low end
+Max Fried,LHP starter,Deep arsenal; tests label crowding
+Garrett Crochet,LHP starter,Power lefty
+Chris Sale,LHP starter,Slider lefty
+Framber Valdez,LHP starter,Sinker/curveball groundballer
+Cristopher Sanchez,LHP starter,Sinker/changeup lefty
+Shota Imanaga,LHP starter,Four-seam/splitter lefty; NPB import
+Blake Snell,thin sample,Injury-shortened season; LHP
+Roki Sasaki,thin sample,Injury-shortened; splitter; NPB import
+Jacob Misiorowski,thin sample,Rookie with a partial season
+Corbin Burnes,thin sample,Cutter-first starter whose season ended early
+Shohei Ohtani,thin sample,Limited pitching season; sweeper-heavy
+Emmanuel Clase,RHP reliever,Cutter-dominant reliever
+Mason Miller,RHP reliever,High-velocity four-seam/slider
+Devin Williams,RHP reliever,Changeup-dominant reliever
+Edwin Diaz,RHP reliever,Four-seam/slider closer
+Jhoan Duran,RHP reliever,Hard splitter/four-seam reliever
+Andres Munoz,RHP reliever,Power reliever
+Josh Hader,LHP reliever,Lefty reliever; tests side splits on small samples

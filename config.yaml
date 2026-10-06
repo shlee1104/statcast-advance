@@ -97,6 +97,38 @@ report:
   # can be a single pitch.
   min_arsenal_pitches: 5
 
+# Cutoffs that decide which sentence the hitting plan writes.
+#
+# PROVISIONAL. Every value here was set by judgment against two pitchers
+# (Yamamoto, Skubal) and is meant to be re-set from the distributions that
+# scripts/batch_reports.py prints across the calibration list. Blake Snell's
+# report is why: "sit four-seam" fired against lefties at 42%, which is a
+# plurality, not something a hitter should sit on.
+plan:
+  # Called-strike rate on TAKEN first pitches. At or above `swing_above`,
+  # taking usually puts the hitter down 0-1; at or below `take_below`, taking
+  # is fine. Between the two, the plan says there is no strong case.
+  first_pitch_swing_above: 0.55
+  first_pitch_take_below: 0.45
+
+  # When the hitter is ahead in the count: "sit hard" when fastballs take at
+  # least `sit_hard_share`; otherwise "sit <pitch>" when one pitch takes at
+  # least `sit_pitch_share`; otherwise "he mixes".
+  sit_hard_share: 0.60
+  sit_pitch_share: 0.40
+
+  # Two strikes: say "lay off it low" when at least this share of his two-strike
+  # pitch finishes below the zone, and only quote a miss rate on this many swings.
+  lay_off_low_share: 0.50
+  min_two_strike_swings: 20
+
+  # "Won't see": a pitch one side gets less than this share of the time.
+  rare_share: 0.03
+
+  # "Count tell": a pitch at more than this multiple of his own rate in a
+  # specific count (3-0 excluded). 2.0 reads as "more than double".
+  count_tell_lift: 2.0
+
 # Minimum sample sizes before a weakness flag is allowed to fire.
 # These are the guardrails against small-sample noise. Every flag must
 # clear its gate, and every claim in the report carries its own n.
