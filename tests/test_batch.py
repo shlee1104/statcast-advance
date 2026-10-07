@@ -79,7 +79,8 @@ class TestCutoffsComeFromConfig:
         for key in ("first_pitch_swing_above", "first_pitch_take_below",
                     "sit_hard_share", "sit_pitch_share", "lay_off_low_share",
                     "min_two_strike_swings", "rare_share", "count_tell_lift",
-                    "two_strike_min_share", "count_tell_min_share"):
+                    "two_strike_min_share", "count_tell_min_share",
+                    "two_strike_min_lead", "two_strike_look_hard_min"):
             assert config.get(f"plan.{key}") is not None, key
 
 
@@ -139,7 +140,7 @@ class TestBatchHelpers:
         hard = result["sit_hard_share"]
         assert hard["pitcher_sides"] == 4
         assert hard["fires"] == 2
-        assert result["two_strike_min_share"]["fires"] == 3
+        assert result["two_strike_min_share + lead"]["fires"] == 3
         assert result["count_tell_lift + share"]["fires"] == 1
 
     def test_summary_rules_match_the_plan_sentences(self):
@@ -158,7 +159,7 @@ class TestBatchHelpers:
         out = batch.side_numbers(frame, usage, "R")
         assert out["R_ahead_rule"] == "sit SL"
         assert gameplan.hitters_count_key(usage, "R")["text"].startswith("Sit slider")
-        assert out["R_two_rule"] == "mixes"
+        assert out["R_two_rule"] == "look_fastball"
 
 
 class TestOfflineRun:
@@ -168,7 +169,8 @@ class TestOfflineRun:
         batch = load_batch()
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            code = batch.main(["--offline", "--no-league", "--names", "Tarik Skubal",
+            code = batch.main(["--offline", "--no-league", "--season", "2025",
+                               "--names", "Tarik Skubal",
                                "--out", str(out)])
             assert code == 0
             assert (out / "tarik_skubal_2025.html").exists()

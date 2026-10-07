@@ -244,6 +244,33 @@ class TestDecomposeTTO:
         assert "solving" not in result["note"]
         assert "familiarity" not in result["note"].lower()
 
+    def test_never_prints_minus_zero(self):
+        """Nine reports read "velocity holds (-0.0 mph)"."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.02, "xwoba": 0.280},
+            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 96.0, "xwoba": 0.360},
+        ])
+        note = splits.decompose_tto(frame)["note"]
+        assert "-0.0" not in note
+        assert "velocity holds (+0.0 mph)" in note
+
+    def test_does_not_say_holds_about_a_near_one_mph_drop(self):
+        """Wheeler: "velocity holds (-0.9 mph)" contradicted itself."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
+            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.1, "xwoba": 0.360},
+        ])
+        note = splits.decompose_tto(frame)["note"]
+        assert "holds" not in note
+        assert "velocity dips slightly (-0.9 mph)" in note
+
+    def test_has_a_plain_headline_not_a_code(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
+            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.9, "xwoba": 0.360},
+        ])
+        assert splits.decompose_tto(frame)["headline"] == "Third time through: hit harder"
+
     def test_carries_the_collinearity_caveat(self):
         frame = make_pitches([
             {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},

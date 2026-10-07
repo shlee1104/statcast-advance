@@ -319,7 +319,9 @@ def thresholds(rows: list[dict]) -> list[dict]:
 
     two_top = _values(ok, "two_top_share")
     two_rules = [r.get(f"{s}_two_rule", "") for r in ok for s in ("L", "R")]
-    add("two_strike_min_share", gameplan._cut("two_strike_min_share", .33), two_top,
+    cut = (f"{gameplan._cut('two_strike_min_share', .33)} / "
+           f"lead {gameplan._cut('two_strike_min_lead', .10)}")
+    add("two_strike_min_share + lead", cut, two_top,
         two_rules.count("expect"),
         "share told 'expect the <pitch>'; spread is the top two-strike pitch's share")
 

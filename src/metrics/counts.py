@@ -188,9 +188,12 @@ SITUATIONS: list[str] = [
 
 SITUATION_LABELS: dict[str, str] = {
     "first_pitch": "First pitch",
-    "pitcher_ahead": "He's ahead",
+    # Named the way the plan names them. The plan's "Hitter's count" line sat
+    # directly above a row labelled "He's ahead" — the same word meaning the
+    # opposite count — so both now use the hitter's/pitcher's count terms.
+    "pitcher_ahead": "Pitcher's count",
     "even": "Even",
-    "pitcher_behind": "He's behind (hitter's count)",
+    "pitcher_behind": "Hitter's count",
     "two_strikes": "Two strikes",
 }
 

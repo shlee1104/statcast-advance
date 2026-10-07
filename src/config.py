@@ -32,7 +32,7 @@ def get(dotted_key: str, default: Any = None) -> Any:
     """Fetch a nested config value using dot notation.
 
     >>> get("data.default_season")
-    2025
+    2026
     >>> get("flags.min_n.predictable_count")
     20
     """

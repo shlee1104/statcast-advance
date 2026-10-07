@@ -31,7 +31,7 @@ from typing import Any
 import pandas as pd
 
 from src import baselines, charts, config, flags, gameplan
-from src.metrics import arsenal, counts, events, location, sequencing, splits
+from src.metrics import arsenal, counts, events, location, seasons, sequencing, splits
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = ROOT / "templates"
@@ -101,6 +101,20 @@ OPTIONAL_COLUMNS: dict[str, str] = {
 }
 
 
+# What each finding type is called on the page. The codes are for the
+# program; a coach reading "location_tell" next to a finding learns nothing.
+FLAG_LABELS: dict[str, str] = {
+    "predictable_count": "Count tendency",
+    "handedness_gap": "Lefty/righty split",
+    "hittable_pitch": "Hittable pitch",
+    "fatigue": "Velocity late in starts",
+    "times_through_order": "Third time through",
+    "sequencing_tell": "Sequencing",
+    "location_tell": "Height tell",
+    "first_pitch": "First pitch",
+}
+
+
 def _data_gaps(frame: pd.DataFrame) -> list[dict]:
     """Report metric inputs missing from this frame."""
     return [
@@ -113,7 +127,7 @@ def _data_gaps(frame: pd.DataFrame) -> list[dict]:
 def build_payload(
     frame: pd.DataFrame,
     pitcher: str,
-    season: int,
+    season: int | str,
     league_outcomes: pd.DataFrame | None = None,
     league_mix: pd.DataFrame | None = None,
     league_putaway: pd.DataFrame | None = None,
@@ -128,6 +142,14 @@ def build_payload(
     """
     if len(frame) == 0:
         raise ValueError("Cannot build a report from an empty frame.")
+
+    # Combined seasons: name what changed, then drop pitches he has shelved
+    # from everything except the season line. The season line keeps every
+    # pitch because removing a pitch type removes the plate appearances it
+    # ended, which would bend his K% and BB%.
+    full_frame = frame
+    changes = seasons.season_changes(frame)
+    frame = seasons.drop_retired_pitches(frame, changes)
 
     hand = str(frame["p_throws"].mode().iloc[0])
     has_league = league_outcomes is not None
@@ -163,10 +185,15 @@ def build_payload(
         "meta": {
             "pitcher": pitcher,
             "season": season,
+            "seasons": seasons.season_counts(full_frame),
+            "excluded_pitches": int(len(full_frame) - len(frame)),
             "hand": hand,
-            "pitches": int(len(frame)),
-            "games": int(frame["game_pk"].nunique()),
-            "batters_faced": int(frame.groupby(["game_pk", "at_bat_number"]).ngroups),
+            "pitches": int(len(full_frame)),
+            "games": int(full_frame["game_pk"].nunique()),
+            # Same count as the season line, so the page shows one number.
+            # Grouping by at-bat ran a few higher, because plate appearances
+            # that end on a pickoff or caught stealing have no result row.
+            "batters_faced": int(events.season_line(full_frame)["batters"]),
             "generated": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
             "has_league": has_league,
             "league_note": (
@@ -176,7 +203,7 @@ def build_payload(
             ),
         },
         "data_gaps": _data_gaps(frame),
-        "card": _build_card(frame),
+        "card": _build_card(frame, changes=changes, season_frame=full_frame),
         "takeaways": _records(takeaways),
         "findings": _records(all_findings),
         "finding_count": int(len(all_findings)),
@@ -184,6 +211,7 @@ def build_payload(
         "comparisons": flags.comparison_count(frame, league_mix),
         "arsenal": arsenal_rows,
         "display_names": _display_names(frame),
+        "flag_labels": FLAG_LABELS,
         "count_grid": _build_count_grid(frame),
         "platoon_slope": _build_platoon_slope(frame),
         "movement": _build_movement(frame, league_outcomes),
@@ -443,7 +471,12 @@ def _build_fatigue(fatigue: pd.DataFrame) -> dict:
     }
 
 
-def _build_card(frame: pd.DataFrame, last_n: int = 5) -> dict:
+def _build_card(
+    frame: pd.DataFrame,
+    last_n: int = 5,
+    changes: dict | None = None,
+    season_frame: pd.DataFrame | None = None,
+) -> dict:
     """The dugout card: page one of the report, the part a coach takes out.
 
     Front offices describe paring "a phone book's amount of information" down
@@ -479,7 +512,8 @@ def _build_card(frame: pd.DataFrame, last_n: int = 5) -> dict:
     form = splits.recent_form(frame, last_n=last_n)
 
     return {
-        "season": {k: _clean(v) for k, v in events.season_line(frame).items()},
+        "season": {k: _clean(v) for k, v in events.season_line(
+            frame if season_frame is None else season_frame).items()},
         "arsenal": _records(arsenal.scout_arsenal(frame), index_name="pitch_type"),
         "tendencies": tendencies,
         "recent": {
@@ -489,11 +523,12 @@ def _build_card(frame: pd.DataFrame, last_n: int = 5) -> dict:
             "velo_recent": _clean(form["velo_recent"]),
             "velo_earlier": _clean(form["velo_earlier"]),
             "velo_delta": _clean(form["velo_delta"]),
+            "earlier_label": form["earlier_label"],
             "n_recent": form["n_recent"],
             "starts": _records(form["starts"]),
             "shifts": _records(form["shifts"]),
         },
-        "plan": gameplan.build(frame, last_n=last_n),
+        "plan": gameplan.build(frame, last_n=last_n, changes=changes),
         "coach_names": gameplan.COACH_NAMES,
     }
 
@@ -541,7 +576,7 @@ def render(payload: dict, template_dir: Path | None = None) -> str:
 def write(
     frame: pd.DataFrame,
     pitcher: str,
-    season: int,
+    season: int | str,
     out_path: Path | None = None,
     **league: pd.DataFrame | None,
 ) -> Path:
@@ -553,7 +588,8 @@ def write(
         out_dir = ROOT / str(config.get("report.output_dir", "reports"))
         out_dir.mkdir(parents=True, exist_ok=True)
         stem = pitcher.lower().replace(" ", "_")
-        out_path = out_dir / f"{stem}_{season}.html"
+        tag = str(season).replace("–", "-").replace(", ", "_")
+        out_path = out_dir / f"{stem}_{tag}.html"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")

@@ -78,7 +78,11 @@ self-contained interactive HTML report comes out.
   needs clearly more fastballs than the league's 63%, "sit <pitch>" needs a
   majority, and lines that were true of nearly everyone ("if it's up, it's the
   four-seam") are no longer written
-- 368 unit tests, plus an end-to-end validation suite over live data
+- Combined seasons — `--seasons 2025 2026` pools a short season with the one
+  before it for a usable sample, compares the two to name what changed (new or
+  shelved pitches, usage shifts beyond noise, velocity), and leaves a shelved
+  pitch out of the plan rather than telling a hitter to look for it
+- 399 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -143,6 +147,17 @@ Generate a report. Name in, self-contained HTML out:
 ```bash
 python -m src.cli --pitcher "Yoshinobu Yamamoto" --season 2025
 ```
+
+For a pitcher whose latest season is short — an injury, a midseason call-up —
+combine it with the one before:
+
+```bash
+python -m src.cli --pitcher "Blake Snell" --seasons 2025 2026
+```
+
+Tendencies pool both seasons; a "Since last season" line on the card says what
+changed, and any pitch he has stopped throwing is left out. A single season
+under 1,500 pitches prints this suggestion on its own.
 
 It resolves the name, reads the cache or fetches, cleans, computes every
 metric, runs the flags, and writes `reports/<name>_<season>.html`. League

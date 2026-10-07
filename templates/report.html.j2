@@ -242,6 +242,14 @@ button.more:hover{background:#f3f6fa}
     <b>{{ "{:,}".format(payload.meta.batters_faced) }}</b> batters faced ·
     {{ payload.meta.league_note }}
   </div>
+  {% if payload.meta.seasons|length > 1 %}
+  <div class="sub">
+    Seasons combined:
+    {% for s in payload.meta.seasons %}<b>{{ s.season }}</b> {{ "{:,}".format(s.pitches) }} pitches{% if not loop.last %} · {% endif %}{% endfor %}.
+    Tendencies pool both; "Since last season" on the card says what changed.
+    {% if payload.meta.excluded_pitches %}{{ "{:,}".format(payload.meta.excluded_pitches) }} pitches of types he no longer throws are left out.{% endif %}
+  </div>
+  {% endif %}
 </header>
 
 {% if payload.data_gaps %}
@@ -285,9 +293,9 @@ button.more:hover{background:#f3f6fa}
   </div>
 
   <div class="plan">
-    {% for side, title in [("L", "vs lefties"), ("R", "vs righties")] %}
+    {% for side, title in [("L", "Lefty"), ("R", "Righty")] %}
     <div class="planside">
-      <h3>Hitting plan {{ title }}</h3>
+      <h3>{{ title }} hitting plan</h3>
       <ul>
       {% for k in c.plan[side] %}
         <li><b>{{ k.label }}.</b> {{ k.text }} <span class="n">n={{ "{:,}".format(k.n) }}</span></li>
@@ -315,7 +323,7 @@ button.more:hover{background:#f3f6fa}
   <table class="static">
     <thead><tr>
       <th>Pitch</th><th class="num">Velo</th><th class="num">Usage</th>
-      <th class="num">vs L</th><th class="num">vs R</th>
+      <th class="num">To L</th><th class="num">To R</th>
       <th class="num">Ride (in)</th><th class="num">Arm-side (in)</th>
       <th class="num">Spin</th><th class="num">Whiff</th><th class="num">Chase</th>
       <th class="num">xwOBA</th>
@@ -350,7 +358,7 @@ button.more:hover{background:#f3f6fa}
   <h3 class="dg-h3">What he throws, by count</h3>
   <div class="scroll">
   <table class="static tend">
-    <thead><tr><th>Situation</th><th>vs lefties</th><th>vs righties</th></tr></thead>
+    <thead><tr><th>Situation</th><th>To lefties</th><th>To righties</th></tr></thead>
     <tbody>
     {% for t in c.tendencies %}
       <tr>
@@ -367,9 +375,10 @@ button.more:hover{background:#f3f6fa}
   </table>
   </div>
   <p class="note">
-    "Ahead" and "behind" are from his side: when he's behind, it's a hitter's
-    count. Two strikes overlaps the other rows on purpose — it's the put-away
-    question. Greyed cells rest on fewer than 30 pitches.
+    A pitcher's count is one where he is ahead (more strikes than balls); a
+    hitter's count is one where he is behind (more balls than strikes) — the same
+    counts as "Hitter's count" in the plan. Two strikes overlaps the other rows on
+    purpose — it's the put-away question. Greyed cells rest on fewer than 30 pitches.
   </p>
 
   {% if c.recent.last_n %}
@@ -394,7 +403,7 @@ button.more:hover{background:#f3f6fa}
   </div>
   <p class="note">
     Velocity {{ num(c.recent.velo_recent) }} mph lately against
-    {{ num(c.recent.velo_earlier) }} before
+    {{ num(c.recent.velo_earlier) }} over {{ c.recent.earlier_label }}
     ({{ "%+.1f"|format(c.recent.velo_delta) if c.recent.velo_delta is not none else "—" }}).
     Usage changes are only called out in the plan when they clear a strict test,
     because every pitch is compared at once.
@@ -421,9 +430,9 @@ button.more:hover{background:#f3f6fa}
     <div class="body">
       <div class="claim">{{ t.claim }}</div>
       <div class="meta">
-        <span class="chip">{{ t.flag }}</span>
+        <span class="chip">{{ payload.flag_labels.get(t.flag, t.flag) }}</span>
         <span>n = {{ t.n }}</span>
-        <span>severity {{ "%.2f"|format(t.severity) }}</span>
+        <span>strength {{ "%.1f"|format(t.severity) }}</span>
         {# A run chip is only shown as a cost or a saving when the estimate
            survived the correction. Otherwise a chip saying "costs him 3.4
            runs" sits next to a sentence saying the cost is unresolved, and
@@ -447,8 +456,8 @@ button.more:hover{background:#f3f6fa}
     Counts and sequences are compared against <b>his own</b> overall rates, not the
     league's — the league answers "who is this pitcher", his own rate answers "what is
     he about to throw", and only the second is a hitter's question.
-    Where the run column is present it is the estimated season cost of the pattern,
-    from Savant's run expectancy.
+    Where the run column is present it is the estimated cost of the pattern over
+    this sample, from Savant's run expectancy.
   </p>
   <p class="note">
     <b>How many comparisons produced this.</b>
@@ -463,8 +472,8 @@ button.more:hover{background:#f3f6fa}
     <b>{{ payload.resolved_count }}</b> run-consequence estimates survive.
     {% endif %}
     So the frequency patterns above are the findings; what they cost him is not
-    resolved by one season of one pitcher, and the report does not pretend
-    otherwise.
+    resolved by a sample this size from one pitcher, and the report does not
+    pretend otherwise.
   </p>
 {% else %}
   <p class="nodata">Nothing cleared the sample gates. That is a result, not a failure.</p>
@@ -509,7 +518,7 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   {% for p in cg.pitches %}
     <div class="cgpanel">
       <h4>{{ names.get(p.pitch, p.pitch) }}</h4>
-      <div class="sub">season rate {{ "%.0f"|format(p.own_rate * 100) }}%</div>
+      <div class="sub">overall rate {{ "%.0f"|format(p.own_rate * 100) }}%</div>
       <div class="cg">
         <div class="cg-axis"></div>
         {% for s in range(3) %}<div class="cg-head">{{ s }}</div>{% endfor %}
@@ -666,13 +675,14 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
         <text x="{{ ps.x_right + 12 }}" y="{{ p.label_y_R + 4 }}" text-anchor="start" class="slab" fill="{{ p.color }}"><tspan font-weight="700">{{ "%.0f"|format(p.usage_R * 100) }}%</tspan> {{ names.get(p.pitch, p.pitch) }}</text>
       </g>
       {% endfor %}
-      <text x="{{ ps.x_left }}" y="{{ ps.height - 12 }}" text-anchor="middle" class="axis">vs lefties ({{ "{:,}".format(ps.side_n.L) }})</text>
-      <text x="{{ ps.x_right }}" y="{{ ps.height - 12 }}" text-anchor="middle" class="axis">vs righties ({{ "{:,}".format(ps.side_n.R) }})</text>
+      <text x="{{ ps.x_left }}" y="{{ ps.height - 12 }}" text-anchor="middle" class="axis">to lefties ({{ "{:,}".format(ps.side_n.L) }})</text>
+      <text x="{{ ps.x_right }}" y="{{ ps.height - 12 }}" text-anchor="middle" class="axis">to righties ({{ "{:,}".format(ps.side_n.R) }})</text>
     </svg>
     <p class="note">
-      Every line is solid on purpose. A share of everything thrown to a side is measured
-      over that side's whole sample, so 9 sinkers out of 1,600 pitches is a precise
-      1%, not an uncertain one. Faded lines barely change between sides.
+      Every line is solid on purpose. Each share is measured over everything he
+      threw to that side, so even a pitch one side almost never sees has a
+      precise share — a line near the floor is a real near-zero, not a guess.
+      Faded lines barely change between sides.
     </p>
     {% else %}
     <p class="nodata">Not enough pitches to both sides to compare.</p>
@@ -718,22 +728,22 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
     <label for="sliceState">Count</label>
     <select id="sliceState">
       <option value="all">All counts</option>
-      <option value="ahead">Ahead (strikes &gt; balls)</option>
+      <option value="ahead">Pitcher's count (he's ahead)</option>
       <option value="even">Even</option>
-      <option value="behind">Behind (balls &gt; strikes)</option>
+      <option value="behind">Hitter's count (he's behind)</option>
     </select>
     <label for="sliceHand">Batter</label>
     <select id="sliceHand">
       <option value="all">Both</option>
-      <option value="L">vs LHH</option>
-      <option value="R">vs RHH</option>
+      <option value="L">To LHH</option>
+      <option value="R">To RHH</option>
     </select>
     <label for="sliceMode">Colour</label>
     {# Share first: lift against the whole season is 1.0x everywhere when
        nothing is sliced, so it cannot be the opening view. #}
     <select id="sliceMode">
       <option value="share">Share of the pitch</option>
-      <option value="lift">Lift vs his own pattern</option>
+      <option value="lift">Compared with his usual</option>
     </select>
     <span id="sliceLegend" class="legend-inline"></span>
   </div>
@@ -741,13 +751,13 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   <p class="note" id="sliceNote"></p>
 
   {% if payload.location_tells %}
-  <h3 style="font-size:13px;margin:22px 0 8px">What a location band gives away</h3>
+  <h3 style="font-size:13px;margin:22px 0 8px">What the pitch's height gives away</h3>
   <div class="scroll">
     <table id="tellsTable">
       <thead><tr>
-        <th>Band</th><th>Pitch</th><th class="num">n</th>
-        <th class="num">P(pitch | band)</th><th class="num">His baseline</th>
-        <th class="num">Lift</th><th class="num">Score</th>
+        <th>Height</th><th>Pitch</th><th class="num">n</th>
+        <th class="num">Chance it's this pitch</th><th class="num">His usual share</th>
+        <th class="num">How much more likely</th><th class="num">Strength</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -758,7 +768,9 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 <section class="card">
   <h2>Arsenal</h2>
   <p class="lede">
-    Movement in inches from the catcher's view. Whiff rate is per swing, not per pitch.
+    Movement in inches. Arm-side is horizontal movement toward his throwing arm,
+    with glove side negative — the same as the card, so the numbers match. Whiff
+    rate is per swing, not per pitch.
   </p>
   <div class="scroll"><table id="arsenalTable"><thead></thead><tbody></tbody></table></div>
 </section>
@@ -766,10 +778,11 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 <section class="card">
   <h2>Count tendencies</h2>
   <p class="lede">
-    Predictability is inverted normalized entropy: 1.0 means one pitch only, 0.0 an even
-    spread across the whole arsenal.
+    Predictability runs from 0 to 1: 1.0 means he throws only one pitch in that
+    count, 0.0 means an even spread across his whole arsenal.
     {% if payload.meta.has_league %}
-    A share is only a finding next to the league rate for the same count.
+    The league share is context — who he is. Whether a count is a finding is
+    decided against his own rate, in the table below.
     {% endif %}
   </p>
   <div class="scroll"><table id="predTable"><thead></thead><tbody></tbody></table></div>
@@ -795,8 +808,10 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   {% if payload.setups %}
   <div class="scroll"><table id="setupTable"><thead></thead><tbody></tbody></table></div>
   <p class="note">
-    freq_lift is how much more likely the follow-up becomes; effect_lift is whether the
-    whiff rate improves. High freq_lift with effect_lift at or below 1.0 is the finding.
+    "How much more likely" is how much the setup pitch raises the chance of the
+    follow-up over his usual rate. "Whiff change" is whether the follow-up then
+    gets more swings and misses. A follow-up that becomes much more likely
+    without more whiffs is the pattern to look for: predictable, and not working.
   </p>
   {% else %}
   <p class="nodata">No setup pair cleared the sample gate.</p>
@@ -810,20 +825,21 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   <h2>Splits</h2>
   <div class="scroll"><table id="platoonTable"><thead></thead><tbody></tbody></table></div>
 
+  {% if payload.tto_decomposition.headline %}
   <h3 style="font-size:13px;margin:22px 0 8px">Times through the order</h3>
   <div class="scroll"><table id="ttoTable"><thead></thead><tbody></tbody></table></div>
-  {% if payload.tto_decomposition.attribution %}
-  <p class="note"><b>{{ payload.tto_decomposition.attribution }}.</b>
-    {{ payload.tto_decomposition.note }}</p>
+  <p class="note"><b>{{ payload.tto_decomposition.headline }}.</b>
+    {{ payload.tto_decomposition.note }} {{ payload.tto_decomposition.caveat }}</p>
   {% endif %}
 </section>
 
 <section class="card">
   <h2>Release consistency</h2>
   <p class="lede">
-    The cheap half of tunneling. A pitch released away from the fastball slot can be
-    identified before movement matters — and a tight spread in a distinct slot is a
-    tell, where a wide spread is a command problem.
+    Where each pitch leaves his hand, compared with his fastball. A pitch released
+    from a different spot can be picked up out of the hand, before it moves at all.
+    A tight spread in a different spot is a tell; a wide spread is a command
+    problem.
   </p>
   <div class="scroll"><table id="releaseTable"><thead></thead><tbody></tbody></table></div>
 </section>
@@ -855,6 +871,16 @@ const sign = (v, d = 3) => v === null || v === undefined ? '—'
 /* ---------------------------------------------------------------- tables */
 /* One renderer for every table. Columns declare their own formatter, so a
    rate can never be printed as a raw float by accident. */
+/* Codes stay in the data, for sorting; the reader sees words. */
+const PITCH_FIELDS = new Set(['pitch_type', 'top_pitch', 'setup_pitch', 'next_pitch']);
+const HEIGHTS = { UP: 'High', MID: 'Belt', MIDDLE: 'Belt', DOWN: 'Low' };
+function words(field, raw) {
+  if (PITCH_FIELDS.has(field)) return (D.display_names || {})[raw] || raw;
+  if (field === 'band' || field === 'setup_band') return HEIGHTS[raw] || raw;
+  if (field === 'flag') return (D.flag_labels || {})[raw] || raw;
+  return raw;
+}
+
 function table(id, rows, cols) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -873,7 +899,7 @@ function table(id, rows, cols) {
 
     el.querySelector('tbody').innerHTML = data.map(r => '<tr>' + present.map(c => {
       const raw = r[c.f];
-      const txt = c.fmt ? c.fmt(raw) : (raw === null || raw === undefined ? '—' : raw);
+      const txt = c.fmt ? c.fmt(raw) : (raw === null || raw === undefined ? '—' : words(c.f, raw));
       let cls = c.n ? 'num' : '';
       if (c.tone && typeof raw === 'number') cls += raw > 0 ? ' pos' : ' neg';
       return `<td class="${cls}">${txt}</td>`;
@@ -904,8 +930,8 @@ table('arsenalTable', D.arsenal, [
   { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
   { f: 'velo_delta', l: 'Δ velo', n: 1, fmt: v => sign(v, 1) },
   { f: 'spin', l: 'Spin', n: 1, fmt: int },
-  { f: 'h_break', l: 'H break', n: 1, fmt: v => num(v, 1) },
-  { f: 'v_break', l: 'V break', n: 1, fmt: v => num(v, 1) },
+  { f: 'h_break', l: 'Arm-side (in)', n: 1, fmt: v => num(v, 1) },
+  { f: 'v_break', l: 'Ride (in)', n: 1, fmt: v => num(v, 1) },
   { f: 'zone_rate', l: 'Zone%', n: 1, fmt: pct0 },
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
   { f: 'whiff_delta', l: 'Δ whiff', n: 1, fmt: v => sign(v, 3) },
@@ -920,10 +946,9 @@ table('predTable', D.predictability, [
   { f: 'top_pitch', l: 'Top pitch' },
   { f: 'top_share', l: 'Share', n: 1, fmt: pct },
   { f: 'league_top_share', l: 'Lg share', n: 1, fmt: pct },
-  { f: 'share_delta', l: 'Δ', n: 1, fmt: v => sign(v, 3), tone: 1 },
-  { f: 'share_z', l: 'z', n: 1, fmt: v => num(v, 1) },
+  { f: 'share_delta', l: 'vs league', n: 1, fmt: v => sign(v, 3), tone: 1 },
+  { f: 'share_z', l: 'SDs from league', n: 1, fmt: v => num(v, 1) },
   { f: 'predictability', l: 'Predictability', n: 1, fmt: v => num(v, 3) },
-  { f: 'entropy', l: 'Entropy', n: 1, fmt: v => num(v, 2) },
 ]);
 
 table('liftTable', D.count_lifts, [
@@ -933,24 +958,24 @@ table('liftTable', D.count_lifts, [
   { f: 'count_n', l: 'in count', n: 1, fmt: int },
   { f: 'share', l: 'Share', n: 1, fmt: pct },
   { f: 'own_rate', l: 'His overall', n: 1, fmt: pct },
-  { f: 'lift', l: 'Lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'lift', l: 'vs his usual', n: 1, fmt: v => num(v, 2) + 'x' },
   { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
   { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
-  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+  { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);
 
 table('setupTable', D.setups, [
   { f: 'setup_pitch', l: 'Setup' },
-  { f: 'setup_band', l: 'Band' },
+  { f: 'setup_band', l: 'Height' },
   { f: 'next_pitch', l: 'Follow-up' },
   { f: 'n', l: 'n', n: 1, fmt: int },
-  { f: 'p_next', l: 'P(next)', n: 1, fmt: pct },
-  { f: 'baseline_p', l: 'Baseline', n: 1, fmt: pct },
-  { f: 'freq_lift', l: 'Freq lift', n: 1, fmt: v => num(v, 2) + 'x' },
-  { f: 'effect_lift', l: 'Effect lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'p_next', l: 'Chance next', n: 1, fmt: pct },
+  { f: 'baseline_p', l: 'His usual', n: 1, fmt: pct },
+  { f: 'freq_lift', l: 'How much more likely', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'effect_lift', l: 'Whiff change', n: 1, fmt: v => num(v, 2) + 'x' },
   { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
   { f: 'xwoba_when', l: 'xwOBA after', n: 1, fmt: v => num(v, 3) },
-  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+  { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);
 
 table('putawayTable', D.putaway, [
@@ -960,15 +985,15 @@ table('putawayTable', D.putaway, [
   { f: 'league_usage', l: 'Lg usage', n: 1, fmt: pct },
   { f: 'putaway_rate', l: 'Putaway', n: 1, fmt: pct },
   { f: 'league_putaway', l: 'Lg putaway', n: 1, fmt: pct },
-  { f: 'putaway_delta', l: 'Δ', n: 1, fmt: v => sign(v, 3) },
-  { f: 'putaway_z', l: 'z', n: 1, fmt: v => num(v, 1) },
+  { f: 'putaway_delta', l: 'vs league', n: 1, fmt: v => sign(v, 3) },
+  { f: 'putaway_z', l: 'SDs from league', n: 1, fmt: v => num(v, 1) },
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
 ]);
 
 table('platoonTable', D.platoon, [
   { f: 'pitch_type', l: 'Pitch' },
-  { f: 'usage_L', l: 'vs LHH', n: 1, fmt: pct },
-  { f: 'usage_R', l: 'vs RHH', n: 1, fmt: pct },
+  { f: 'usage_L', l: 'To LHH', n: 1, fmt: pct },
+  { f: 'usage_R', l: 'To RHH', n: 1, fmt: pct },
   { f: 'gap', l: 'Gap', n: 1, fmt: v => sign(v, 3) },
   { f: 'whiff_L', l: 'Whiff L', n: 1, fmt: pct },
   { f: 'whiff_R', l: 'Whiff R', n: 1, fmt: pct },
@@ -976,7 +1001,7 @@ table('platoonTable', D.platoon, [
   { f: 'n_R', l: 'n R', n: 1, fmt: int },
 ]);
 
-table('ttoTable', D.tto, [
+table('ttoTable', (D.tto || []).filter(r => r.reliable), [
   { f: 'tto', l: 'Trip' },
   { f: 'n', l: 'Pitches', n: 1, fmt: int },
   { f: 'batters', l: 'Batters', n: 1, fmt: int },
@@ -991,27 +1016,27 @@ table('releaseTable', D.release, [
   { f: 'n', l: 'n', n: 1, fmt: int },
   { f: 'rel_x', l: 'Rel x (in)', n: 1, fmt: v => num(v, 1) },
   { f: 'rel_z', l: 'Rel z (in)', n: 1, fmt: v => num(v, 1) },
-  { f: 'rel_x_sd', l: 'SD x', n: 1, fmt: v => num(v, 2) },
-  { f: 'rel_z_sd', l: 'SD z', n: 1, fmt: v => num(v, 2) },
+  { f: 'rel_x_sd', l: 'Spread x', n: 1, fmt: v => num(v, 2) },
+  { f: 'rel_z_sd', l: 'Spread z', n: 1, fmt: v => num(v, 2) },
   { f: 'arm_angle', l: 'Arm angle', n: 1, fmt: v => num(v, 1) },
   { f: 'dist_from_ref', l: 'From slot (in)', n: 1, fmt: v => num(v, 2) },
 ]);
 
 table('tellsTable', D.location_tells, [
-  { f: 'band', l: 'Band' },
+  { f: 'band', l: 'Height' },
   { f: 'pitch_type', l: 'Pitch' },
   { f: 'n', l: 'n', n: 1, fmt: int },
-  { f: 'p_pitch', l: 'P(pitch | band)', n: 1, fmt: pct },
-  { f: 'baseline_p', l: 'His baseline', n: 1, fmt: pct },
-  { f: 'lift', l: 'Lift', n: 1, fmt: v => num(v, 2) + 'x' },
+  { f: 'p_pitch', l: "Chance it's this pitch", n: 1, fmt: pct },
+  { f: 'baseline_p', l: 'His usual share', n: 1, fmt: pct },
+  { f: 'lift', l: 'How much more likely', n: 1, fmt: v => num(v, 2) + 'x' },
   { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
   { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
-  { f: 'score', l: 'Score', n: 1, fmt: v => num(v, 1) },
+  { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);
 
 table('findingsTable', D.findings, [
-  { f: 'flag', l: 'Flag' },
-  { f: 'severity', l: 'Severity', n: 1, fmt: v => num(v, 2) },
+  { f: 'flag', l: 'Type' },
+  { f: 'severity', l: 'Strength', n: 1, fmt: v => num(v, 1) },
   { f: 'severity_basis', l: 'Basis' },
   { f: 'n', l: 'n', n: 1, fmt: int },
   { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },

@@ -139,8 +139,8 @@ def season_line(frame: pd.DataFrame) -> dict:
 
     Rates use plate appearances with an outcome as the denominator. A handful
     of plate appearances end on a play that is not a pitch — a pickoff, a
-    caught stealing — and have no outcome row, so this can run a few short of
-    the batters-faced count in the header.
+    caught stealing — and have no outcome row. The report header uses this
+    same count, so the page never shows two different batter totals.
     """
     blank = {k: float("nan") for k in (
         "k_rate", "bb_rate", "k_minus_bb", "whiff_rate", "chase_rate",

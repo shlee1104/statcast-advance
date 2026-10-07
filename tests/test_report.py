@@ -228,7 +228,8 @@ class TestDugoutCard:
         card_at = html.find("Dugout card")
         findings_at = html.find("Findings, with their evidence")
         assert 0 < card_at < findings_at
-        assert "Hitting plan vs lefties" in html
+        assert "Lefty hitting plan" in html
+        assert "Righty hitting plan" in html
         assert "Not covered:" in html
 
     def test_tendency_rows_cover_every_situation(self):

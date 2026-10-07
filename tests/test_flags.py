@@ -119,7 +119,8 @@ class TestHandednessGaps:
         found = flags.handedness_gaps(frame)
         assert found
         assert all(f["flag"] == "handedness_gap" for f in found)
-        assert any("SL" in f["claim"] for f in found)
+        claim = next(f["claim"] for f in found if "slider" in f["claim"])
+        assert "points more" in claim and "% gap" not in claim
 
     def test_mirror_image_gaps_are_expected_and_collapsed(self):
         """Usage gaps across an arsenal sum to zero, so every gap has a mirror
@@ -168,6 +169,18 @@ class TestHandednessGaps:
         found = flags.handedness_gaps(pd.DataFrame())
         assert len(found) == 1
         assert found[0]["n"] == 120
+
+    def test_missing_usage_prints_as_zero_not_nan(self, monkeypatch):
+        """Burnes 2025 read "only nan% to lefties"."""
+        table = pd.DataFrame([{
+            "pitch_type": "SI", "usage_L": float("nan"), "usage_R": 0.23, "gap": -0.23,
+            "whiff_L": float("nan"), "whiff_R": 0.10, "n_L": float("nan"), "n_R": 97.0,
+        }])
+        monkeypatch.setattr(flags.splits, "platoon_gaps", lambda frame: table)
+        claim = flags.handedness_gaps(pd.DataFrame())[0]["claim"]
+        assert "nan" not in claim
+        assert "only 0% to lefties" in claim
+        assert claim.startswith("He throws the sinker")
 
     def test_needs_no_league_data(self):
         """The comparison is the pitcher against himself, which is what lets
@@ -401,6 +414,20 @@ class TestLocationTellFlag:
         found = flags.location_tells(frame)
         assert any(f["flag"] == "location_tell" for f in found)
 
+    def test_fastball_up_is_not_a_finding_but_slider_down_is(self):
+        """A fastball up was the top finding in 28 of 32 reports and is true
+        of nearly every pitcher."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 120, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 30, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 120, "plate_z": 1.7},
+            {"pitch_type": "FF", "n": 30, "plate_z": 1.7},
+        ])
+        claims = [f["claim"] for f in flags.location_tells(frame)]
+        assert not any("four-seam" in c and "up in the zone" in c for c in claims)
+        assert any(c.startswith("When the pitch is headed down, it is the slider")
+                   for c in claims)
+
     def test_share_floor_rejects_a_real_lift_onto_a_minority(self):
         """A band lifting a pitch from 26% to 37% is a genuine 1.42x that no
         hitter can commit to, so it must not fire."""
@@ -427,14 +454,17 @@ class TestFirstPitch:
         found = flags.first_pitch_tendency(frame)
         assert any("opens with" in f["claim"] for f in found)
 
-    def test_fires_on_a_low_strike_rate(self):
+    def test_fires_when_taken_first_pitches_are_rarely_strikes(self):
+        """Uses called strikes on taken first pitches — the plan's measure —
+        so the finding and the plan line cannot disagree."""
         frame = make_frame([
-            {"pitch_type": "FF", "n": 40, "balls": 0, "strikes": 0, "type": "S"},
-            {"pitch_type": "SL", "n": 60, "balls": 0, "strikes": 0, "type": "B",
+            {"pitch_type": "FF", "n": 35, "balls": 0, "strikes": 0, "type": "S"},
+            {"pitch_type": "SL", "n": 65, "balls": 0, "strikes": 0, "type": "B",
              "description": "ball"},
         ])
         found = flags.first_pitch_tendency(frame)
-        assert any("strike rate" in f["claim"] for f in found)
+        claim = next(f["claim"] for f in found if "percentage play" in f["claim"])
+        assert "called strikes only 35%" in claim
 
     def test_silent_below_the_sample_gate(self):
         frame = make_frame([{"pitch_type": "FF", "n": 10, "balls": 0, "strikes": 0}])

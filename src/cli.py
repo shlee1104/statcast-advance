@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 from src import baselines, clean, config, report, store
-from src.metrics import events
+from src.metrics import events, seasons
 
 log = logging.getLogger(__name__)
 
@@ -62,11 +62,42 @@ def load_from_fixture(stem: str, season: int) -> pd.DataFrame:
 
 def load_from_savant(pitcher: str, season: int, refresh: bool = False) -> pd.DataFrame:
     """Resolve the name, then read the cache or fetch and cache."""
+    return load_seasons_from_savant(pitcher, [season], refresh=refresh)
+
+
+def load_seasons_from_savant(
+    pitcher: str, seasons: list[int], refresh: bool = False
+) -> pd.DataFrame:
+    """Resolve the name once, then load each season and stack them."""
     from src import fetch
 
     player = fetch.resolve_player(pitcher)
     print(f"  Resolved to MLBAM {player.mlbam_id} ({player.full_name})")
-    return load_by_id(player.mlbam_id, season, refresh=refresh)
+    frames = []
+    for season in seasons:
+        if len(seasons) > 1:
+            print(f"  {season}:")
+        frames.append(load_by_id(player.mlbam_id, season, refresh=refresh))
+    return stack_seasons(frames, seasons)
+
+
+def stack_seasons(frames: list[pd.DataFrame], seasons: list[int]) -> pd.DataFrame:
+    """Stack per-season frames, making sure each row knows its season.
+
+    Savant includes `game_year`, but a frame from an older fixture or cache
+    path might not, and the season comparison depends on it.
+    """
+    tagged = []
+    for frame, season in zip(frames, seasons):
+        if len(frame) == 0:
+            continue
+        frame = frame.copy()
+        if "game_year" not in frame.columns or frame["game_year"].isna().all():
+            frame["game_year"] = season
+        tagged.append(frame)
+    if not tagged:
+        return pd.DataFrame()
+    return pd.concat(tagged, ignore_index=True)
 
 
 def load_by_id(mlbam_id: int, season: int, refresh: bool = False) -> pd.DataFrame:
@@ -139,6 +170,32 @@ def load_league(
         conn.close()
 
 
+def load_league_for(seasons: list[int], hand: str) -> dict[str, pd.DataFrame | None]:
+    """League baselines for the latest season that has them.
+
+    The latest season is the one the report describes, so it is tried first.
+    Falling back to an earlier year is better than no comparison, and the
+    printed line says which year was used.
+    """
+    for season in sorted(seasons, reverse=True):
+        league = load_league(season, hand)
+        if league["league_outcomes"] is not None:
+            if season != max(seasons):
+                print(f"  Using {season} league baselines; none built for {max(seasons)}")
+            return league
+    return {"league_outcomes": None, "league_mix": None, "league_putaway": None}
+
+
+def thin_sample_suggestion(n_pitches: int, seasons: list[int]) -> str | None:
+    """A suggestion to add the previous season, for a thin single season."""
+    floor = int(config.get("data.thin_sample_pitches", 1500))
+    if len(seasons) > 1 or n_pitches >= floor:
+        return None
+    season = seasons[0]
+    return (f"  Only {n_pitches:,} pitches. For a fuller sample, add last season:\n"
+            f"    --seasons {season - 1} {season}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m src.cli",
@@ -148,7 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pitcher", required=True,
                         help='Full name, e.g. "Yoshinobu Yamamoto"')
     parser.add_argument("--season", type=int,
-                        default=config.get("data.default_season", 2025))
+                        default=config.get("data.default_season", 2026))
+    parser.add_argument("--seasons", type=int, nargs="+", metavar="YEAR",
+                        help="Combine seasons, e.g. --seasons 2025 2026. For a "
+                             "pitcher whose latest season is short. The report "
+                             "says what changed between them.")
     parser.add_argument("--fixture", metavar="STEM",
                         help="Read a committed fixture instead of fetching "
                              "(e.g. --fixture yamamoto). Works offline.")
@@ -168,13 +229,16 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s  %(message)s",
     )
 
-    print(f"\n{args.pitcher} — {args.season}")
+    season_list = sorted(set(args.seasons)) if args.seasons else [args.season]
+    label = seasons.season_label(season_list)
+    print(f"\n{args.pitcher} — {label}")
 
     if args.fixture:
-        raw = load_from_fixture(args.fixture, args.season)
+        raw = stack_seasons(
+            [load_from_fixture(args.fixture, s) for s in season_list], season_list)
         print(f"  Fixture: {len(raw):,} raw rows")
     else:
-        raw = load_from_savant(args.pitcher, args.season, refresh=args.refresh)
+        raw = load_seasons_from_savant(args.pitcher, season_list, refresh=args.refresh)
         print(f"  Fetched: {len(raw):,} raw rows")
 
     frame = prepare(raw)
@@ -183,14 +247,19 @@ def main(argv: list[str] | None = None) -> int:
 
     hand = str(frame["p_throws"].mode().iloc[0])
     print(f"  Cleaned: {len(frame):,} pitches, throws {hand}")
+    for row in seasons.season_counts(frame) if len(season_list) > 1 else []:
+        print(f"    {row['season']}: {row['pitches']:,} pitches, {row['games']} games")
+    suggestion = thin_sample_suggestion(len(frame), season_list)
+    if suggestion:
+        print(suggestion)
 
     league = (
         {"league_outcomes": None, "league_mix": None, "league_putaway": None}
         if args.no_league
-        else load_league(args.season, hand)
+        else load_league_for(season_list, hand)
     )
 
-    path = report.write(frame, args.pitcher, args.season,
+    path = report.write(frame, args.pitcher, label,
                         out_path=args.out, **league)
 
     size_kb = path.stat().st_size / 1024

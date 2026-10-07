@@ -5,9 +5,14 @@
 # in one place.
 
 data:
-  # Default season used when --season is not passed.
-  # 2025 is complete, which makes league baselines stable.
-  default_season: 2025
+  # Default season used when --season is not passed. The 2026 regular season
+  # is complete; postseason games are included as they are played.
+  default_season: 2026
+
+  # A single season below this many pitches gets a printed suggestion to add
+  # the previous one with --seasons. Count and side tendencies split a season
+  # roughly twenty ways, and below this most of those cells are thin.
+  thin_sample_pitches: 1500
 
   # Where the local DuckDB cache lives (gitignored).
   db_path: "data/statcast.duckdb"
@@ -97,6 +102,24 @@ report:
   # can be a single pitch.
   min_arsenal_pitches: 5
 
+# When seasons are combined (--seasons), the latest is compared against the
+# earlier ones to say what changed. Shares are of all his pitches that season.
+seasons:
+  # A pitch is "new" when it was under `absent_below` before and at least
+  # `present_at` now, and "dropped" the other way round. Dropped pitches are
+  # left out of the report.
+  absent_below: 0.01
+  present_at: 0.03
+
+  # Usage moved by at least this much, and by more than noise.
+  usage_shift: 0.08
+  usage_shift_z: 2.5
+
+  # Average speed moved by at least this much, on pitches thrown at least
+  # `min_pitches` times in both.
+  velo_change_mph: 1.0
+  min_pitches: 50
+
 # Cutoffs that decide which sentence the hitting plan writes.
 #
 # Set from the calibration run over 25 pitchers, 50 pitcher-sides, 2025
@@ -134,6 +157,18 @@ plan:
   # two-strike pitches; below it, say he mixes. The old rule always named one,
   # including "expect the four-seam (26%)" for Kirby against lefties.
   two_strike_min_share: 0.33
+
+  # ...and at least this far ahead of the next pitch. Snell to lefties was
+  # four-seam 35%, curveball 31%, slider 28%: a three-way tie, not a put-away
+  # pitch.
+  two_strike_min_lead: 0.10
+
+  # With no clear put-away pitch, the plan says "look fastball and adjust" —
+  # the standard two-strike approach, since a hitter on time for the fastball
+  # can still react to a breaking ball but not the other way round. That is
+  # only good advice if he still throws a fastball this share of the time with
+  # two strikes; below it, the line names the off-speed pitches instead.
+  two_strike_look_hard_min: 0.25
 
   # Two strikes: say "lay off it low" when at least this share of his two-strike
   # pitch finishes below the zone, and only quote a miss rate on this many swings.
@@ -269,6 +304,6 @@ flags:
     # carrying information overall. Revisit once more pitchers have been run.
     location_tell_info: 0.08
 
-    # First-pitch predictability
+    # First-pitch predictability. The "take the first pitch" finding uses the
+    # plan's own cutoff, plan.first_pitch_take_below, so the two always agree.
     first_pitch_share: 0.70
-    first_pitch_strike_rate_low: 0.52

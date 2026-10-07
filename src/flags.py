@@ -35,7 +35,20 @@ from __future__ import annotations
 import pandas as pd
 
 from src import baselines, config
+from src.gameplan import PITCH_FAMILY
+from src.gameplan import name as pitch_name
 from src.metrics import arsenal, counts, location, sequencing, splits
+
+# Height bands as a hitter says them, for "after a low slider" rather than
+# "after a SL down".
+HEIGHT_WORDS: dict[str, str] = {
+    "UP": "high", "MID": "belt-high", "MIDDLE": "belt-high", "DOWN": "low",
+}
+
+# Where a pitch is headed, as the plan says it.
+WHERE_WORDS: dict[str, str] = {
+    "UP": "up in the zone", "MIDDLE": "at the belt", "MID": "at the belt", "DOWN": "down",
+}
 
 # Findings carry these columns in this order, whatever rule produced them.
 FINDING_COLUMNS: list[str] = [
@@ -134,7 +147,7 @@ def _consequence(
 
     if runs_cost >= min_runs:
         return True, (
-            f" It costs him about {runs_cost:.1f} runs over the season"
+            f" It costs him about {runs_cost:.1f} runs over this sample"
             f"{interval}."
         )
     if runs_cost <= -min_runs:
@@ -287,8 +300,9 @@ def predictable_counts(frame: pd.DataFrame, league_mix: pd.DataFrame | None) -> 
         also = ""
         if others:
             extra = ", ".join(group["count"].iloc[1:4])
-            also = (f" He is elevated with it in {others} other count"
-                    f"{'s' if others > 1 else ''} too ({extra}).")
+            # "Leans on", not "elevated": in baseball an elevated pitch is a
+            # high one, and this is about how often, not where.
+            also = f" He also leans on it in {extra}."
 
         league_share = league_lookup.get((best["count"], pitch_type))
         context = ""
@@ -310,7 +324,7 @@ def predictable_counts(frame: pd.DataFrame, league_mix: pd.DataFrame | None) -> 
             runs_hi=best.get("runs_hi"),
             rv_p=best.get("rv_p"),
             claim=(
-                f"In {best['count']} he goes to the {pitch_type} "
+                f"In {best['count']} he goes to the {pitch_name(pitch_type)} "
                 f"{best['share']:.0%} of the time against his own "
                 f"{best['own_rate']:.0%} overall — {best['lift']:.1f}x "
                 f"(n={int(best['n'])} of {int(best['count_n'])} pitches in that "
@@ -347,7 +361,10 @@ def handedness_gaps(frame: pd.DataFrame) -> list[dict]:
             continue
 
         favored, starved = ("lefties", "righties") if gap > 0 else ("righties", "lefties")
-        high, low = (row.usage_L, row.usage_R) if gap > 0 else (row.usage_R, row.usage_L)
+        # A pitch never thrown to a side has no usage there, not an unknown
+        # one: it is 0%. Left as NaN it printed "only nan% to lefties".
+        usage_L, usage_R = _count_or_zero(row.usage_L), _count_or_zero(row.usage_R)
+        high, low = (usage_L, usage_R) if gap > 0 else (usage_R, usage_L)
         # A pitch never thrown to one side has a missing count there, and
         # `NaN or 0` is NaN — NaN is truthy — so missing is replaced explicitly.
         n_side = int(max(_count_or_zero(row.n_L), _count_or_zero(row.n_R)))
@@ -364,9 +381,10 @@ def handedness_gaps(frame: pd.DataFrame) -> list[dict]:
             basis=BASIS_THRESHOLD,
             n=n_side,
             claim=(
-                f"He throws the {row.pitch_type} {high:.0%} of the time to "
-                f"{favored} but only {low:.0%} to {starved} — a "
-                f"{abs(gap):.0%} gap (n={n_side} to the favored side)."
+                f"He throws the {pitch_name(row.pitch_type)} {high:.0%} of the "
+                f"time to {favored} but only {low:.0%} to {starved} — "
+                f"{abs(high - low) * 100:.0f} points more (n={n_side} "
+                f"{pitch_name(row.pitch_type)}s to {favored})."
             ),
             observed=high,
             reference=low,
@@ -416,7 +434,7 @@ def hittable_pitches(
             n=int(row.n),
             claim=(
                 f"Hitters post a {row.xwoba:.3f} xwOBA against his "
-                f"{row.pitch_type}, {row.xwoba_delta:+.3f} above the league's "
+                f"{pitch_name(row.pitch_type)}, {row.xwoba_delta:+.3f} above the league's "
                 f"{row.league_xwoba:.3f} for that pitch, and he throws it "
                 f"{row.usage:.0%} of the time (n={int(row.n)})."
             ),
@@ -504,7 +522,7 @@ def fatigue_decline(frame: pd.DataFrame) -> list[dict]:
                 # The caveat travels with the claim rather than sitting in a
                 # footnote, because the claim is the part that gets quoted.
                 claim=(
-                    f"{decomposition['note']} (n={n_third} pitches). "
+                    f"{decomposition['note'].rstrip('.')} (n={n_third} pitches). "
                     f"{decomposition['caveat']}"
                 ),
                 observed=velo_delta,
@@ -549,8 +567,10 @@ def sequencing_tells(frame: pd.DataFrame) -> list[dict]:
             basis=BASIS_THRESHOLD,
             n=int(row.n),
             claim=(
-                f"After a {row.setup_pitch} {row.setup_band.lower()}, the "
-                f"{row.next_pitch} follows {row.p_next:.0%} of the time "
+                f"After a {HEIGHT_WORDS.get(row.setup_band, row.setup_band.lower())} "
+                f"{pitch_name(row.setup_pitch)}, the next pitch is "
+                f"{'another' if row.next_pitch == row.setup_pitch else 'a'} "
+                f"{pitch_name(row.next_pitch)} {row.p_next:.0%} of the time "
                 f"against a baseline of {row.baseline_p:.0%} — "
                 f"{row.freq_lift:.2f}x (n={int(row.n)})."
             ),
@@ -590,8 +610,13 @@ def location_tells(frame: pd.DataFrame) -> list[dict]:
         # share is a real effect that no hitter can act on.
         if row.p_pitch < min_share:
             continue
+        # A fastball up is what nearly every pitcher does; it ranked as the
+        # top finding in 28 of 32 reports while telling a hitter nothing. The
+        # plan's height line leaves it out for the same reason.
+        if row.band == "UP" and PITCH_FAMILY.get(row.pitch_type) == "hard":
+            continue
 
-        band = row.band.lower()
+        where = WHERE_WORDS.get(row.band, row.band.lower())
         severity = _threshold_severity(
             row.lift, min_lift, weight, int(row.n), min_n
         )
@@ -602,8 +627,8 @@ def location_tells(frame: pd.DataFrame) -> list[dict]:
             basis=BASIS_THRESHOLD,
             n=int(row.n),
             claim=(
-                f"When the pitch is headed {band} in the zone it is the "
-                f"{row.pitch_type} {row.p_pitch:.0%} of the time, against his "
+                f"When the pitch is headed {where}, it is the "
+                f"{pitch_name(row.pitch_type)} {row.p_pitch:.0%} of the time, against his "
                 f"overall {row.baseline_p:.0%} — {row.lift:.2f}x "
                 f"(n={int(row.n)})."
             ),
@@ -624,12 +649,17 @@ def first_pitch_tendency(
 ) -> list[dict]:
     """How he opens a plate appearance, when it is exploitable.
 
-    Two separate findings: a predictable first pitch, and a first-pitch strike
-    rate low enough that taking is the correct approach.
+    Two separate findings: a predictable first pitch, and taken first pitches
+    called strikes rarely enough that taking is the correct approach.
+
+    The second uses the same measure and cutoff as the plan's first-pitch line
+    — called strikes on TAKEN first pitches — so the two can never disagree.
+    The usual first-pitch strike rate counts every swing as a strike, which
+    makes it look like taking costs a strike far more often than it does.
     """
     min_n = int(config.get("flags.min_n.first_pitch", 30))
     min_share = float(config.get("flags.thresholds.first_pitch_share", 0.70))
-    low_strike = float(config.get("flags.thresholds.first_pitch_strike_rate_low", 0.52))
+    take_below = float(config.get("plan.first_pitch_take_below", 0.40))
     weight = float(config.get("report.severity_weights.first_pitch", 2.0))
 
     summary = counts.first_pitch_tendencies(frame)
@@ -648,7 +678,7 @@ def first_pitch_tendency(
             basis=BASIS_THRESHOLD,
             n=int(summary["n"]),
             claim=(
-                f"He opens with the {summary['primary_pitch']} "
+                f"He opens with the {pitch_name(summary['primary_pitch'])} "
                 f"{summary['primary_share']:.0%} of the time "
                 f"(n={int(summary['n'])})."
             ),
@@ -656,26 +686,30 @@ def first_pitch_tendency(
             reference=min_share,
         ))
 
-    if summary["strike_rate"] <= low_strike:
-        findings.append(_finding(
-            flag="first_pitch",
-            # Inverted so the observed quantity rises as the finding gets
-            # stronger: a lower strike rate is a bigger finding, and the
-            # severity formula expects observed/threshold to grow with it.
-            severity=_threshold_severity(
-                low_strike / max(summary["strike_rate"], 1e-9), 1.0, weight,
-                int(summary["n"]), min_n,
-            ),
-            basis=BASIS_THRESHOLD,
-            n=int(summary["n"]),
-            claim=(
-                f"His first-pitch strike rate is "
-                f"{summary['strike_rate']:.0%} (n={int(summary['n'])}), so "
-                f"taking the first pitch is the percentage play."
-            ),
-            observed=summary["strike_rate"],
-            reference=low_strike,
-        ))
+    first = frame[(frame["balls"] == 0) & (frame["strikes"] == 0)]
+    taken = first[~first["is_swing"].eq(True)]
+    if len(taken) >= min_n:
+        called = float(taken["is_called_strike"].eq(True).mean())
+        if called <= take_below:
+            findings.append(_finding(
+                flag="first_pitch",
+                # Inverted so the observed quantity rises as the finding gets
+                # stronger: a lower called-strike rate is a bigger finding, and
+                # the severity formula expects observed/threshold to grow.
+                severity=_threshold_severity(
+                    take_below / max(called, 1e-9), 1.0, weight,
+                    int(len(taken)), min_n,
+                ),
+                basis=BASIS_THRESHOLD,
+                n=int(len(taken)),
+                claim=(
+                    f"Taken first pitches are called strikes only {called:.0%} "
+                    f"of the time (n={len(taken)} taken), so taking the first "
+                    f"pitch is the percentage play."
+                ),
+                observed=called,
+                reference=take_below,
+            ))
 
     return findings
 

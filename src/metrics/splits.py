@@ -331,6 +331,7 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
         "xwoba_delta": float("nan"),
         "whiff_delta": float("nan"),
         "attribution": "unknown",
+        "headline": None,
         "note": "insufficient data",
         "caveat": "",
         "reliable": False,
@@ -380,6 +381,20 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
         "responsible. Read it as what happens late, not why."
     )
 
+    def mph(value: float) -> str:
+        # Round first, then add 0.0, so a -0.03 change prints "+0.0" rather
+        # than "-0.0".
+        return f"{round(value, 1) + 0.0:+.1f} mph"
+
+    # "Holds" only when it does. Wheeler's line once read "velocity holds
+    # (-0.9 mph)", which contradicts itself.
+    if abs(velo_delta) < 0.5:
+        velo_phrase = f"velocity holds ({mph(velo_delta)})"
+    elif velo_delta < 0:
+        velo_phrase = f"velocity dips slightly ({mph(velo_delta)})"
+    else:
+        velo_phrase = f"velocity ticks up ({mph(velo_delta)})"
+
     if slower and worse:
         attribution = "both"
         note = (f"By the third trip his fastball is {abs(velo_delta):.1f} mph "
@@ -394,17 +409,26 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
     elif worse:
         attribution = "results_decay"
         note = (f"Hitters' xwOBA rises {xwoba_delta:+.3f} by the third trip "
-                f"while velocity holds ({velo_delta:+.1f} mph).")
+                f"while {velo_phrase}.")
     else:
         attribution = "neither"
-        note = (f"No meaningful third-trip change: velocity {velo_delta:+.1f} "
-                f"mph, xwOBA {xwoba_delta:+.3f}.")
+        note = (f"No meaningful third-trip change: velocity {mph(velo_delta)}, "
+                f"xwOBA {xwoba_delta:+.3f}.")
+
+    # A heading a coach can read. The attribution code is for the program.
+    headline = {
+        "both": "Third time through: slower and hit harder",
+        "velocity_declines": "Third time through: velocity drops, results hold",
+        "results_decay": "Third time through: hit harder",
+        "neither": "Third time through: no real change",
+    }[attribution]
 
     return {
         "velo_delta": velo_delta,
         "xwoba_delta": xwoba_delta,
         "whiff_delta": whiff_delta,
         "attribution": attribution,
+        "headline": headline,
         "note": note,
         "caveat": caveat,
         "reliable": reliable,
@@ -473,6 +497,7 @@ def recent_form(
         "shifts": pd.DataFrame(), "fastball": None,
         "velo_recent": float("nan"), "velo_earlier": float("nan"),
         "velo_delta": float("nan"), "n_recent": 0, "n_earlier": 0,
+        "earlier_label": "the rest of the sample",
     }
     if len(frame) == 0 or "game_date" not in frame.columns:
         return blank
@@ -493,6 +518,18 @@ def recent_form(
     recent = working[working["game_pk"].isin(recent_games)]
     earlier = working[~working["game_pk"].isin(recent_games)]
     fastball = primary_fastball(working)
+
+    # With seasons combined, "lately" is measured against the rest of the
+    # current season, not against both. Otherwise it repeats what the "Since
+    # last season" line already says — Snell's report gave "changeup down to
+    # 17%" twice, once per line, for what was one season-to-season change.
+    earlier_label = "the rest of the sample"
+    if "game_year" in working.columns and working["game_year"].nunique() > 1:
+        latest = working["game_year"].max()
+        this_season = earlier[earlier["game_year"] == latest]
+        if len(this_season):
+            earlier = this_season
+            earlier_label = f"the rest of {int(latest)}"
 
     start_rows = []
     for game in recent_games:
@@ -531,6 +568,9 @@ def recent_form(
 
     velo_recent = _mean(recent[recent["pitch_type"] == fastball], "release_speed")
     velo_earlier = _mean(earlier[earlier["pitch_type"] == fastball], "release_speed")
+    # The difference of the two numbers as printed, so the page never shows
+    # "96.3 against 95.5 (+0.7)".
+    velo_delta = round(round(velo_recent, 1) - round(velo_earlier, 1), 1)
 
     return {
         "last_n": len(recent_games),
@@ -540,9 +580,10 @@ def recent_form(
         "fastball": fastball,
         "velo_recent": velo_recent,
         "velo_earlier": velo_earlier,
-        "velo_delta": velo_recent - velo_earlier,
+        "velo_delta": velo_delta,
         "n_recent": n_recent,
         "n_earlier": n_earlier,
+        "earlier_label": earlier_label,
     }
 
 

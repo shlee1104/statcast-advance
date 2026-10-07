@@ -175,8 +175,36 @@ def hitters_count_rule(m: dict) -> str:
 
 
 def two_strike_rule(m: dict) -> str:
-    """"expect" when one pitch owns two-strike counts, otherwise "mixes"."""
-    return "expect" if m["top_share"] >= _cut("two_strike_min_share", 0.33) else "mixes"
+    """Which two-strike sentence the numbers call for.
+
+    "expect"         one pitch owns two-strike counts: a real share, and clearly
+                     ahead of the next pitch.
+    "look_fastball"  no clear leader, and he still throws a fastball often
+                     enough that a hitter should be on time for it. This is the
+                     standard two-strike approach — look fastball, adjust to
+                     anything slower — because a hitter on time for the
+                     fastball can still react to a breaking ball, and one
+                     sitting on a breaking ball cannot catch up to a fastball.
+    "mixes"          no clear leader and few fastballs; the line names the
+                     slower pitches instead.
+    """
+    clear = (m["top_share"] >= _cut("two_strike_min_share", 0.33)
+             and m["top_share"] - m["second_share"] >= _cut("two_strike_min_lead", 0.10))
+    if clear:
+        return "expect"
+    if m["hard_share"] >= _cut("two_strike_look_hard_min", 0.25):
+        return "look_fastball"
+    return "mixes"
+
+
+def _finishes_low(frame: pd.DataFrame, side: str, pitch: str) -> tuple[float, int]:
+    """Share of his two-strike `pitch` to this side that ends below the zone."""
+    pitches = frame[(frame["stand"] == side) & (frame["strikes"] == 2)
+                    & (frame["pitch_type"] == pitch)]
+    located = pitches.dropna(subset=["plate_z", "sz_bot"])
+    if len(located) == 0:
+        return float("nan"), 0
+    return float((located["plate_z"] < located["sz_bot"]).mean()), int(len(located))
 
 
 def two_strike_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
@@ -191,17 +219,17 @@ def two_strike_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> d
                     & (frame["pitch_type"] == lead.pitch_type)]
     swings = int(pitches["is_swing"].eq(True).sum())
     whiffs = int(pitches["is_whiff"].eq(True).sum())
-    located = pitches.dropna(subset=["plate_z", "sz_bot"])
+    below, _ = _finishes_low(frame, side, lead.pitch_type)
+    families = rows["pitch_type"].map(PITCH_FAMILY)
     return {
         "n": int(lead["situation_n"]),
         "top": lead.pitch_type,
         "top_share": float(lead.share),
+        "second_share": float(rows.iloc[1].share) if len(rows) > 1 else 0.0,
+        "hard_share": float(rows.loc[families == "hard", "share"].sum()),
         "swings": swings,
         "whiff": whiffs / swings if swings else float("nan"),
-        "below": (
-            float((located["plate_z"] < located["sz_bot"]).mean())
-            if len(located) else float("nan")
-        ),
+        "below": below,
         "rows": rows,
     }
 
@@ -301,7 +329,7 @@ def hitters_count_key(usage: pd.DataFrame, side: str) -> dict | None:
         text = (f"He still mixes ({_list_pitches(rows)}), so look for a zone, "
                 f"not a pitch.")
 
-    return _key("Ahead in the count", text, m["n"])
+    return _key("Hitter's count", text, m["n"])
 
 
 def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
@@ -315,14 +343,31 @@ def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict 
     if m is None:
         return None
 
-    if two_strike_rule(m) == "mixes":
-        # "Expect the four-seam" about a pitch he throws a quarter of the time
-        # tells a hitter to look for the wrong thing three times in four.
-        return _key("Two strikes",
-                    f"No single put-away pitch — he mixes ({_list_pitches(m['rows'])}).",
-                    m["n"])
+    rule = two_strike_rule(m)
+    if rule != "expect":
+        # "Expect the four-seam" about a pitch barely ahead of two others tells
+        # a hitter to look for the wrong thing most of the time.
+        rows = m["rows"]
+        slower = [r for r in rows.itertuples()
+                  if PITCH_FAMILY.get(r.pitch_type) != "hard" and r.share >= 0.10][:2]
+        text = f"No single put-away pitch ({_list_pitches(rows)})."
+        if rule == "look_fastball":
+            if slower:
+                names = " and the ".join(name(r.pitch_type) for r in slower)
+                text += f" Look fastball and adjust to the {names}."
+            else:
+                text += " All of it is hard — be on time for the fastball."
+        else:
+            text += " Mostly off-speed — no fastball to sit on."
+        for r in slower:
+            below, located = _finishes_low(frame, side, r.pitch_type)
+            if located >= 20 and below >= _cut("lay_off_low_share", 0.50):
+                text += (f" {_pct(below)} of his {name(r.pitch_type)}s finish below "
+                         f"the zone — lay off it low.")
+                break
+        return _key("Two strikes", text, m["n"])
 
-    low =m["below"] == m["below"] and m["below"] >= _cut("lay_off_low_share", 0.50)
+    low = m["below"] == m["below"] and m["below"] >= _cut("lay_off_low_share", 0.50)
     text = f"Expect the {name(m['top'])} ({_pct(m['top_share'])})."
     if m["whiff"] == m["whiff"] and m["swings"] >= _cut("min_two_strike_swings", 20):
         text += f" It misses bats on {_pct(m['whiff'])} of swings"
@@ -406,9 +451,41 @@ def recent_change_key(frame: pd.DataFrame, last_n: int = 5) -> dict | None:
         elif post:
             window += f", {post} postseason"
     window += ")"
+    if form.get("earlier_label", "the rest of the sample") != "the rest of the sample":
+        window += f" vs {form['earlier_label']}"
 
     text = window + ": " + "; ".join(parts) + "."
     return _key("Lately", text, form["n_recent"])
+
+
+def season_change_key(changes: dict | None) -> dict | None:
+    """What is different this season, when seasons are combined.
+
+    Pooling seasons buys sample at the cost of blurring a pitcher who changed,
+    so the plan says plainly what moved. A pitch he has shelved is named here
+    and left out of everything else in the report.
+    """
+    if not changes:
+        return None
+    parts = []
+    for p, share in changes["new"]:
+        parts.append(f"new {name(p)} ({_pct(share)})")
+    for p, share in changes["dropped"]:
+        parts.append(f"dropped the {name(p)} (was {_pct(share)}; left out of this report)")
+    for p, before, now in changes["shifts"]:
+        direction = "up" if now > before else "down"
+        parts.append(f"{name(p)} {direction} to {_pct(now)} from {_pct(before)}")
+    for p, before, now in changes["velo"]:
+        direction = "up" if now > before else "down"
+        parts.append(f"{name(p)} {direction} {abs(now - before):.1f} mph ({now:.1f})")
+
+    earlier = "/".join(str(y) for y in changes["earlier"])
+    if not parts:
+        text = (f"{changes['latest']} looks like {earlier}: same pitches, similar "
+                f"mix and speed, so the combined sample reads as one pitcher.")
+    else:
+        text = f"{changes['latest']} vs {earlier}: " + "; ".join(parts) + "."
+    return _key("Since last season", text, changes["n_latest"])
 
 
 def count_tells(frame: pd.DataFrame, min_lift: float | None = None) -> pd.DataFrame:
@@ -524,7 +601,10 @@ def count_headline(frame: pd.DataFrame, min_lift: float = 1.25) -> str | None:
     if h_lift >= min_lift:
         parts.append(f"the {name(hitter)} comes out in hitter's counts")
     if t_lift >= min_lift:
-        parts.append(f"the {name(two)} with two strikes")
+        # On its own this needs its verb: "The slider with two strikes." was
+        # printed as a chart title in six reports.
+        parts.append(f"the {name(two)} with two strikes" if parts
+                     else f"the {name(two)} comes out with two strikes")
     sentence = " and ".join(parts)
     sentence = sentence[0].upper() + sentence[1:]
 
@@ -665,12 +745,14 @@ def movement_headline(frame: pd.DataFrame, min_usage: float = 0.05) -> str | Non
 # ---------------------------------------------------------------------------
 
 
-def build(frame: pd.DataFrame, last_n: int = 5) -> dict:
+def build(frame: pd.DataFrame, last_n: int = 5, changes: dict | None = None) -> dict:
     """The full hitting plan.
 
     Returns {"L": [...], "R": [...], "both": [...], "basis": str}, each list a
     sequence of {"label", "text", "n"} in the order a hitter would want them:
     first pitch, ahead in the count, two strikes, then what he won't see.
+    `changes` is `seasons.season_changes()` when seasons are combined, and
+    puts a "Since last season" line first among the lines for both sides.
     """
     plan = {"L": [], "R": [], "both": [], "basis": ""}
     if len(frame) == 0:
@@ -689,6 +771,7 @@ def build(frame: pd.DataFrame, last_n: int = 5) -> dict:
                 plan[side].append(key)
 
     for key in (
+        season_change_key(changes),
         recent_change_key(frame, last_n=last_n),
         count_tell_key(frame),
         location_key(frame),
@@ -698,7 +781,7 @@ def build(frame: pd.DataFrame, last_n: int = 5) -> dict:
 
     plan["basis"] = (
         "Built from how often he does things, which is well measured at this "
-        "sample. What those patterns cost him in runs is not resolved by one "
-        "season, so the plan does not claim it."
+        "sample. What those patterns cost him in runs is not resolved by a "
+        "sample this size, so the plan does not claim it."
     )
     return plan

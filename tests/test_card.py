@@ -380,6 +380,41 @@ class TestPlanKeys:
         assert key["text"].startswith("No single put-away pitch")
         assert "Expect" not in key["text"]
 
+    def test_near_tie_with_fastball_says_look_fastball(self):
+        """Snell to lefties: four-seam 35%, curveball 31%, slider 28%. No pitch
+        to sit on, so the plan gives the standard approach and names what to
+        adjust to."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 35, "strikes": 2},
+            {"pitch_type": "CU", "n": 31, "strikes": 2, "plate_z": 1.0},
+            {"pitch_type": "SL", "n": 28, "strikes": 2},
+            {"pitch_type": "CH", "n": 6, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert "Expect" not in key["text"]
+        assert "Look fastball and adjust to the curveball and the slider." in key["text"]
+        assert "of his curveballs finish below the zone — lay off it low" in key["text"]
+
+    def test_clear_leader_still_gets_expect(self):
+        frame = make_frame([
+            {"pitch_type": "SL", "n": 55, "strikes": 2},
+            {"pitch_type": "FF", "n": 30, "strikes": 2},
+            {"pitch_type": "CH", "n": 15, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert key["text"].startswith("Expect the slider")
+
+    def test_no_look_fastball_advice_without_fastballs(self):
+        frame = make_frame([
+            {"pitch_type": "SL", "n": 36, "strikes": 2},
+            {"pitch_type": "CH", "n": 34, "strikes": 2},
+            {"pitch_type": "CU", "n": 20, "strikes": 2},
+            {"pitch_type": "FF", "n": 10, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert "Look fastball" not in key["text"]
+        assert "Mostly off-speed" in key["text"]
+
     def test_count_tell_needs_the_pitch_to_be_worth_looking_for(self):
         """Doubling a rare curveball to 5% is a real lift and useless advice."""
         frame = make_frame([
@@ -520,6 +555,18 @@ class TestCountHeadline:
         assert "cutter" in text and "hitter's counts" in text
         assert "splitter" in text and "two strikes" in text
         assert "each rarely shows up" in text
+
+    def test_two_strike_pitch_alone_is_still_a_sentence(self):
+        """Six reports titled a chart "The slider with two strikes." """
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 100, "balls": 0, "strikes": 0},
+            {"pitch_type": "SL", "n": 20, "balls": 0, "strikes": 0},
+            {"pitch_type": "FF", "n": 50, "balls": 2, "strikes": 1},
+            {"pitch_type": "SL", "n": 10, "balls": 2, "strikes": 1},
+            {"pitch_type": "SL", "n": 60, "balls": 1, "strikes": 2},
+            {"pitch_type": "FF", "n": 40, "balls": 1, "strikes": 2},
+        ])
+        assert gameplan.count_headline(frame) == "The slider comes out with two strikes."
 
     def test_does_not_crash_when_a_region_is_empty(self):
         """A pitcher with no two-strike pitches in the sample once took the
