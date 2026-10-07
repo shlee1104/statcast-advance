@@ -99,23 +99,41 @@ report:
 
 # Cutoffs that decide which sentence the hitting plan writes.
 #
-# PROVISIONAL. Every value here was set by judgment against two pitchers
-# (Yamamoto, Skubal) and is meant to be re-set from the distributions that
-# scripts/batch_reports.py prints across the calibration list. Blake Snell's
-# report is why: "sit four-seam" fired against lefties at 42%, which is a
-# plurality, not something a hitter should sit on.
+# Set from the calibration run over 25 pitchers, 50 pitcher-sides, 2025
+# (scripts/batch_reports.py). The first values were set by judgment against
+# Yamamoto and Skubal alone; the run showed several firing for nearly every
+# pitcher, which means the line describes the league rather than the man.
+# The aim for each is that it fires for a minority, and that the sentence it
+# writes is one a hitter could act on.
 plan:
   # Called-strike rate on TAKEN first pitches. At or above `swing_above`,
-  # taking usually puts the hitter down 0-1; at or below `take_below`, taking
+  # taking often puts the hitter down 0-1; at or below `take_below`, taking
   # is fine. Between the two, the plan says there is no strong case.
-  first_pitch_swing_above: 0.55
-  first_pitch_take_below: 0.45
+  #
+  # Across the run this rate had a median of 0.45 and a middle half of
+  # 0.39-0.49. The old pair (0.55 / 0.45) told 53% of sides to take and 4% to
+  # swing. These sit near the quartiles, so roughly a quarter get each piece
+  # of advice and the middle half get none. The split reads true: zone-pounders
+  # (Webb, Hendricks) land on "swing", Snell, Senga and Mason Miller on "take".
+  first_pitch_swing_above: 0.50
+  first_pitch_take_below: 0.40
 
   # When the hitter is ahead in the count: "sit hard" when fastballs take at
   # least `sit_hard_share`; otherwise "sit <pitch>" when one pitch takes at
   # least `sit_pitch_share`; otherwise "he mixes".
-  sit_hard_share: 0.60
-  sit_pitch_share: 0.40
+  #
+  # League right-handers throw a fastball 63% of the time in hitter's counts,
+  # so the old 0.60 fired for an ordinary pitcher (60% of sides). 0.70 is
+  # clearly above the league habit. "Sit <pitch>" needs a majority: the old 0.40
+  # wrote "sit four-seam — 42%" (Snell) and "47%" (Cease), and nobody sits on a
+  # pitch he will see less than half the time.
+  sit_hard_share: 0.70
+  sit_pitch_share: 0.50
+
+  # Two strikes: name a put-away pitch only if it is at least this share of his
+  # two-strike pitches; below it, say he mixes. The old rule always named one,
+  # including "expect the four-seam (26%)" for Kirby against lefties.
+  two_strike_min_share: 0.33
 
   # Two strikes: say "lay off it low" when at least this share of his two-strike
   # pitch finishes below the zone, and only quote a miss rate on this many swings.
@@ -128,6 +146,10 @@ plan:
   # "Count tell": a pitch at more than this multiple of his own rate in a
   # specific count (3-0 excluded). 2.0 reads as "more than double".
   count_tell_lift: 2.0
+
+  # ...and at least this share of the pitches in that count. Lift alone wrote
+  # "the curveball jumps to about 5% — expect it there" (Imanaga).
+  count_tell_min_share: 0.25
 
 # Minimum sample sizes before a weakness flag is allowed to fire.
 # These are the guardrails against small-sample noise. Every flag must

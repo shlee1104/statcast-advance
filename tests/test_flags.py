@@ -156,6 +156,19 @@ class TestHandednessGaps:
         ])
         assert flags.handedness_gaps(frame) == []
 
+    def test_missing_side_count_does_not_crash(self, monkeypatch):
+        """Corbin Burnes, 2025, crashed the whole report here: a pitch with no
+        count on one side came through as NaN, and `NaN or 0` is still NaN."""
+        table = pd.DataFrame([{
+            "pitch_type": "SL", "usage_L": 0.30, "usage_R": 0.0, "gap": 0.30,
+            "whiff_L": 0.35, "whiff_R": float("nan"),
+            "n_L": 120.0, "n_R": float("nan"),
+        }])
+        monkeypatch.setattr(flags.splits, "platoon_gaps", lambda frame: table)
+        found = flags.handedness_gaps(pd.DataFrame())
+        assert len(found) == 1
+        assert found[0]["n"] == 120
+
     def test_needs_no_league_data(self):
         """The comparison is the pitcher against himself, which is what lets
         this rule work before any baseline exists."""

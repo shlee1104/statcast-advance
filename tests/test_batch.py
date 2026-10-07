@@ -78,7 +78,8 @@ class TestCutoffsComeFromConfig:
         from src import config
         for key in ("first_pitch_swing_above", "first_pitch_take_below",
                     "sit_hard_share", "sit_pitch_share", "lay_off_low_share",
-                    "min_two_strike_swings", "rare_share", "count_tell_lift"):
+                    "min_two_strike_swings", "rare_share", "count_tell_lift",
+                    "two_strike_min_share", "count_tell_min_share"):
             assert config.get(f"plan.{key}") is not None, key
 
 
@@ -116,17 +117,48 @@ class TestBatchHelpers:
         ]}}
         assert batch.movement_overlaps(payload) == 0
 
+    def test_where_names_the_file_and_line_an_error_came_from(self):
+        batch = load_batch()
+        try:
+            int(float("nan"))
+        except ValueError as exc:
+            location = batch.where(exc)
+        assert location.startswith("test_batch.py:")
+        assert "test_where_names_the_file_and_line" in location
+
     def test_thresholds_count_how_often_a_cutoff_fires(self):
         batch = load_batch()
         rows = [
-            {"status": "ok", "L_ahead_hard_share": 0.70, "R_ahead_hard_share": 0.50},
-            {"status": "ok", "L_ahead_hard_share": 0.65, "R_ahead_hard_share": 0.62},
+            {"status": "ok", "L_ahead_hard_share": 0.80, "R_ahead_hard_share": 0.50,
+             "L_two_rule": "expect", "R_two_rule": "mixes", "count_tell_fires": 1},
+            {"status": "ok", "L_ahead_hard_share": 0.72, "R_ahead_hard_share": 0.62,
+             "L_two_rule": "expect", "R_two_rule": "expect", "count_tell_fires": 0},
             {"status": "error"},
         ]
         result = {t["cutoff"]: t for t in batch.thresholds(rows)}
         hard = result["sit_hard_share"]
         assert hard["pitcher_sides"] == 4
-        assert hard["fires"] == 3
+        assert hard["fires"] == 2
+        assert result["two_strike_min_share"]["fires"] == 3
+        assert result["count_tell_lift + share"]["fires"] == 1
+
+    def test_summary_rules_match_the_plan_sentences(self):
+        """The batch run counts what the report says, through the same rule
+        functions, rather than re-deriving the cutoffs."""
+        batch = load_batch()
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 45, "balls": 2, "strikes": 0},
+            {"pitch_type": "SL", "n": 55, "balls": 2, "strikes": 0},
+            {"pitch_type": "FF", "n": 28, "strikes": 2},
+            {"pitch_type": "ST", "n": 26, "strikes": 2},
+            {"pitch_type": "SI", "n": 24, "strikes": 2},
+            {"pitch_type": "CH", "n": 22, "strikes": 2},
+        ])
+        usage = counts.situational_usage(frame)
+        out = batch.side_numbers(frame, usage, "R")
+        assert out["R_ahead_rule"] == "sit SL"
+        assert gameplan.hitters_count_key(usage, "R")["text"].startswith("Sit slider")
+        assert out["R_two_rule"] == "mixes"
 
 
 class TestOfflineRun:

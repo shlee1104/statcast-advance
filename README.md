@@ -73,11 +73,15 @@ self-contained interactive HTML report comes out.
 - Calibration run — `scripts/batch_reports.py` runs the report across 30
   deliberately varied pitchers and prints, for every hitting-plan cutoff, how the
   measured values spread and how often the cutoff fires
-- 352 unit tests, plus an end-to-end validation suite over live data
+- Calibrated hitting plan — cutoffs reset from that run so each line fires for
+  a minority of pitchers rather than describing the league: "sit hard" now
+  needs clearly more fastballs than the league's 63%, "sit <pitch>" needs a
+  majority, and lines that were true of nearly everyone ("if it's up, it's the
+  four-seam") are no longer written
+- 368 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- Reset the hitting-plan cutoffs in `config.yaml` from the calibration run
 - Check whether first-half tendencies hold in the second half
 - Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Hitter reports

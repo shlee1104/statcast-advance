@@ -348,6 +348,61 @@ class TestPlanKeys:
         assert "splitter" in key["text"]
         assert "lay off it low" in key["text"]
 
+    def test_no_sit_line_on_a_pitch_he_throws_less_than_half_the_time(self):
+        """Snell's report said "sit four-seam — 42%". A plurality is not a plan."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 45, "balls": 2, "strikes": 0},
+            {"pitch_type": "SL", "n": 30, "balls": 2, "strikes": 0},
+            {"pitch_type": "CH", "n": 25, "balls": 2, "strikes": 0},
+        ])
+        key = gameplan.hitters_count_key(counts.situational_usage(frame), "R")
+        assert key["text"].startswith("He still mixes")
+
+    def test_league_typical_fastball_use_is_not_sit_hard(self):
+        """League pitchers throw a fastball about 63% of the time in hitter's
+        counts. Doing the same is not a tendency worth a line."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 64, "balls": 2, "strikes": 0},
+            {"pitch_type": "SL", "n": 36, "balls": 2, "strikes": 0},
+        ])
+        key = gameplan.hitters_count_key(counts.situational_usage(frame), "R")
+        assert not key["text"].startswith("Sit hard")
+        assert key["text"].startswith("Sit four-seam")
+
+    def test_two_strikes_says_he_mixes_when_no_pitch_owns_the_count(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 28, "strikes": 2},
+            {"pitch_type": "ST", "n": 26, "strikes": 2},
+            {"pitch_type": "SI", "n": 24, "strikes": 2},
+            {"pitch_type": "CH", "n": 22, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert key["text"].startswith("No single put-away pitch")
+        assert "Expect" not in key["text"]
+
+    def test_count_tell_needs_the_pitch_to_be_worth_looking_for(self):
+        """Doubling a rare curveball to 5% is a real lift and useless advice."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 380, "balls": 0, "strikes": 0},
+            {"pitch_type": "CU", "n": 20, "balls": 0, "strikes": 0},
+            {"pitch_type": "FF", "n": 600, "balls": 1, "strikes": 1},
+        ])
+        lifts = counts.count_lifts(frame, min_n=20)
+        cell = lifts[(lifts["pitch_type"] == "CU") & (lifts["count"] == "0-0")]
+        assert float(cell["lift"].iloc[0]) >= 2.0
+        assert gameplan.count_tell_key(frame) is None
+
+    def test_count_tell_fires_when_lift_and_share_both_clear(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 60, "balls": 0, "strikes": 2},
+            {"pitch_type": "FS", "n": 40, "balls": 0, "strikes": 2},
+            {"pitch_type": "FF", "n": 600, "balls": 1, "strikes": 1},
+            {"pitch_type": "FS", "n": 20, "balls": 1, "strikes": 1},
+        ])
+        key = gameplan.count_tell_key(frame)
+        assert key is not None
+        assert "splitter" in key["text"] and "0-2" in key["text"]
+
     def test_count_tell_ignores_three_oh(self):
         """Every pitcher throws a fastball 3-0. A lift there describes the
         count, not the pitcher."""
@@ -357,6 +412,41 @@ class TestPlanKeys:
             {"pitch_type": "CU", "n": 200, "balls": 0, "strikes": 0},
         ])
         assert gameplan.count_tell_key(frame) is None
+
+
+class TestHeightLine:
+    """Sixteen of twenty-two calibration pitchers said "if it's up, it's the
+    four-seam". That is true of nearly everyone, so it is left out."""
+
+    def tells(self, monkeypatch, rows):
+        table = pd.DataFrame(rows)
+        monkeypatch.setattr(gameplan.location, "location_tells",
+                            lambda frame, by, min_n: table)
+        return make_frame([{"pitch_type": "FF", "n": 10}])
+
+    def test_fastball_up_is_not_a_plan_line(self, monkeypatch):
+        frame = self.tells(monkeypatch, [
+            {"band": "UP", "pitch_type": "FF", "lift": 1.9, "p_pitch": 0.74,
+             "score": 5.0, "n": 600},
+        ])
+        assert gameplan.location_key(frame) is None
+
+    def test_a_sinker_up_is_also_a_fastball(self, monkeypatch):
+        frame = self.tells(monkeypatch, [
+            {"band": "UP", "pitch_type": "SI", "lift": 1.5, "p_pitch": 0.70,
+             "score": 5.0, "n": 300},
+        ])
+        assert gameplan.location_key(frame) is None
+
+    def test_offspeed_down_still_reads(self, monkeypatch):
+        frame = self.tells(monkeypatch, [
+            {"band": "UP", "pitch_type": "FF", "lift": 1.9, "p_pitch": 0.74,
+             "score": 9.0, "n": 600},
+            {"band": "DOWN", "pitch_type": "CH", "lift": 1.7, "p_pitch": 0.54,
+             "score": 4.0, "n": 500},
+        ])
+        key = gameplan.location_key(frame)
+        assert key["text"] == "If it's down, it's probably the changeup (54% of pitches there)."
 
 
 class TestCountGrid:

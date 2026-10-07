@@ -71,6 +71,17 @@ def _strip_accents(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
+def match_without_accents(register: pd.DataFrame, first: str, last: str) -> pd.DataFrame:
+    """Rows of the player register whose names match, ignoring accents and case."""
+    def plain(column: pd.Series) -> pd.Series:
+        return column.fillna("").astype(str).map(_strip_accents).str.lower().str.strip()
+
+    hit = (plain(register["name_first"]) == _strip_accents(first).lower()) & (
+        plain(register["name_last"]) == _strip_accents(last).lower()
+    )
+    return register[hit & register["key_mlbam"].notna()]
+
+
 def resolve_player(name: str) -> Player:
     """Turn a typed name into a single Player.
 
@@ -91,10 +102,15 @@ def resolve_player(name: str) -> Player:
 
     try:
         matches = playerid_lookup(last, first, fuzzy=False)
+        matches = matches[matches["key_mlbam"].notna()]
+        if len(matches) == 0:
+            # The register keeps accents ("Díaz") and pybaseball compares
+            # exactly, so an unaccented name finds nothing. Compare with
+            # accents stripped on both sides.
+            from pybaseball import chadwick_register
+            matches = match_without_accents(chadwick_register(), first, last)
     except Exception as exc:  # noqa: BLE001 - pybaseball raises broadly
         raise PlayerNotFound(f"Player lookup failed for {name!r}: {exc}") from exc
-
-    matches = matches[matches["key_mlbam"].notna()]
 
     if len(matches) == 0:
         raise PlayerNotFound(

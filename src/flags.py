@@ -323,6 +323,10 @@ def predictable_counts(frame: pd.DataFrame, league_mix: pd.DataFrame | None) -> 
     return findings
 
 
+def _count_or_zero(value) -> float:
+    return 0.0 if value is None or pd.isna(value) else float(value)
+
+
 def handedness_gaps(frame: pd.DataFrame) -> list[dict]:
     """Pitches shown to one side far more than the other.
 
@@ -344,7 +348,9 @@ def handedness_gaps(frame: pd.DataFrame) -> list[dict]:
 
         favored, starved = ("lefties", "righties") if gap > 0 else ("righties", "lefties")
         high, low = (row.usage_L, row.usage_R) if gap > 0 else (row.usage_R, row.usage_L)
-        n_side = int(max(row.n_L or 0, row.n_R or 0))
+        # A pitch never thrown to one side has a missing count there, and
+        # `NaN or 0` is NaN — NaN is truthy — so missing is replaced explicitly.
+        n_side = int(max(_count_or_zero(row.n_L), _count_or_zero(row.n_R)))
         if n_side < min_n:
             continue
 

@@ -141,11 +141,8 @@ def side_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict:
 
     hc = gameplan.hitters_count_numbers(usage, side)
     if hc:
-        hard_cut = gameplan._cut("sit_hard_share", 0.60)
-        pitch_cut = gameplan._cut("sit_pitch_share", 0.40)
-        rule = ("sit hard" if hc["hard_share"] >= hard_cut
-                else f"sit {hc['top']}" if hc["top_share"] >= pitch_cut
-                else "mixes")
+        rule = {"hard": "sit hard", "pitch": f"sit {hc['top']}",
+                "mixes": "mixes"}[gameplan.hitters_count_rule(hc)]
         out.update({
             f"{side}_ahead_hard_share": _r(hc["hard_share"]),
             f"{side}_ahead_top": hc["top"],
@@ -163,6 +160,7 @@ def side_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict:
         f"{side}_two_whiff": _r(ts["whiff"]) if ts else "",
         f"{side}_two_swings": ts["swings"] if ts else "",
         f"{side}_two_below": _r(ts["below"]) if ts else "",
+        f"{side}_two_rule": gameplan.two_strike_rule(ts) if ts else "gated",
     })
 
     rare = gameplan.rare_pitches(frame, side)
@@ -217,9 +215,12 @@ def summarise(entry: dict, frame: pd.DataFrame, payload: dict) -> tuple[dict, li
         best = lifts.sort_values("lift", ascending=False).iloc[0]
         row.update({"count_tell_pitch": best["pitch_type"],
                     "count_tell_count": best["count"],
-                    "count_tell_lift": _r(best["lift"])})
+                    "count_tell_lift": _r(best["lift"]),
+                    "count_tell_share": _r(best["share"])})
     else:
-        row.update({"count_tell_pitch": "", "count_tell_count": "", "count_tell_lift": ""})
+        row.update({"count_tell_pitch": "", "count_tell_count": "",
+                    "count_tell_lift": "", "count_tell_share": ""})
+    row["count_tell_fires"] = int(len(gameplan.count_tells(frame)) > 0)
 
     tells = location.location_tells(frame, by="v_band",
                                     min_n=int(config.get("flags.min_n.location_tell", 40)))
@@ -230,6 +231,7 @@ def summarise(entry: dict, frame: pd.DataFrame, payload: dict) -> tuple[dict, li
     else:
         row.update({"location_band": "", "location_pitch": "",
                     "location_lift": "", "location_share": ""})
+    row["location_fires"] = int(len(gameplan.height_tells(frame)) > 0)
 
     form = splits.recent_form(frame)
     shifts = form["shifts"]
@@ -297,14 +299,14 @@ def thresholds(rows: list[dict]) -> list[dict]:
         })
 
     called = _values(ok, "fp_called_on_takes")
-    hi, lo = gameplan._cut("first_pitch_swing_above", .55), gameplan._cut("first_pitch_take_below", .45)
+    hi, lo = gameplan._cut("first_pitch_swing_above", .50), gameplan._cut("first_pitch_take_below", .40)
     add("first_pitch_swing_above", hi, called, sum(v >= hi for v in called),
         "share told 'be ready to swing'")
     add("first_pitch_take_below", lo, called, sum(v <= lo for v in called),
         "share told 'make him throw one'")
 
     hard = _values(ok, "ahead_hard_share")
-    cut = gameplan._cut("sit_hard_share", .60)
+    cut = gameplan._cut("sit_hard_share", .70)
     add("sit_hard_share", cut, hard, sum(v >= cut for v in hard), "share told 'sit hard'")
 
     rules = [r.get(f"{s}_ahead_rule", "") for r in ok for s in ("L", "R")]
@@ -312,8 +314,14 @@ def thresholds(rows: list[dict]) -> list[dict]:
     top_shares = [float(r.get(f"{s}_ahead_top_share")) for r in ok for s in ("L", "R")
                   if r.get(f"{s}_ahead_rule", "").startswith("sit ")
                   and r.get(f"{s}_ahead_rule") != "sit hard"]
-    add("sit_pitch_share", gameplan._cut("sit_pitch_share", .40), top_shares, len(sit_pitch),
+    add("sit_pitch_share", gameplan._cut("sit_pitch_share", .50), top_shares, len(sit_pitch),
         "'sit <pitch>' lines; spread is the share each one fired on")
+
+    two_top = _values(ok, "two_top_share")
+    two_rules = [r.get(f"{s}_two_rule", "") for r in ok for s in ("L", "R")]
+    add("two_strike_min_share", gameplan._cut("two_strike_min_share", .33), two_top,
+        two_rules.count("expect"),
+        "share told 'expect the <pitch>'; spread is the top two-strike pitch's share")
 
     below = _values(ok, "two_below")
     cut = gameplan._cut("lay_off_low_share", .50)
@@ -325,17 +333,17 @@ def thresholds(rows: list[dict]) -> list[dict]:
         "pitcher-sides with a 'won't see' line; spread is each side's least-used pitch")
 
     lifts = [float(r["count_tell_lift"]) for r in ok if r.get("count_tell_lift") not in ("", None)]
-    cut = gameplan._cut("count_tell_lift", 2.0)
-    add("count_tell_lift", cut, lifts, sum(v >= cut for v in lifts),
+    cut = f"{gameplan._cut('count_tell_lift', 2.0)} / {gameplan._cut('count_tell_min_share', .25)}"
+    add("count_tell_lift + share", cut, lifts,
+        sum(int(r.get("count_tell_fires") or 0) for r in ok),
         "pitchers with a count tell; spread is each pitcher's best lift")
 
-    loc = [(float(r["location_lift"]), float(r["location_share"])) for r in ok
-           if r.get("location_lift") not in ("", None)]
+    loc = [float(r["location_lift"]) for r in ok if r.get("location_lift") not in ("", None)]
     lift_cut = float(config.get("flags.thresholds.location_tell_lift", 1.35))
     share_cut = float(config.get("flags.thresholds.location_tell_share", 0.45))
-    add("location_tell_lift + share", f"{lift_cut} / {share_cut}", [l for l, _ in loc],
-        sum(l >= lift_cut and s >= share_cut for l, s in loc),
-        "pitchers with a 'read the height' line; spread is best lift")
+    add("location_tell_lift + share", f"{lift_cut} / {share_cut}", loc,
+        sum(int(r.get("location_fires") or 0) for r in ok),
+        "pitchers with a 'read the height' line (fastball-up excluded); spread is best lift")
     return out
 
 
@@ -355,6 +363,16 @@ def print_thresholds(rows: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+
+def where(exc: BaseException) -> str:
+    """The project file and line an exception was raised from, for the CSV."""
+    frames = traceback.extract_tb(exc.__traceback__)
+    ours = [f for f in frames if "site-packages" not in f.filename] or frames
+    if not ours:
+        return "unknown"
+    last = ours[-1]
+    return f"{Path(last.filename).name}:{last.lineno} in {last.name}"
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -423,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"{row['L_plan_lines']}+{row['R_plan_lines']}+{row['both_plan_lines']} plan lines")
         except Exception as exc:  # one bad pitcher must not stop the run
             summary.append({**base, "status": "error",
-                            "error": f"{type(exc).__name__}: {exc}"})
+                            "error": f"{type(exc).__name__}: {exc} [{where(exc)}]"})
             print(f"FAILED  {type(exc).__name__}: {exc}")
             if not isinstance(exc, (FileNotFoundError, ValueError, LookupError)):
                 traceback.print_exc(limit=2)

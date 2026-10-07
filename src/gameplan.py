@@ -165,6 +165,20 @@ def hitters_count_numbers(usage: pd.DataFrame, side: str) -> dict | None:
     }
 
 
+def hitters_count_rule(m: dict) -> str:
+    """Which hitter's-count sentence the numbers call for: "hard", "pitch" or "mixes"."""
+    if m["hard_share"] >= _cut("sit_hard_share", 0.70):
+        return "hard"
+    if m["top_share"] >= _cut("sit_pitch_share", 0.50):
+        return "pitch"
+    return "mixes"
+
+
+def two_strike_rule(m: dict) -> str:
+    """"expect" when one pitch owns two-strike counts, otherwise "mixes"."""
+    return "expect" if m["top_share"] >= _cut("two_strike_min_share", 0.33) else "mixes"
+
+
 def two_strike_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
     """His two-strike pitch to this side, its miss rate, and how often it ends low."""
     min_n = int(config.get("flags.min_n.first_pitch", 30))
@@ -188,6 +202,7 @@ def two_strike_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> d
             float((located["plate_z"] < located["sz_bot"]).mean())
             if len(located) else float("nan")
         ),
+        "rows": rows,
     }
 
 
@@ -246,11 +261,11 @@ def first_pitch_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict
 
     called = m["called_on_takes"]
     if called == called:
-        if called >= _cut("first_pitch_swing_above", 0.55):
+        if called >= _cut("first_pitch_swing_above", 0.50):
             text += (f" Taken first pitches are called strikes {_pct(called)} of "
-                     f"the time, so taking usually puts you down 0-1 — be ready to "
+                     f"the time, so taking often puts you down 0-1 — be ready to "
                      f"swing at a strike.")
-        elif called <= _cut("first_pitch_take_below", 0.45):
+        elif called <= _cut("first_pitch_take_below", 0.40):
             text += (f" Taken first pitches are called strikes only {_pct(called)} "
                      f"of the time — you can make him throw one.")
         else:
@@ -271,15 +286,16 @@ def hitters_count_key(usage: pd.DataFrame, side: str) -> dict | None:
     if m is None:
         return None
     rows = m["rows"]
+    rule = hitters_count_rule(m)
 
-    if m["hard_share"] >= _cut("sit_hard_share", 0.60):
+    if rule == "hard":
         # A pitch he throws 0% of the time in this count is not part of the
         # instruction, even if it belongs to the family.
         hard_rows = rows[(rows["pitch_type"].map(PITCH_FAMILY) == "hard")
                          & (rows["share"] >= 0.03)]
         text = (f"Sit hard — he goes to a fastball {_pct(m['hard_share'])} of the "
                 f"time ({_list_pitches(hard_rows)}).")
-    elif m["top_share"] >= _cut("sit_pitch_share", 0.40):
+    elif rule == "pitch":
         text = f"Sit {name(m['top'])} — {_pct(m['top_share'])} of the time."
     else:
         text = (f"He still mixes ({_list_pitches(rows)}), so look for a zone, "
@@ -299,7 +315,14 @@ def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict 
     if m is None:
         return None
 
-    low = m["below"] == m["below"] and m["below"] >= _cut("lay_off_low_share", 0.50)
+    if two_strike_rule(m) == "mixes":
+        # "Expect the four-seam" about a pitch he throws a quarter of the time
+        # tells a hitter to look for the wrong thing three times in four.
+        return _key("Two strikes",
+                    f"No single put-away pitch — he mixes ({_list_pitches(m['rows'])}).",
+                    m["n"])
+
+    low =m["below"] == m["below"] and m["below"] >= _cut("lay_off_low_share", 0.50)
     text = f"Expect the {name(m['top'])} ({_pct(m['top_share'])})."
     if m["whiff"] == m["whiff"] and m["swings"] >= _cut("min_two_strike_swings", 20):
         text += f" It misses bats on {_pct(m['whiff'])} of swings"
@@ -388,20 +411,30 @@ def recent_change_key(frame: pd.DataFrame, last_n: int = 5) -> dict | None:
     return _key("Lately", text, form["n_recent"])
 
 
-def count_tell_key(frame: pd.DataFrame, min_lift: float | None = None) -> dict | None:
-    """A pitch that jumps in specific counts to more than double his norm.
+def count_tells(frame: pd.DataFrame, min_lift: float | None = None) -> pd.DataFrame:
+    """Count-and-pitch cells strong enough for a count-tell line.
+
+    Two bars, both required. The lift says the count changes what he does; the
+    share says the change is big enough to look for. Doubling a 2% curveball to
+    5% is a real lift and useless to a hitter.
 
     3-0 is excluded. Nearly every pitcher throws a fastball 3-0, so a lift there
     describes the count, not the pitcher, and a coach already knows it.
     """
     if min_lift is None:
         min_lift = _cut("count_tell_lift", 2.0)
+    min_share = _cut("count_tell_min_share", 0.25)
     min_n = int(config.get("flags.min_n.predictable_count", 20))
     lifts = counts.count_lifts(frame, min_n=min_n)
     if len(lifts) == 0:
-        return None
+        return lifts
+    return lifts[(lifts["lift"] >= min_lift) & (lifts["share"] >= min_share)
+                 & (lifts["count"] != "3-0")]
 
-    strong = lifts[(lifts["lift"] >= min_lift) & (lifts["count"] != "3-0")]
+
+def count_tell_key(frame: pd.DataFrame, min_lift: float | None = None) -> dict | None:
+    """A pitch that jumps in specific counts to more than double his norm."""
+    strong = count_tells(frame, min_lift)
     if len(strong) == 0:
         return None
 
@@ -417,16 +450,30 @@ def count_tell_key(frame: pd.DataFrame, min_lift: float | None = None) -> dict |
     return _key("Count tell", text, n)
 
 
-def location_key(frame: pd.DataFrame) -> dict | None:
-    """Where the ball is headed says which pitch it is, when that holds strongly."""
+def height_tells(frame: pd.DataFrame) -> pd.DataFrame:
+    """Height bands that point to one pitch strongly enough for a plan line.
+
+    A fastball up in the zone is left out. Sixteen of twenty-two pitchers in the
+    calibration run produced "if it's up, it's probably the four-seam", which is
+    true of nearly everyone and so tells a hitter nothing about this pitcher.
+    The lines worth reading were the other direction — Skubal's changeup down,
+    Williams's changeup down at 90%.
+    """
     min_n = int(config.get("flags.min_n.location_tell", 40))
     min_lift = float(config.get("flags.thresholds.location_tell_lift", 1.35))
     min_share = float(config.get("flags.thresholds.location_tell_share", 0.45))
 
     tells = location.location_tells(frame, by="v_band", min_n=min_n)
     if len(tells) == 0:
-        return None
-    strong = tells[(tells["lift"] >= min_lift) & (tells["p_pitch"] >= min_share)]
+        return tells
+    fastball_up = (tells["band"] == "UP") & (tells["pitch_type"].map(PITCH_FAMILY) == "hard")
+    return tells[(tells["lift"] >= min_lift) & (tells["p_pitch"] >= min_share)
+                 & ~fastball_up]
+
+
+def location_key(frame: pd.DataFrame) -> dict | None:
+    """Where the ball is headed says which pitch it is, when that holds strongly."""
+    strong = height_tells(frame)
     if len(strong) == 0:
         return None
 
