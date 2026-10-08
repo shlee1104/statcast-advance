@@ -688,7 +688,8 @@ def first_pitch_tendency(
 
     first = frame[(frame["balls"] == 0) & (frame["strikes"] == 0)]
     taken = first[~first["is_swing"].eq(True)]
-    if len(taken) >= min_n:
+    min_takes = int(config.get("plan.first_pitch_min_takes", 80))
+    if len(taken) >= max(min_n, min_takes):
         called = float(taken["is_called_strike"].eq(True).mean())
         if called <= take_below:
             findings.append(_finding(

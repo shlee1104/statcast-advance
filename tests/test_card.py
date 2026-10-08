@@ -271,16 +271,15 @@ class TestFirstPitchKey:
     """The rule that once gave backwards advice."""
 
     def test_uses_called_strikes_on_takes_not_strikes_or_swings(self):
-        """60% of first pitches are swung at (inflating the usual strike rate
-        to over 60%), but the TAKEN ones are called strikes only 25% of the
-        time. Taking is the right advice; the inflated number says the
-        opposite."""
+        """Over half of first pitches are swung at (inflating the usual strike
+        rate), but the TAKEN ones are called strikes only 25% of the time.
+        Taking is the right advice; the inflated number says the opposite."""
         frame = make_frame([
-            {"pitch_type": "FF", "n": 60, "is_swing": True, "type": "S",
+            {"pitch_type": "FF", "n": 120, "is_swing": True, "type": "S",
              "description": "foul"},
-            {"pitch_type": "FF", "n": 10, "is_swing": False, "type": "S",
+            {"pitch_type": "FF", "n": 20, "is_swing": False, "type": "S",
              "description": "called_strike"},
-            {"pitch_type": "FF", "n": 30, "is_swing": False, "type": "B",
+            {"pitch_type": "FF", "n": 60, "is_swing": False, "type": "B",
              "description": "ball"},
         ])
         usage = counts.situational_usage(frame)
@@ -305,6 +304,18 @@ class TestFirstPitchKey:
         frame = make_frame([{"pitch_type": "FF", "n": 10}])
         usage = counts.situational_usage(frame)
         assert gameplan.first_pitch_key(frame, usage, "R") is None
+
+    def test_no_take_or_swing_advice_on_few_takes(self):
+        """In the holdout check every take/swing call that flipped rested on
+        fewer than 60 taken pitches. Below the floor the line keeps the mix
+        and drops the advice."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 15, "is_swing": False, "description": "called_strike"},
+            {"pitch_type": "FF", "n": 45, "is_swing": False, "type": "B",
+             "description": "ball"},
+        ])
+        key = gameplan.first_pitch_key(frame, counts.situational_usage(frame), "R")
+        assert key["text"] == "Four-seam 100%."
 
 
 class TestPlanKeys:
@@ -354,6 +365,16 @@ class TestPlanKeys:
             {"pitch_type": "FF", "n": 45, "balls": 2, "strikes": 0},
             {"pitch_type": "SL", "n": 30, "balls": 2, "strikes": 0},
             {"pitch_type": "CH", "n": 25, "balls": 2, "strikes": 0},
+        ])
+        key = gameplan.hitters_count_key(counts.situational_usage(frame), "R")
+        assert key["text"].startswith("He still mixes")
+
+    def test_two_pitches_near_even_is_not_sit_a_pitch(self):
+        """Díaz-style 52/48 four-seam and slider: the leader in one half was the
+        runner-up in the other, so "sit four-seam" flipped. It needs a lead."""
+        frame = make_frame([
+            {"pitch_type": "SL", "n": 52, "balls": 2, "strikes": 0},
+            {"pitch_type": "FF", "n": 48, "balls": 2, "strikes": 0},
         ])
         key = gameplan.hitters_count_key(counts.situational_usage(frame), "R")
         assert key["text"].startswith("He still mixes")

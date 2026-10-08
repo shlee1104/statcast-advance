@@ -19,6 +19,8 @@ pybaseball_cache/
 reports/*.html
 # Calibration runs: thirty reports and their summaries, all regenerable.
 reports/calibration/
+# Holdout runs: regenerable from the cache.
+reports/holdout/
 
 # --- macOS ---
 .DS_Store

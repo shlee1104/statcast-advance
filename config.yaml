@@ -141,6 +141,14 @@ plan:
   first_pitch_swing_above: 0.50
   first_pitch_take_below: 0.40
 
+  # ...and only on at least this many taken first pitches. The holdout check
+  # (scripts/holdout.py, first half vs second half of 2025) found every
+  # take/swing call that flipped rested on fewer than 60 takes, and none above
+  # that. A full season gives a starter 250-450 takes per side, so starters
+  # keep the advice and most relievers do not; below the floor the line still
+  # names his first-pitch mix.
+  first_pitch_min_takes: 80
+
   # When the hitter is ahead in the count: "sit hard" when fastballs take at
   # least `sit_hard_share`; otherwise "sit <pitch>" when one pitch takes at
   # least `sit_pitch_share`; otherwise "he mixes".
@@ -152,6 +160,11 @@ plan:
   # pitch he will see less than half the time.
   sit_hard_share: 0.70
   sit_pitch_share: 0.50
+
+  # "Sit <pitch>" also needs this lead over his next pitch. In the holdout
+  # check it flipped 28% of the time without one, always on two-pitch
+  # relievers near 50/50; "sit hard" never flipped.
+  sit_pitch_min_lead: 0.15
 
   # Two strikes: name a put-away pitch only if it is at least this share of his
   # two-strike pitches; below it, say he mixes. The old rule always named one,

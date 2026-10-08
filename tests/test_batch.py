@@ -148,8 +148,8 @@ class TestBatchHelpers:
         functions, rather than re-deriving the cutoffs."""
         batch = load_batch()
         frame = make_frame([
-            {"pitch_type": "FF", "n": 45, "balls": 2, "strikes": 0},
-            {"pitch_type": "SL", "n": 55, "balls": 2, "strikes": 0},
+            {"pitch_type": "FF", "n": 30, "balls": 2, "strikes": 0},
+            {"pitch_type": "SL", "n": 70, "balls": 2, "strikes": 0},
             {"pitch_type": "FF", "n": 28, "strikes": 2},
             {"pitch_type": "ST", "n": 26, "strikes": 2},
             {"pitch_type": "SI", "n": 24, "strikes": 2},

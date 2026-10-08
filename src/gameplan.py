@@ -161,15 +161,46 @@ def hitters_count_numbers(usage: pd.DataFrame, side: str) -> dict | None:
         "hard_share": float(families.get("hard", 0.0)),
         "top": lead.pitch_type,
         "top_share": float(lead.share),
+        "second_share": float(rows.iloc[1].share) if len(rows) > 1 else 0.0,
         "rows": rows,
     }
 
 
+def first_pitch_rule(m: dict) -> str | None:
+    """"swing", "take" or "neutral" from the called-strike rate on taken first
+    pitches; None when too few were taken to say.
+
+    The holdout check is why the sample floor is high. Built from half a season
+    and tested on the other half, every take/swing call that flipped came from
+    a pitcher with fewer than 60 taken first pitches — Muñoz, Imanaga to
+    lefties — and none flipped above that. Pitchers differ by only a few points
+    on this rate, so it takes a large sample before one pitcher's number means
+    more than the average pitcher's.
+    """
+    called = m["called_on_takes"]
+    if called != called or m["takes"] < _cut("first_pitch_min_takes", 80):
+        return None
+    if called >= _cut("first_pitch_swing_above", 0.50):
+        return "swing"
+    if called <= _cut("first_pitch_take_below", 0.40):
+        return "take"
+    return "neutral"
+
+
 def hitters_count_rule(m: dict) -> str:
-    """Which hitter's-count sentence the numbers call for: "hard", "pitch" or "mixes"."""
+    """Which hitter's-count sentence the numbers call for: "hard", "pitch" or "mixes".
+
+    "Sit <pitch>" needs a majority AND a clear lead over the next pitch. In the
+    holdout check "sit hard" held 87% of the time and never flipped, while
+    "sit <pitch>" flipped 28% of the time — all of them pitchers with two
+    pitches near 50/50 (Díaz's four-seam and slider, Williams's changeup and
+    four-seam), where the leader in one half was the runner-up in the other.
+    """
     if m["hard_share"] >= _cut("sit_hard_share", 0.70):
         return "hard"
-    if m["top_share"] >= _cut("sit_pitch_share", 0.50):
+    lead = m["top_share"] - m.get("second_share", 0.0)
+    if (m["top_share"] >= _cut("sit_pitch_share", 0.50)
+            and lead >= _cut("sit_pitch_min_lead", 0.15)):
         return "pitch"
     return "mixes"
 
@@ -288,12 +319,13 @@ def first_pitch_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict
     text += "."
 
     called = m["called_on_takes"]
-    if called == called:
-        if called >= _cut("first_pitch_swing_above", 0.50):
+    rule = first_pitch_rule(m)
+    if rule is not None:
+        if rule == "swing":
             text += (f" Taken first pitches are called strikes {_pct(called)} of "
                      f"the time, so taking often puts you down 0-1 — be ready to "
                      f"swing at a strike.")
-        elif called <= _cut("first_pitch_take_below", 0.40):
+        elif rule == "take":
             text += (f" Taken first pitches are called strikes only {_pct(called)} "
                      f"of the time — you can make him throw one.")
         else:

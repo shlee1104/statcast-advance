@@ -82,11 +82,15 @@ self-contained interactive HTML report comes out.
   before it for a usable sample, compares the two to name what changed (new or
   shelved pitches, usage shifts beyond noise, velocity), and leaves a shelved
   pitch out of the plan rather than telling a hitter to look for it
-- 399 unit tests, plus an end-to-end validation suite over live data
+- Holdout check — `scripts/holdout.py` builds the plan from the first half of
+  each pitcher's season and tests every call against the second half (or the
+  regular season against the postseason): how often the advice held, how often
+  it flipped to the opposite advice, and whether the pitcher's own numbers
+  predict better than an average pitcher's would
+- 418 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- Check whether first-half tendencies hold in the second half
 - Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Hitter reports
 - Swing-disruption metrics from the bat-tracking fields
@@ -141,6 +145,15 @@ python scripts/batch_reports.py
 
 Reports and three CSVs (`summary.csv`, `plan_lines.csv`, `thresholds.csv`) go to
 `reports/calibration/`. A pitcher that fails is recorded and the run carries on.
+
+Check whether the plan holds up on games it never saw — built from the first
+half of each season, tested on the second, or built from the regular season and
+tested on the postseason:
+
+```bash
+python scripts/holdout.py --season 2025
+python scripts/holdout.py --season 2025 --split postseason
+```
 
 Generate a report. Name in, self-contained HTML out:
 
@@ -215,6 +228,42 @@ dugout version first, and the detail behind it after.
 - **Findings** — the rule-based findings behind the plan, ranked, each carrying
   its sample size, with run consequences stated as unresolved where they do not
   survive correction
+
+## Does the plan hold up?
+
+A scouting report is a prediction: it says what a pitcher did, and the hitter
+acts as if he will keep doing it. `scripts/holdout.py` tests that directly. It
+builds the plan from the first half of each pitcher's 2025 season and checks
+every call against the second half, which the plan never saw. Thirty pitchers:
+
+| Plan line | Advice given | Held | Weaker | Flipped | Skill |
+|---|---|---|---|---|---|
+| First pitch: take or swing | 11 | 73% | 27% | 0% | +0.11 |
+| Hitter's count: what to sit on | 36 | 72% | 25% | 3% | +0.45 |
+| Two strikes: the put-away pitch | 57 | 68% | 30% | 2% | +0.43 |
+| Two strikes: lay off it low | 21 | 76% | 24% | 0% | +0.72 |
+| Won't see | 44 | 91% | 9% | 0% | — |
+| Count tell | 7 | 100% | 0% | 0% | — |
+| Read the height | 17 | 88% | 12% | 0% | — |
+
+*Held* means the second half gave the same advice. *Weaker* means it said
+less — "he mixes", "no strong case" — which costs a hitter nothing he would
+have had without the report. *Flipped* means it pointed the other way, the
+failure that matters. *Skill* is how much better the pitcher's own first-half
+number predicts his second half than the average pitcher's does: +0.45 means
+45% less error, 0 would mean knowing the pitcher adds nothing.
+
+The first run of this check changed the plan. "Sit <pitch>" flipped 28% of
+the time, always on two-pitch relievers near 50/50 where the leader in one half
+was the runner-up in the other; it now needs a 15-point lead, and the hitter's
+count flip rate fell from 12% to 3%. Every take-or-swing call that flipped
+rested on fewer than 60 taken first pitches; that advice now needs 80, and its
+flip rate fell from 14% to 0%.
+
+The same check from regular season to postseason (19 pitchers) is directional
+only — October samples are a few dozen pitches per side — but points the same
+way, with one pattern worth following: some pitchers lean harder on their best
+put-away pitch in October.
 
 ## Design notes
 
