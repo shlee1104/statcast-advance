@@ -806,6 +806,10 @@ const sign = (v, d = 3) => v === null || v === undefined ? '—'
                            : (v >= 0 ? '+' : '') + v.toFixed(d);
 
 /* ---------------------------------------------------------------- tables */
+/* No table prints a run estimate. The setup and height tables used to carry
+   a "Runs" column, coloured red and green, of estimates that do not survive
+   the correction the findings are held to — a figure the page declines to
+   print in a sentence should not be printed in a cell. */
 /* One renderer for every table. Columns declare their own formatter, so a
    rate can never be printed as a raw float by accident. A formatter gets the
    cell's value and then its whole row, for a cell that prints its own n. */
@@ -900,7 +904,6 @@ table('setupTable', D.setups, [
   { f: 'baseline_p', l: 'His usual', n: 1, fmt: pct },
   { f: 'freq_lift', l: 'How much more likely', n: 1, fmt: v => num(v, 2) + 'x' },
   { f: 'effect_lift', l: 'Whiff change', n: 1, fmt: v => num(v, 2) + 'x' },
-  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
   { f: 'xwoba_when', l: 'xwOBA after', n: 1, fmt: v => num(v, 3) },
   { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);
@@ -949,7 +952,6 @@ table('tellsTable', D.location_tells, [
   { f: 'p_pitch', l: "Chance it's this pitch", n: 1, fmt: pct },
   { f: 'baseline_p', l: 'His usual share', n: 1, fmt: pct },
   { f: 'lift', l: 'How much more likely', n: 1, fmt: v => num(v, 2) + 'x' },
-  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
   { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
   { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);

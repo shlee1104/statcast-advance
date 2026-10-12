@@ -203,11 +203,13 @@ def build_payload(
         "movement": _build_movement(frame, league_outcomes),
         "predictability": predictability_rows,
         "putaway": putaway_rows,
-        "setups": _records(sequencing.setup_pairs(frame, min_n=25).head(12)),
+        "setups": _records(_without_runs(
+            sequencing.setup_pairs(frame, min_n=25).head(12))),
         "location_profile": _records(
             location.location_profile(frame), index_name="pitch_type"
         ),
-        "location_tells": _records(location.location_tells(frame).head(12)),
+        "location_tells": _records(_without_runs(
+            location.location_tells(frame).head(12))),
         "band_information": {
             band: {k: _clean(v) for k, v in location.band_information(frame, by=band).items()}
             for band in ("v_band", "h_band", "quadrant")
@@ -224,6 +226,26 @@ def build_payload(
             "max_takeaways": int(config.get("report.max_takeaways", 5)),
         },
     }
+
+
+# The run-value columns the metric tables carry. flags.py reads them to
+# correct across every comparison the report runs; the page does not show
+# them, so they are not sent to it.
+RUN_COLUMNS: list[str] = [
+    "rv_when", "rv_base", "rv_delta", "runs_cost", "runs_lo", "runs_hi",
+    "significant", "rv_p",
+]
+
+
+def _without_runs(table: pd.DataFrame) -> pd.DataFrame:
+    """A setup or location table without its uncorrected run estimates.
+
+    Each row's run cost is one of about a hundred comparisons, and on the
+    calibration pitchers 1 finding in 284 had a cost that survived correction.
+    The findings stopped printing the estimate for that reason; a table that
+    kept it, in colour, would be saying what the findings no longer say.
+    """
+    return table.drop(columns=[c for c in RUN_COLUMNS if c in table.columns])
 
 
 def _build_arsenal(

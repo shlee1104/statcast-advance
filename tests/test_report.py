@@ -261,6 +261,25 @@ class TestCutSections:
         assert "{ f: 'velo_delta', l: 'vs 1st trip'" in html
         assert "r.velo_pairs" in html
 
+    def test_no_table_carries_an_uncorrected_run_estimate(self):
+        """The findings print a run figure only when it survives correction.
+        The setup and height tables used to print every one, in colour."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 120, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 30, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 120, "plate_z": 1.7},
+            {"pitch_type": "FF", "n": 30, "plate_z": 1.7},
+        ])
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        assert payload["location_tells"]
+        for row in payload["location_tells"] + payload["setups"]:
+            assert not set(report.RUN_COLUMNS) & set(row)
+            assert {"n", "xwoba_when"} <= set(row)
+        html = report.render(payload)
+        assert "l: 'Runs'" not in html
+        # The findings keep theirs: a cost that survives is still printed.
+        assert all("runs_cost" in t and "resolved" in t for t in payload["takeaways"])
+
     def test_height_note_moved_to_the_height_table(self):
         frame = make_frame([
             {"pitch_type": "FF", "n": 120, "plate_z": 3.3},

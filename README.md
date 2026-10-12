@@ -102,7 +102,7 @@ self-contained interactive HTML report comes out.
   the third trip through the order, a "hittable pitch" finding, and a run
   estimate printed on every finding (see "Does the plan hold up?" and "Do the
   findings repeat?")
-- 512 unit tests, plus an end-to-end validation suite over live data
+- 513 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
