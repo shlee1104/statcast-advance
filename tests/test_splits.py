@@ -144,25 +144,6 @@ class TestPlatoonGaps:
         assert slider["whiff_L"] == pytest.approx(1.0)
 
 
-class TestMissingColumnIsNotThinData:
-    """A missing feed column and a thin sample both produce no result, and
-    they call for opposite responses. Saying "insufficient data" for both hid
-    a caching bug behind a plausible message across 831 batters faced."""
-
-    def test_says_so_when_the_column_is_absent(self):
-        frame = make_pitches([{"pitch_type": "FF", "n": 400, "tto": 1}])
-        frame = frame.drop(columns=["n_thruorder_pitcher"])
-        result = splits.decompose_tto(frame)
-        assert result["attribution"] == "unknown"
-        assert "n_thruorder_pitcher" in result["note"]
-        assert "re-fetch" in result["note"].lower()
-
-    def test_still_says_insufficient_when_the_data_is_merely_thin(self):
-        frame = make_pitches([{"pitch_type": "FF", "n": 20, "tto": 1}])
-        result = splits.decompose_tto(frame)
-        assert result["note"] == "insufficient data"
-
-
 class TestFatigue:
     def test_buckets_by_pitch_count_within_the_outing(self):
         frame = make_pitches([{"pitch_type": "FF", "n": 45}])
@@ -301,101 +282,16 @@ class TestTimesThroughOrder:
         assert len(splits.times_through_order(frame)) == 0
 
 
-class TestDecomposeTTO:
-    def test_detects_fatigue_when_velocity_drops(self):
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.300},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 94.0, "xwoba": 0.340},
-        ])
-        result = splits.decompose_tto(frame)
-        assert result["velo_delta"] == pytest.approx(-2.0)
-        assert result["attribution"] == "both"
+class TestTripVelocityChange:
+    """The by-trip table carries one comparison, and it is the one that
+    repeats: his fastball against itself, inside each outing. The verdict
+    that used to be built on top of it ("third time through: hit harder")
+    came back in 1 of 7 cases on a split-half check and was removed."""
 
-    def test_reports_results_decay_without_claiming_a_cause(self):
-        """Velocity steady while results worsen used to be reported as
-        "familiarity" — hitters solving him. This design cannot support that:
-        the third trip is also the 70th-to-100th pitch, so trip number and
-        pitch count are nearly collinear and a marginal comparison cannot
-        separate them. The output describes what moved, not why.
-        """
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.9, "xwoba": 0.360},
-        ])
-        result = splits.decompose_tto(frame)
-        assert result["attribution"] == "results_decay"
-        assert "solving" not in result["note"]
-        assert "familiarity" not in result["note"].lower()
-
-    def test_never_prints_minus_zero(self):
-        """Nine reports read "velocity holds (-0.0 mph)"."""
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.02, "xwoba": 0.280},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 96.0, "xwoba": 0.360},
-        ])
-        note = splits.decompose_tto(frame)["note"]
-        assert "-0.0" not in note
-        assert "velocity holds (+0.0 mph)" in note
-
-    def test_does_not_say_holds_about_a_near_one_mph_drop(self):
-        """Wheeler: "velocity holds (-0.9 mph)" contradicted itself."""
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.1, "xwoba": 0.360},
-        ])
-        note = splits.decompose_tto(frame)["note"]
-        assert "holds" not in note
-        assert "velocity dips slightly (-0.9 mph)" in note
-
-    def test_has_a_plain_headline_not_a_code(self):
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.9, "xwoba": 0.360},
-        ])
-        assert splits.decompose_tto(frame)["headline"] == "Third time through: hit harder"
-
-    def test_carries_the_collinearity_caveat(self):
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 95.9, "xwoba": 0.360},
-        ])
-        caveat = splits.decompose_tto(frame)["caveat"]
-        assert "pitch count" in caveat
-        assert "cannot say which" in caveat
-
-    def test_reports_neither_when_nothing_moves(self):
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.300},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 96.0, "xwoba": 0.300},
-        ])
-        assert splits.decompose_tto(frame)["attribution"] == "neither"
-
-    def test_a_noise_sized_xwoba_change_is_not_decay(self):
-        """The old version printed an xwOBA change of +0.004 alongside a
-        velocity claim as if it were corroboration. It is noise."""
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.300},
-            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 96.0, "xwoba": 0.304},
-        ])
-        assert splits.decompose_tto(frame)["attribution"] == "neither"
-
-    def test_a_rise_inside_its_own_noise_is_not_decay(self):
-        """Clearing a fixed floor is not clearing the noise. Skubal's 2025
-        report said "third time through: hit harder" on +0.022 with a standard
-        error of 0.034. Here the third trip is +0.025 on the average but each
-        trip is 40 plate appearances swinging between .000 and about .600."""
-        specs = []
-        for tto, low, high in ((1, 0.000, 0.600), (3, 0.000, 0.650)):
-            specs += [{"pitch_type": "FF", "n": 20, "tto": tto, "velo": 96.0, "xwoba": low},
-                      {"pitch_type": "FF", "n": 20, "tto": tto, "velo": 96.0, "xwoba": high}]
-        result = splits.decompose_tto(make_pitches(specs))
-        assert result["xwoba_delta"] == pytest.approx(0.025)
-        assert result["xwoba_delta"] < 2 * result["xwoba_se"]
-        assert result["attribution"] == "neither"
-        assert "±" in result["note"]
-
-    def test_velocity_change_is_within_outing_on_one_pitch(self):
-        """Third-trip pitches come only from the starts that lasted."""
+    def test_change_is_within_outing_not_between_pooled_averages(self):
+        """Third-trip pitches come only from the starts that lasted. Pooled,
+        this pitcher "gains" 2 mph late; inside the one start that got there,
+        nothing changed."""
         good = make_pitches([
             {"pitch_type": "FF", "n": 20, "tto": 1, "velo": 97.0, "game_pk": 1},
             {"pitch_type": "FF", "n": 20, "tto": 3, "velo": 97.0, "game_pk": 1},
@@ -403,13 +299,50 @@ class TestDecomposeTTO:
         short = make_pitches([
             {"pitch_type": "FF", "n": 20, "tto": 1, "velo": 93.0, "game_pk": 2},
         ])
-        result = splits.decompose_tto(pd.concat([good, short]))
-        assert result["velo_delta"] == pytest.approx(0.0)   # not +2.0
+        table = splits.times_through_order(pd.concat([good, short])).set_index("tto")
+        assert table.loc[3, "velo"] - table.loc[1, "velo"] == pytest.approx(2.0)
+        assert table.loc[3, "velo_delta"] == pytest.approx(0.0)
+        assert table.loc[3, "velo_pairs"] == 1
 
-    def test_missing_third_trip_returns_unknown(self):
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0},
+    def test_averages_the_change_across_outings(self):
+        frame = pd.concat([
+            make_pitches([
+                {"pitch_type": "FF", "n": 10, "tto": 1, "velo": 96.0, "game_pk": game},
+                {"pitch_type": "FF", "n": 10, "tto": 2, "velo": 96.0 - drop / 2, "game_pk": game},
+                {"pitch_type": "FF", "n": 10, "tto": 3, "velo": 96.0 - drop, "game_pk": game},
+            ])
+            for game, drop in ((1, 1.0), (2, 3.0))
         ])
-        result = splits.decompose_tto(frame)
-        assert result["attribution"] == "unknown"
-        assert math.isnan(result["velo_delta"])
+        table = splits.times_through_order(frame).set_index("tto")
+        assert table.loc[2, "velo_delta"] == pytest.approx(-1.0)
+        assert table.loc[3, "velo_delta"] == pytest.approx(-2.0)
+        assert table.loc[3, "velo_pairs"] == 2
+
+    def test_first_trip_has_nothing_to_be_compared_with(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 30, "tto": 1},
+            {"pitch_type": "FF", "n": 30, "tto": 2},
+        ])
+        first = splits.times_through_order(frame).set_index("tto").loc[1]
+        assert math.isnan(first["velo_delta"])
+        assert first["velo_pairs"] == 0
+
+    def test_read_from_his_main_fastball_only(self):
+        """Throwing more of a slower pitch late is a pitch-mix change. The
+        slider here would drag a blended average down 4 mph."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 30, "tto": 1, "velo": 96.0},
+            {"pitch_type": "FF", "n": 10, "tto": 3, "velo": 96.0},
+            {"pitch_type": "SL", "n": 20, "tto": 3, "velo": 86.0},
+        ])
+        third = splits.times_through_order(frame).set_index("tto").loc[3]
+        assert third["velo_delta"] == pytest.approx(0.0)
+
+    def test_the_table_draws_no_conclusion(self):
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 40, "tto": 1, "velo": 96.0, "xwoba": 0.280},
+            {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 94.0, "xwoba": 0.360},
+        ])
+        table = splits.times_through_order(frame)
+        assert not {"attribution", "headline", "note"} & set(table.columns)
+        assert not hasattr(splits, "decompose_tto")

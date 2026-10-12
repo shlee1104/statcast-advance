@@ -510,40 +510,6 @@ def band_information(
     }
 
 
-def zone_table(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame:
-    """Pitch-type usage across Savant's thirteen zones, for the heat map.
-
-    Rows are pitch types, columns are zones 1-9 (the strike zone, read left to
-    right and top to bottom from the catcher's view) followed by 11-14 (the
-    four regions outside it). Each row sums to 1.
-
-    This uses Savant's own zone numbering rather than the normalized
-    coordinates above, because the report renders a fixed grid and the zone
-    field is already the grid. The normalized coordinates are what the
-    comparisons and flags are built from.
-    """
-    zones = ALL_ZONES
-
-    if len(frame) == 0 or "zone" not in frame.columns:
-        return pd.DataFrame(columns=zones)
-
-    keep = counts.primary_arsenal(frame, min_pitches=min_pitches)
-    subset = frame[frame["pitch_type"].isin(keep)] if keep else frame.iloc[0:0]
-    subset = subset[subset["zone"].notna()]
-    if len(subset) == 0:
-        return pd.DataFrame(columns=zones)
-
-    table = pd.crosstab(
-        subset["pitch_type"],
-        subset["zone"].astype(int),
-        normalize="index",
-    )
-    table = table.reindex(columns=zones, fill_value=0.0).fillna(0.0)
-
-    order = subset["pitch_type"].value_counts().index
-    return table.reindex([p for p in order if p in table.index])
-
-
 COUNT_STATES: list[str] = ["ahead", "even", "behind"]
 
 

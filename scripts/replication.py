@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
             first, second = validation.split_halves(frame)
 
             full_season.append({"pitcher": name,
-                                **replication.full_season_row(frame, league)})
+                                **replication.full_season_row(frame)})
             for rows, table in (
                 (replication.finding_rows(first, second), findings),
                 (replication.per_pitch_rows(first, second, league), per_pitch),

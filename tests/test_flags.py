@@ -211,7 +211,7 @@ class TestHandednessGaps:
             {"pitch_type": "FF", "n": 100, "stand": "R"},
             {"pitch_type": "SL", "n": 100, "stand": "R"},
         ])
-        assert len(flags.evaluate(frame, None, None)) > 0
+        assert len(flags.evaluate(frame, None)) > 0
 
 
 class TestOwnRateBaseline:
@@ -265,7 +265,8 @@ class TestRunConsequence:
 
     Yamamoto's splitter is predictable with two strikes and hitters still
     cannot touch it. Flagging that as exploitable hands a coach a plan that
-    does not work, so every tell reports what the pattern costs him.
+    does not work, so a tell reports what the pattern costs him — when, and
+    only when, that cost can be told from zero.
     """
 
     def test_a_costly_pattern_is_exploitable_when_resolved(self):
@@ -291,32 +292,27 @@ class TestRunConsequence:
         assert not exploitable
         assert "no run consequence" in phrase
 
-    def test_an_unresolved_estimate_does_not_claim_a_cost(self):
+    def test_an_unresolved_estimate_adds_nothing_to_the_claim(self):
         """The case that is almost always true. Run value per pitch has an SD
         near 0.19 against differences of 0.01-0.02, so one season of one
-        pitcher cannot resolve them, and a report that prints "+3.4 runs"
-        without the interval implies a precision that does not exist."""
+        pitcher cannot resolve them. The claim used to end with the point
+        estimate and a sentence calling it unresolved, on 283 of 284 findings;
+        the page now says it once, under the list."""
         exploitable, phrase = flags._consequence(
             3.4, 1.0, significant=False, runs_lo=-3.9, runs_hi=10.6
         )
         assert exploitable
-        assert "unresolved" in phrase
-        assert "does not exclude zero" in phrase
-        assert "costs him" not in phrase
+        assert phrase == ""
 
-    def test_says_why_when_the_interval_excludes_zero_but_the_correction_fails(self):
-        """The printed interval is the uncorrected one, so it can exclude zero
-        on a comparison that still fails the correction. Yamamoto's 3-0
-        finding read "[95% CI -2 to -0], which does not exclude zero"."""
+    def test_an_interval_that_excludes_zero_alone_is_still_unresolved(self):
+        """The interval carried with a finding is the uncorrected one, so it
+        can exclude zero on a comparison that fails the correction. The
+        corrected verdict decides, not the interval."""
         exploitable, phrase = flags._consequence(
-            -1.1, 1.0, significant=False, runs_lo=-1.9, runs_hi=-0.2,
-            comparisons=120,
+            -1.1, 1.0, significant=False, runs_lo=-1.9, runs_hi=-0.2
         )
         assert exploitable
-        assert "does not exclude zero" not in phrase
-        assert "excludes zero on its own" in phrase
-        assert "120 comparisons" in phrase
-        assert "-1.9 to -0.2" in phrase
+        assert phrase == ""
 
     def test_unresolved_findings_are_not_demoted(self):
         """An unresolved run consequence is not evidence the pattern is
@@ -427,7 +423,6 @@ class TestCorrectionCoversEveryComparison:
         for rule in ("handedness_gaps", "fatigue_decline", "sequencing_tells",
                      "location_tells"):
             monkeypatch.setattr(flags, rule, lambda frame: [])
-        monkeypatch.setattr(flags, "hittable_pitches", lambda frame, league: [])
         monkeypatch.setattr(flags, "first_pitch_tendency", lambda frame, league=None: [])
         monkeypatch.setattr(flags, "predictable_counts", lambda frame, league: [finding])
         monkeypatch.setattr(flags, "comparison_p_values", lambda frame: family)
@@ -438,12 +433,14 @@ class TestCorrectionCoversEveryComparison:
                   "sequencing": [0.9] * 32}
         table = self.one_finding(monkeypatch, family)
         assert not table.iloc[0]["resolved"]
-        assert "120 comparisons" in table.iloc[0]["claim"]
+        assert table.iloc[0]["claim"] == "In 2-1 he goes to the cutter (n=60)."
 
     def test_the_same_p_value_passes_when_it_is_the_only_comparison(self, monkeypatch):
         table = self.one_finding(monkeypatch, {"count": [0.01], "location": [],
                                                "sequencing": []})
         assert table.iloc[0]["resolved"]
+        assert "saves him about 2.0 runs" in table.iloc[0]["claim"]
+        assert "-3.5 to -0.5" in table.iloc[0]["claim"]
 
     def test_count_and_correction_read_the_same_family(self, monkeypatch):
         """The number printed and the number corrected over cannot drift."""
@@ -545,39 +542,6 @@ class TestFatigueFlag:
         assert found[0]["delta"] == pytest.approx(-1.5)
 
 
-class TestHittablePitch:
-    """xwOBA exists only on the pitch that ends a plate appearance, so a gap
-    to the league has to be judged against how few of those there are."""
-
-    LEAGUE = pd.DataFrame([
-        {"pitch_type": "SL", "league_usage": 0.20, "avg_velo": 85.0,
-         "whiff_rate": 0.33, "avg_xwoba": 0.320},
-        {"pitch_type": "FF", "league_usage": 0.35, "avg_velo": 94.0,
-         "whiff_rate": 0.22, "avg_xwoba": 0.300},
-    ])
-
-    def frame(self, scale: int) -> pd.DataFrame:
-        # Sliders average .400 — .080 over the league's .320 — split evenly
-        # between outs and hard contact, the way real outcomes are spread.
-        return make_frame([
-            {"pitch_type": "SL", "n": 30 * scale, "xwoba": 0.000},
-            {"pitch_type": "SL", "n": 30 * scale, "xwoba": 0.800},
-            {"pitch_type": "FF", "n": 100 * scale, "xwoba": 0.300},
-        ])
-
-    def test_a_gap_inside_its_own_noise_does_not_fire(self):
-        """Sixty of them clear the 50-pitch gate and the .060 floor, with a
-        standard error of .052. The gap is 1.5 of those."""
-        assert flags.hittable_pitches(self.frame(1), self.LEAGUE) == []
-
-    def test_the_same_gap_well_measured_fires(self):
-        found = flags.hittable_pitches(self.frame(10), self.LEAGUE)
-        assert len(found) == 1
-        assert "0.400 xwOBA against his slider" in found[0]["claim"]
-        assert "±" in found[0]["claim"]
-        assert "n=600 plate appearances ending on it" in found[0]["claim"]
-
-
 class TestCorrectionIsAppliedInTheEngine:
     def test_findings_carry_a_resolved_flag(self):
         frame = make_frame([
@@ -590,7 +554,7 @@ class TestCorrectionIsAppliedInTheEngine:
         assert "resolved" in table.columns
         assert table["resolved"].dtype == bool
 
-    def test_unresolved_findings_say_so_in_the_claim(self):
+    def test_unresolved_findings_make_no_run_claim(self):
         frame = make_frame([
             {"pitch_type": "FF", "n": 120, "plate_z": 3.3},
             {"pitch_type": "SL", "n": 30, "plate_z": 3.3},
@@ -598,9 +562,11 @@ class TestCorrectionIsAppliedInTheEngine:
             {"pitch_type": "FF", "n": 30, "plate_z": 1.7},
         ])
         table = flags.evaluate(frame)
-        unresolved = table[~table["resolved"] & table["runs_cost"].notna()]
+        unresolved = table[~table["resolved"]]
+        assert len(unresolved)
         for claim in unresolved["claim"]:
-            assert "unresolved" in claim
+            assert "runs" not in claim.lower()
+            assert "unresolved" not in claim
 
 
 class TestLocationTellFlag:
@@ -654,17 +620,16 @@ class TestFirstPitch:
         found = flags.first_pitch_tendency(frame)
         assert any("opens with" in f["claim"] for f in found)
 
-    def test_fires_when_taken_first_pitches_are_rarely_strikes(self):
-        """Uses called strikes on taken first pitches — the plan's measure —
-        so the finding and the plan line cannot disagree."""
+    def test_says_nothing_about_taking_the_first_pitch(self):
+        """"Take the first pitch" was a second finding here, read off how
+        often taken first pitches are called strikes. It showed no skill on a
+        season its cutoff had never seen and was removed with the plan line."""
         frame = make_frame([
             {"pitch_type": "FF", "n": 35, "balls": 0, "strikes": 0, "type": "S"},
             {"pitch_type": "SL", "n": 65, "balls": 0, "strikes": 0, "type": "B",
              "description": "ball"},
         ])
-        found = flags.first_pitch_tendency(frame)
-        claim = next(f["claim"] for f in found if "percentage play" in f["claim"])
-        assert "called strikes only 35%" in claim
+        assert flags.first_pitch_tendency(frame) == []
 
     def test_silent_below_the_sample_gate(self):
         frame = make_frame([{"pitch_type": "FF", "n": 10, "balls": 0, "strikes": 0}])
@@ -676,9 +641,23 @@ class TestLeagueRulesAreOptional:
         frame = make_frame([{"pitch_type": "FF", "n": 100, "balls": 3, "strikes": 0}])
         assert flags.predictable_counts(frame, None) == []
 
-    def test_hittable_pitches_skipped_without_league_data(self):
-        frame = make_frame([{"pitch_type": "FF", "n": 100}])
-        assert flags.hittable_pitches(frame, None) == []
+
+class TestRemovedRulesStayRemoved:
+    """Two rules were cut after a split-half check: the hittable-pitch finding
+    fired for 2 of 30 pitchers, and the third-time-through verdict came back
+    in 1 of 7 cases. Neither may come back through the engine unnoticed."""
+
+    def test_no_finding_carries_a_removed_flag(self):
+        specs = []
+        for game in range(1, 13):
+            specs += [
+                {"pitch_type": "FF", "n": 15, "velo": 96.0, "game_pk": game,
+                 "tto": 1, "xwoba": 0.100},
+                {"pitch_type": "FF", "n": 15, "velo": 93.0, "game_pk": game,
+                 "tto": 3, "xwoba": 0.900},
+            ]
+        table = flags.evaluate(make_frame(specs))
+        assert not set(table["flag"]) & {"hittable_pitch", "times_through_order"}
 
 
 class TestEvaluate:

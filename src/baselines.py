@@ -361,11 +361,12 @@ def compare_profile(pitcher: pd.DataFrame, league: pd.DataFrame) -> pd.DataFrame
     mix", this answers "how good is each pitch in it" — velocity, whiff rate,
     and contact quality, each differenced against pitchers of the same hand.
 
-    `xwoba_delta` is the column the hittable_pitch flag reads. It is signed so
-    that positive is bad for the pitcher: hitters are doing more damage against
-    this offering than against the league's version of it. A pitch that is both
-    heavily used and worse than league is the clearest "sit on this" finding a
-    report can make.
+    `xwoba_delta` is signed so that positive is bad for the pitcher: hitters
+    are doing more damage against this offering than against the league's
+    version of it. It is shown in the arsenal table and decides nothing. A
+    "hittable pitch" finding was once built on it, and fired for 2 of 30
+    pitchers (scripts/replication.py at commit 432abb0): xwOBA exists only on the pitch that ends a plate appearance, so
+    one pitch type over one season rarely separates from the league's figure.
     """
     frame = pitcher.rename_axis("pitch_type").reset_index()
     merged = frame.merge(

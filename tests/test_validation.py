@@ -47,9 +47,6 @@ class TestSplits:
 
 
 class TestFlipped:
-    def test_take_and_swing_are_opposites(self):
-        assert validation._flipped("take", "swing")
-
     def test_sit_hard_and_sit_four_seam_agree(self):
         assert not validation._flipped("sit hard", "sit FF")
 
@@ -67,7 +64,6 @@ class TestFlipped:
     def test_losing_confidence_is_not_a_flip(self):
         """"Sit hard" becoming "he mixes" is less advice, not wrong advice."""
         assert not validation._flipped("sit hard", "mixes")
-        assert not validation._flipped("take", "neutral")
 
 
 def two_halves(first_specs: list[dict], second_specs: list[dict]) -> tuple:
@@ -276,4 +272,7 @@ class TestScript:
             assert code == 0
             with (out / "holdout_summary_halves.csv").open() as handle:
                 rules = {row["rule"] for row in csv.DictReader(handle)}
-            assert {"first_pitch", "two_strikes", "wont_see"} <= rules
+            assert {"hitters_count", "two_strikes", "wont_see"} <= rules
+            # Take-or-swing advice showed no skill on an unseen season and
+            # left the plan, so there is nothing of it to check.
+            assert "first_pitch" not in rules

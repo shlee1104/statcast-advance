@@ -271,32 +271,44 @@ class TestVelocityDrop:
         assert [r for r in per_pitcher if r["metric"] == "worst_bucket_velo_delta"] == []
 
 
-class TestThirdTripVerdict:
-    def verdict(self, attribution: str, xwoba_delta: float) -> dict:
-        return {"reliable": True, "attribution": attribution,
-                "xwoba_delta": xwoba_delta, "velo_delta": -0.2}
+class TestThirdTripChanges:
+    """The verdict built on these was removed after coming back in 1 of 7
+    cases. The two changes it read are still correlated between halves,
+    because that is what shows one carries over and the other does not."""
 
-    def run(self, monkeypatch, early: dict, late: dict) -> list[dict]:
+    def trips(self, velo_delta: float, xwoba_third: float, reliable: bool = True):
+        return pd.DataFrame([
+            {"tto": 1, "n": 300, "velo": 96.0, "velo_delta": float("nan"),
+             "xwoba": 0.280, "reliable": True},
+            {"tto": 3, "n": 200, "velo": 95.5, "velo_delta": velo_delta,
+             "xwoba": xwoba_third, "reliable": reliable},
+        ])
+
+    def run(self, monkeypatch, early: pd.DataFrame, late: pd.DataFrame) -> dict:
         first, second = slider_in_0_2(60), slider_in_0_2(60)
-        verdicts = {id(first): early, id(second): late}
-        monkeypatch.setattr(splits, "decompose_tto", lambda frame: verdicts[id(frame)])
-        monkeypatch.setattr(splits, "times_through_order", lambda frame: pd.DataFrame(
-            [{"tto": 1, "n": 300}, {"tto": 3, "n": 200}]))
-        return of_kind(replication.finding_rows(first, second), "tto")
+        tables = {id(first): early, id(second): late}
+        monkeypatch.setattr(splits, "times_through_order",
+                            lambda frame: tables[id(frame)])
+        rows = replication.per_pitcher_rows(first, second)
+        return {r["metric"]: r for r in rows if r["metric"].startswith("tto_")}
 
-    def test_holding_means_reaching_the_same_verdict(self, monkeypatch):
-        (row,) = self.run(monkeypatch, self.verdict("results_decay", 0.12),
-                          self.verdict("results_decay", 0.10))
-        assert row["held"] and row["direction"]
+    def test_reads_the_within_outing_velocity_change_and_the_xwoba_gap(self, monkeypatch):
+        pairs = self.run(monkeypatch, self.trips(-0.7, 0.340), self.trips(-0.5, 0.270))
+        velo, xwoba = pairs["tto_velo_delta"], pairs["tto_xwoba_delta"]
+        assert (velo["first"], velo["second"]) == (-0.7, -0.5)
+        assert xwoba["first"] == pytest.approx(0.060)
+        assert xwoba["second"] == pytest.approx(-0.010)
 
-    def test_no_verdict_the_second_time_is_a_miss(self, monkeypatch):
-        (row,) = self.run(monkeypatch, self.verdict("results_decay", 0.12),
-                          self.verdict("neither", 0.01))
-        assert not row["held"] and not row["direction"]
+    def test_a_third_trip_from_too_few_outings_is_left_out(self, monkeypatch):
+        pairs = self.run(monkeypatch, self.trips(-0.7, 0.340),
+                         self.trips(-0.5, 0.270, reliable=False))
+        assert pairs == {}
 
-    def test_no_verdict_the_first_time_is_nothing_to_test(self, monkeypatch):
-        assert self.run(monkeypatch, self.verdict("neither", 0.0),
-                        self.verdict("results_decay", 0.10)) == []
+    def test_no_verdict_is_tested_because_none_is_made(self):
+        rows = replication.finding_rows(slider_in_0_2(60), slider_in_0_2(60))
+        assert of_kind(rows, "tto") == []
+        assert "tto" not in replication.FINDING_LABELS
+        assert not {"hittable_pitch", "times_through_order"} & set(replication.FLAG_TYPES)
 
 
 class TestPerPitchRows:

@@ -37,11 +37,6 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = ROOT / "templates"
 TEMPLATE_NAME = "report.html.j2"
 
-# The zone grid is defined alongside the data that uses it, not here — the
-# report renders what location.py describes.
-INNER_ZONES = location.INNER_ZONES
-OUTER_ZONES = location.OUTER_ZONES
-
 
 def _clean(value: Any) -> Any:
     """Make a value JSON-safe.
@@ -106,9 +101,7 @@ OPTIONAL_COLUMNS: dict[str, str] = {
 FLAG_LABELS: dict[str, str] = {
     "predictable_count": "Count tendency",
     "handedness_gap": "Lefty/righty split",
-    "hittable_pitch": "Hittable pitch",
     "fatigue": "Velocity late in starts",
-    "times_through_order": "Third time through",
     "sequencing_tell": "Sequencing",
     "location_tell": "Height tell",
     "first_pitch": "First pitch",
@@ -154,11 +147,7 @@ def build_payload(
     hand = str(frame["p_throws"].mode().iloc[0])
     has_league = league_outcomes is not None
 
-    profile = arsenal.profile(frame)
-    if has_league:
-        arsenal_rows = _records(baselines.compare_profile(profile, league_outcomes))
-    else:
-        arsenal_rows = _records(profile, index_name="pitch_type")
+    arsenal_rows = _build_arsenal(frame, league_outcomes)
 
     predictability = counts.predictability(frame, min_pitches=20)
     if has_league and league_mix is not None and len(predictability):
@@ -174,11 +163,9 @@ def build_payload(
     else:
         putaway_rows = _records(putaway, index_name="pitch_type")
 
-    zone = location.zone_table(frame)
     fatigue = splits.fatigue(frame, bucket_size=15)
-    first_pitch = counts.first_pitch_tendencies(frame)
 
-    all_findings = flags.evaluate(frame, league_outcomes, league_mix)
+    all_findings = flags.evaluate(frame, league_mix)
     takeaways = flags.takeaways(frame, findings=all_findings)
 
     return {
@@ -205,7 +192,6 @@ def build_payload(
         "data_gaps": _data_gaps(frame),
         "card": _build_card(frame, changes=changes, season_frame=full_frame),
         "takeaways": _records(takeaways),
-        "findings": _records(all_findings),
         "finding_count": int(len(all_findings)),
         "resolved_count": int(all_findings["resolved"].sum()) if len(all_findings) else 0,
         "comparisons": flags.comparison_count(frame, league_mix),
@@ -216,37 +202,20 @@ def build_payload(
         "platoon_slope": _build_platoon_slope(frame),
         "movement": _build_movement(frame, league_outcomes),
         "predictability": predictability_rows,
-        "count_lifts": _records(counts.count_lifts(frame, min_n=20)),
         "putaway": putaway_rows,
         "setups": _records(sequencing.setup_pairs(frame, min_n=25).head(12)),
         "location_profile": _records(
             location.location_profile(frame), index_name="pitch_type"
         ),
         "location_tells": _records(location.location_tells(frame).head(12)),
-        "quadrants": _records(location.quadrant_shares(frame), index_name="pitch_type"),
         "band_information": {
             band: {k: _clean(v) for k, v in location.band_information(frame, by=band).items()}
             for band in ("v_band", "h_band", "quadrant")
         },
-        "zone": {
-            "inner": INNER_ZONES,
-            "outer": OUTER_ZONES,
-            "rows": _records(zone, index_name="pitch_type"),
-        },
         "zone_slices": _build_zone_slices(frame),
         "release": _records(arsenal.release_consistency(frame), index_name="pitch_type"),
-        "platoon": _records(splits.platoon_gaps(frame)),
         "fatigue": _build_fatigue(fatigue, splits.velocity_pitch(frame)),
         "tto": _records(splits.times_through_order(frame)),
-        "tto_decomposition": {
-            k: _clean(v) for k, v in splits.decompose_tto(frame).items()
-        },
-        "first_pitch": {
-            "n": _clean(first_pitch["n"]),
-            "strike_rate": _clean(first_pitch["strike_rate"]),
-            "primary_pitch": _clean(first_pitch["primary_pitch"]),
-            "primary_share": _clean(first_pitch["primary_share"]),
-        },
         "gates": {
             "note": (
                 "Every claim states its sample size. Thresholds and minimum "
@@ -255,6 +224,42 @@ def build_payload(
             "max_takeaways": int(config.get("report.max_takeaways", 5)),
         },
     }
+
+
+def _build_arsenal(
+    frame: pd.DataFrame,
+    league_outcomes: pd.DataFrame | None,
+) -> list[dict]:
+    """Each pitch against the league's version of it, and by batter side.
+
+    One table for what the card's arsenal table does not carry. It replaced
+    three pieces that each held one thing shown nowhere else and repeated the
+    rest: a second arsenal table (the league comparisons and zone rate, next
+    to movement columns already on the card), a platoon table (whiff rate by
+    batter side, next to usage by side already on the card and in the slope
+    chart), and a bar chart of usage against the league's.
+
+    The by-side whiff rates are blank where he threw too few of the pitch to
+    that side for a rate to mean anything (see splits.platoon_gaps), and the
+    by-side columns are left off altogether when he barely faced one side.
+    """
+    profile = arsenal.profile(frame)
+    if league_outcomes is not None:
+        rows = _records(baselines.compare_profile(profile, league_outcomes))
+    else:
+        rows = _records(profile, index_name="pitch_type")
+
+    sides = splits.platoon_gaps(frame)
+    if len(sides):
+        by_pitch = sides.set_index("pitch_type")
+        for row in rows:
+            pitch = row.get("pitch_type")
+            for column in ("whiff_L", "n_L", "whiff_R", "n_R"):
+                row[column] = (
+                    _clean(by_pitch.at[pitch, column])
+                    if pitch in by_pitch.index else None
+                )
+    return rows
 
 
 def _build_count_grid(frame: pd.DataFrame) -> dict:
@@ -330,7 +335,8 @@ def _build_platoon_slope(frame: pd.DataFrame) -> dict:
     but usage is a share of every pitch thrown to that side — Yamamoto's 9
     sinkers to lefties are 9 of about 1,600, a precisely measured 0.6%. The
     small number is the finding, not a doubt about it; dotting it would say the
-    opposite. The same principle governs the count grid and the platoon table.
+    opposite. The same principle governs the count grid, and it is why the
+    arsenal table blanks a thin side's whiff rate while the card keeps its usage.
     """
     gaps = splits.platoon_gaps(frame, min_rate_pitches=0)
     if len(gaps) == 0:

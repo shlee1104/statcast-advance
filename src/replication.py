@@ -40,6 +40,12 @@ A second half too thin to measure a finding in is not counted as a failure,
 for the same reason as in the holdout check: "too few pitches to say" is not
 a wrong call. Those cases produce no row.
 
+A rule that fails this check comes out of the report, and then out of this
+module. Two went that way: the verdict on the third trip through the order,
+which came back in 1 of 7 cases, and the hittable-pitch finding, which fired
+for 2 of 30 pitchers. The run that measured them is reproducible at commit
+432abb0, where both rules still exist.
+
 What this cannot tell you: a correlation across a deliberately varied list of
 pitchers is higher than it would be across a random sample of the league,
 because the list was built to span very different pitchers.
@@ -75,7 +81,6 @@ FINDING_LABELS: dict[str, str] = {
     "location": "Height tell",
     "handedness": "Lefty/righty split",
     "fatigue": "Velocity late in starts",
-    "tto": "Third time through (verdict)",
     "first_pitch": "Predictable first pitch",
 }
 
@@ -111,11 +116,9 @@ PITCHER_METRICS: dict[str, str] = {
 }
 
 FLAG_TYPES: tuple[str, ...] = (
-    "predictable_count", "handedness_gap", "hittable_pitch", "fatigue",
-    "times_through_order", "sequencing_tell", "location_tell", "first_pitch",
+    "predictable_count", "handedness_gap", "fatigue",
+    "sequencing_tell", "location_tell", "first_pitch",
 )
-
-_TTO_FINDINGS = ("velocity_declines", "results_decay", "both")
 
 
 def _row(kind: str, key: str, first: float, second: float, n_second: int,
@@ -287,27 +290,6 @@ def _fatigue_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
                  bucket["second"] <= -min_drop / 2)]
 
 
-def _tto_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
-    """The third-time-through verdict: does the second half reach the same one?"""
-    min_n = int(config.get("flags.min_n.times_through_order", 150))
-    early, late = splits.decompose_tto(first), splits.decompose_tto(second)
-    if not (early["reliable"] and late["reliable"]):
-        return []
-    if early["attribution"] not in _TTO_FINDINGS:
-        return []
-    trips = splits.times_through_order(first)
-    third = trips[trips["tto"] == 3]
-    if len(third) == 0 or int(third.iloc[0]["n"]) < min_n:
-        return []
-    trips_again = splits.times_through_order(second)
-    third_again = trips_again[trips_again["tto"] == 3]
-    return [_row("tto", early["attribution"], early["xwoba_delta"],
-                 late["xwoba_delta"],
-                 int(third_again.iloc[0]["n"]) if len(third_again) else 0,
-                 late["attribution"] == early["attribution"],
-                 late["attribution"] in _TTO_FINDINGS)]
-
-
 def _first_pitch_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     """A predictable opener at the first-pitch rule's bar: still his opener?"""
     min_n = int(config.get("flags.min_n.first_pitch", 30))
@@ -335,8 +317,7 @@ def finding_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
         return []
     rows: list[dict] = []
     for measure in (_count_lift_rows, _sequencing_rows, _location_rows,
-                    _handedness_rows, _fatigue_rows, _tto_rows,
-                    _first_pitch_rows):
+                    _handedness_rows, _fatigue_rows, _first_pitch_rows):
         rows.extend(measure(first, second))
     return rows
 
@@ -398,6 +379,28 @@ def per_pitch_rows(
     return rows
 
 
+def _third_trip(frame: pd.DataFrame) -> dict | None:
+    """What changes from the first trip through the order to the third.
+
+    Velocity is the within-outing change the by-trip table prints; xwOBA is
+    the difference between the two trips' plain figures. None unless both
+    trips clear the table's outings gate.
+    """
+    trips = splits.times_through_order(frame)
+    if len(trips) == 0:
+        return None
+    trips = trips.set_index("tto")
+    if 1 not in trips.index or 3 not in trips.index:
+        return None
+    first, third = trips.loc[1], trips.loc[3]
+    if not (bool(first["reliable"]) and bool(third["reliable"])):
+        return None
+    return {
+        "tto_velo_delta": float(third["velo_delta"]),
+        "tto_xwoba_delta": float(third["xwoba"] - first["xwoba"]),
+    }
+
+
 def per_pitcher_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     """Numbers that exist once per pitcher, or once per count, in each half.
 
@@ -416,12 +419,11 @@ def per_pitcher_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     if bucket is not None:
         add("worst_bucket_velo_delta", bucket["first"], bucket["second"])
 
-    early, late = splits.decompose_tto(first), splits.decompose_tto(second)
-    if early["reliable"] and late["reliable"]:
-        for metric, column in (("tto_velo_delta", "velo_delta"),
-                               ("tto_xwoba_delta", "xwoba_delta")):
-            if early[column] == early[column] and late[column] == late[column]:
-                add(metric, early[column], late[column])
+    early, late = _third_trip(first), _third_trip(second)
+    if early is not None and late is not None:
+        for metric in ("tto_velo_delta", "tto_xwoba_delta"):
+            if early[metric] == early[metric] and late[metric] == late[metric]:
+                add(metric, early[metric], late[metric])
 
     min_n = int(config.get("flags.min_n.first_pitch", 30))
     opens = counts.first_pitch_tendencies(first), counts.first_pitch_tendencies(second)
@@ -447,10 +449,7 @@ def per_pitcher_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def full_season_row(
-    frame: pd.DataFrame,
-    league_outcomes: pd.DataFrame | None = None,
-) -> dict:
+def full_season_row(frame: pd.DataFrame) -> dict:
     """How many findings the report makes, and how many comparisons it runs.
 
     `comparisons` is every run-value comparison behind the report,
@@ -459,7 +458,7 @@ def full_season_row(
     findings carry a run consequence that survived. One `n_<flag>` column per
     finding type.
     """
-    found = flags.evaluate(frame, league_outcomes, None)
+    found = flags.evaluate(frame)
     family = flags.comparison_p_values(frame)
     p_values = [p for values in family.values() for p in values if p == p]
     row = {

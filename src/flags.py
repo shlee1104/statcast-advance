@@ -25,19 +25,19 @@ the finding sits, scaled by a weight in `report.severity_weights`, which is a
 judgment call. Every finding records which of the two produced its number in
 `severity_basis`, so a weighted guess is never mistaken for a z-score.
 
-League comparison is optional throughout. Passing `league=None` still produces
-findings from the rules that need no baseline, so the engine works before
-`scripts/build_baselines.py` has ever been run.
+No rule needs a league baseline: every comparison is the pitcher against
+himself. The league's count mix, when supplied, is quoted as context inside
+the count finding and decides nothing.
 """
 
 from __future__ import annotations
 
 import pandas as pd
 
-from src import baselines, config
+from src import config
 from src.gameplan import PITCH_FAMILY
 from src.gameplan import name as pitch_name
-from src.metrics import arsenal, counts, location, sequencing, splits
+from src.metrics import counts, location, sequencing, splits
 
 # Height bands as a hitter says them, for "after a low slider" rather than
 # "after a SL down".
@@ -112,54 +112,36 @@ def _consequence(
     significant: bool = False,
     runs_lo: float = float("nan"),
     runs_hi: float = float("nan"),
-    comparisons: int | None = None,
 ) -> tuple[bool, str]:
-    """Whether a tell has a demonstrable run consequence, and how to say it.
+    """Whether a tell has a demonstrated run consequence, and how to say it.
 
     Returns (is_exploitable, phrase).
 
     `significant` is the corrected verdict: whether this comparison survived
-    Benjamini-Hochberg across every comparison the report ran, of which there
-    are `comparisons`. It fails almost always. Run value per pitch has a
-    standard deviation near 0.19 while the differences here are 0.01-0.02, so
-    a season of one pitcher cannot resolve them.
+    Benjamini-Hochberg across every comparison the report ran. It fails almost
+    always. Run value per pitch has a standard deviation near 0.19 while the
+    differences here are 0.01-0.02, so a season of one pitcher cannot resolve
+    them.
 
-    So the honest report says the frequency pattern is real and its run
-    consequence is unresolved, rather than printing a run figure to one
-    decimal and letting a reader treat it as measured. A pattern is only
-    called costly or working when it survives the correction.
+    An unresolved consequence adds nothing to the claim. Each finding used to
+    end with "Run consequence is unresolved at this sample: the point estimate
+    is +1.3 runs [95% CI ...]", and across 58 pitcher-seasons that sentence
+    was printed on 283 of 284 findings (scripts/replication.py at commit
+    432abb0). A caveat attached to everything is
+    read by no one, and the point estimate inside it invited exactly the
+    reading it warned against. The report says it once, under the findings,
+    with the number of comparisons behind it.
 
-    A point estimate is still shown, with its interval, because the direction
-    is weak evidence and worth having — it just cannot carry a conclusion.
-
-    The interval printed is the ordinary uncorrected 95% one, so it can
-    exclude zero on a comparison that still fails the correction. The sentence
-    has to say which of the two happened: an earlier version printed
-    "[95% CI -2 to -0], which does not exclude zero" about an interval that
-    plainly did.
+    A pattern is called costly or working only when it survives the
+    correction, and then the figure is printed with its interval.
     """
-    if pd.isna(runs_cost):
+    if pd.isna(runs_cost) or not significant:
         return True, ""
 
     interval = ""
-    has_interval = runs_lo == runs_lo and runs_hi == runs_hi
-    if has_interval:
+    if runs_lo == runs_lo and runs_hi == runs_hi:
         # One decimal: whole numbers printed a bound of -0.2 as "-0".
         interval = f" [95% CI {runs_lo:+.1f} to {runs_hi:+.1f}]"
-
-    if not significant:
-        if has_interval and (runs_lo > 0 or runs_hi < 0):
-            family = (f"the {comparisons} comparisons this report ran"
-                      if comparisons else "every comparison this report ran")
-            reason = (f"which excludes zero on its own but does not survive "
-                      f"the correction for {family}")
-        else:
-            reason = "which does not exclude zero"
-        return True, (
-            f" Run consequence is unresolved at this sample: the point "
-            f"estimate is {runs_cost:+.1f} runs{interval}, {reason}. Treat "
-            f"the frequency pattern as the finding."
-        )
 
     if runs_cost >= min_runs:
         return True, (
@@ -445,83 +427,19 @@ def handedness_gaps(frame: pd.DataFrame) -> list[dict]:
     return findings
 
 
-def hittable_pitches(
-    frame: pd.DataFrame,
-    league_outcomes: pd.DataFrame | None,
-) -> list[dict]:
-    """Offerings hitters do more damage against than the league's version.
-
-    Requires league data, since "an xwOBA of .350 on his slider" means nothing
-    without knowing what sliders generally allow.
-
-    The gap has to clear its own noise as well as the configured floor. xwOBA
-    exists only on the pitch that ends a plate appearance, about one pitch in
-    four, with a standard deviation near 0.35 — so 200 sliders are about 50
-    plate appearances and a standard error near 0.05. The 0.060 floor alone
-    is barely one standard error at that size, and at the 50-pitch gate it is
-    about half of one. The league figure is treated as known; its sample is
-    far larger than his.
-    """
-    min_n = int(config.get("flags.min_n.hittable_pitch", 50))
-    min_delta = float(config.get("flags.thresholds.hittable_pitch_xwoba_delta", 0.060))
-    min_z = float(config.get("flags.thresholds.hittable_pitch_min_z", 2.0))
-
-    if league_outcomes is None:
-        return []
-
-    profile = arsenal.profile(frame)
-    if len(profile) == 0:
-        return []
-
-    compared = baselines.compare_profile(profile, league_outcomes)
-
-    findings = []
-    for row in compared.itertuples():
-        if row.n < min_n or pd.isna(row.xwoba_delta):
-            continue
-        if row.xwoba_delta < min_delta:
-            continue
-        se = getattr(row, "xwoba_se", float("nan"))
-        if not (se == se and row.xwoba_delta >= min_z * se):
-            continue
-        ended = int(getattr(row, "xwoba_n", 0))
-
-        # xwOBA is a mean, not a proportion, so proportion_z does not apply.
-        # Scaled against its own threshold instead, and labelled as such.
-        findings.append(_finding(
-            flag="hittable_pitch",
-            severity=_threshold_severity(
-                row.xwoba_delta, min_delta,
-                float(config.get("report.severity_weights.hittable_pitch", 2.0)),
-                int(row.n), min_n,
-            ),
-            basis=BASIS_THRESHOLD,
-            n=int(row.n),
-            claim=(
-                f"Hitters post a {row.xwoba:.3f} xwOBA against his "
-                f"{pitch_name(row.pitch_type)}, {row.xwoba_delta:+.3f} above the league's "
-                f"{row.league_xwoba:.3f} for that pitch (±{1.96 * se:.3f}), "
-                f"and he throws it {row.usage:.0%} of the time (n={ended} "
-                f"plate appearances ending on it, of {int(row.n)} pitches)."
-            ),
-            observed=row.xwoba,
-            reference=row.league_xwoba,
-        ))
-
-    return findings
-
-
 def fatigue_decline(frame: pd.DataFrame) -> list[dict]:
-    """Velocity loss late in outings, and what it is attributable to.
+    """Velocity loss late in outings.
 
-    Two findings can come out of this: the raw decline, and the
-    times-through-order attribution, which points in opposite tactical
-    directions depending on whether velocity holds.
+    Velocity only. A verdict on the third trip through the order used to come
+    out of this rule as well, built on the change in hitters' xwOBA between
+    trips. Checked half a season against the other, that verdict came back in
+    1 of 7 cases and the xwOBA change itself correlated at 0.06 and 0.29,
+    while the velocity drop this rule reads correlated at 0.83 and 0.87
+    (scripts/replication.py; the verdict's own figures at commit 432abb0).
+    The by-trip table is still in the report; the verdict is not.
     """
     min_outings = int(config.get("flags.min_n.fatigue_outings", 10))
     min_drop = float(config.get("flags.thresholds.fatigue_velo_drop_mph", 1.0))
-    min_tto_n = int(config.get("flags.min_n.times_through_order", 150))
-    xwoba_rise = float(config.get("flags.thresholds.tto_xwoba_rise", 0.020))
     weight = float(config.get("report.severity_weights.fatigue", 2.0))
 
     findings = []
@@ -565,44 +483,6 @@ def fatigue_decline(frame: pd.DataFrame) -> list[dict]:
                     observed=first_velo - drop,
                     reference=first_velo,
                 ))
-
-    decomposition = splits.decompose_tto(frame)
-    if decomposition["attribution"] in ("velocity_declines", "results_decay", "both"):
-        tto = splits.times_through_order(frame)
-        third = tto[tto["tto"] == 3]
-        n_third = int(third.iloc[0]["n"]) if len(third) else 0
-
-        # Both trips must clear the outings gate. A third trip drawn from a
-        # handful of starts is the same survivorship artifact as a late
-        # fatigue bucket.
-        if n_third >= min_tto_n and decomposition["reliable"]:
-            velo_delta = decomposition["velo_delta"]
-            xwoba_delta = decomposition["xwoba_delta"]
-
-            # Score whichever signal actually cleared its threshold. The first
-            # version scored the magnitude of the velocity change in every
-            # case, which ranked a results-only finding lowest of anything in
-            # the report, exactly because velocity had held steady.
-            if decomposition["attribution"] == "results_decay":
-                observed, threshold = xwoba_delta, xwoba_rise
-            else:
-                observed, threshold = -velo_delta, min_drop
-
-            findings.append(_finding(
-                flag="times_through_order",
-                severity=_threshold_severity(
-                    observed, threshold, weight, n_third, min_tto_n
-                ),
-                basis=BASIS_THRESHOLD,
-                n=n_third,
-                # The caveat travels with the claim rather than sitting in a
-                # footnote, because the claim is the part that gets quoted.
-                claim=(
-                    f"{decomposition['note'].rstrip('.')} (n={n_third} pitches). "
-                    f"{decomposition['caveat']}"
-                ),
-                observed=velo_delta,
-            ))
 
     return findings
 
@@ -727,19 +607,16 @@ def first_pitch_tendency(
     frame: pd.DataFrame,
     league_mix: pd.DataFrame | None = None,
 ) -> list[dict]:
-    """How he opens a plate appearance, when it is exploitable.
+    """A first pitch predictable enough to sit on.
 
-    Two separate findings: a predictable first pitch, and taken first pitches
-    called strikes rarely enough that taking is the correct approach.
-
-    The second uses the same measure and cutoff as the plan's first-pitch line
-    — called strikes on TAKEN first pitches — so the two can never disagree.
-    The usual first-pitch strike rate counts every swing as a strike, which
-    makes it look like taking costs a strike far more often than it does.
+    What he opens with, not whether to take it. "Take the first pitch" was a
+    second finding here, read off how often his taken first pitches are called
+    strikes. Pitchers differ by only a few points on that rate, and on a
+    season the cutoffs had never seen his own number predicted his next half
+    no better than the average pitcher's did, so it was removed.
     """
     min_n = int(config.get("flags.min_n.first_pitch", 30))
     min_share = float(config.get("flags.thresholds.first_pitch_share", 0.70))
-    take_below = float(config.get("plan.first_pitch_take_below", 0.40))
     weight = float(config.get("report.severity_weights.first_pitch", 2.0))
 
     summary = counts.first_pitch_tendencies(frame)
@@ -766,32 +643,6 @@ def first_pitch_tendency(
             reference=min_share,
         ))
 
-    first = frame[(frame["balls"] == 0) & (frame["strikes"] == 0)]
-    taken = first[~first["is_swing"].eq(True)]
-    min_takes = int(config.get("plan.first_pitch_min_takes", 80))
-    if len(taken) >= max(min_n, min_takes):
-        called = float(taken["is_called_strike"].eq(True).mean())
-        if called <= take_below:
-            findings.append(_finding(
-                flag="first_pitch",
-                # Inverted so the observed quantity rises as the finding gets
-                # stronger: a lower called-strike rate is a bigger finding, and
-                # the severity formula expects observed/threshold to grow.
-                severity=_threshold_severity(
-                    take_below / max(called, 1e-9), 1.0, weight,
-                    int(len(taken)), min_n,
-                ),
-                basis=BASIS_THRESHOLD,
-                n=int(len(taken)),
-                claim=(
-                    f"Taken first pitches are called strikes only {called:.0%} "
-                    f"of the time (n={len(taken)} taken), so taking the first "
-                    f"pitch is the percentage play."
-                ),
-                observed=called,
-                reference=take_below,
-            ))
-
     return findings
 
 
@@ -802,14 +653,13 @@ def first_pitch_tendency(
 
 def evaluate(
     frame: pd.DataFrame,
-    league_outcomes: pd.DataFrame | None = None,
     league_mix: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Run every rule and return the findings, ranked by severity.
 
     Returns a DataFrame with FINDING_COLUMNS, sorted by severity descending.
-    Rules requiring league data are skipped when it is absent, so this works
-    against a bare fixture as well as a fully built cache.
+    `league_mix` only adds the league's rate to the count finding's sentence,
+    so this works against a bare fixture as well as a fully built cache.
 
     Ranking mixes two severity bases by design, and `severity_basis` names
     which one produced each row. See the module docstring, and the comment on
@@ -822,7 +672,6 @@ def evaluate(
     findings: list[dict] = []
     findings.extend(predictable_counts(frame, league_mix))
     findings.extend(handedness_gaps(frame))
-    findings.extend(hittable_pitches(frame, league_outcomes))
     findings.extend(fatigue_decline(frame))
     findings.extend(sequencing_tells(frame))
     findings.extend(location_tells(frame))
@@ -840,9 +689,7 @@ def evaluate(
     # stricter one. The cutoff is set by all of them; a finding survives if
     # its own p-value is under it.
     family = comparison_p_values(frame)
-    all_p = [p for values in family.values() for p in values]
-    cutoff = bh_cutoff(all_p)
-    n_comparisons = len(all_p)
+    cutoff = bh_cutoff([p for values in family.values() for p in values])
     min_runs = float(config.get("flags.thresholds.min_runs_cost", 1.0))
 
     for finding in findings:
@@ -852,7 +699,6 @@ def evaluate(
         exploitable, phrase = _consequence(
             finding["runs_cost"], min_runs, is_resolved,
             finding["runs_lo"], finding["runs_hi"],
-            comparisons=n_comparisons,
         )
         finding["claim"] = finding["claim"] + phrase
         # Only a demonstrated benefit to the pitcher demotes a finding.
@@ -924,7 +770,6 @@ def comparison_p_values(frame: pd.DataFrame) -> dict[str, list[float]]:
 
 def takeaways(
     frame: pd.DataFrame,
-    league_outcomes: pd.DataFrame | None = None,
     league_mix: pd.DataFrame | None = None,
     limit: int | None = None,
     findings: pd.DataFrame | None = None,
@@ -943,7 +788,7 @@ def takeaways(
         limit = int(config.get("report.max_takeaways", 5))
 
     table = (findings if findings is not None
-             else evaluate(frame, league_outcomes, league_mix))
+             else evaluate(frame, league_mix))
     if len(table) == 0:
         return table
 

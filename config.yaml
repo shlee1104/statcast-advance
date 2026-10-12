@@ -84,7 +84,6 @@ report:
   severity_weights:
     predictable_count: 2.0
     handedness_gap: 2.0
-    hittable_pitch: 2.0
     fatigue: 2.0
     sequencing_tell: 2.0
     location_tell: 2.0
@@ -127,32 +126,19 @@ seasons:
 # Set from the calibration run over 25 pitchers, 50 pitcher-sides, 2025
 # (scripts/batch_reports.py) — the 25 of the 30 on the list that ran at the
 # time. Rerun on all 30 (60 pitcher-sides) on 2026-10-12 with the same
-# cutoffs: the spreads quoted below did not move (called strikes on taken
-# first pitches: median 0.45, middle half 0.39-0.49). The first values were set by judgment against
-# Yamamoto and Skubal alone; the run showed several firing for nearly every
+# cutoffs: the spreads quoted below did not move. The first values were set
+# by judgment against Yamamoto and Skubal alone; the run showed several firing for nearly every
 # pitcher, which means the line describes the league rather than the man.
 # The aim for each is that it fires for a minority, and that the sentence it
 # writes is one a hitter could act on.
 plan:
-  # Called-strike rate on TAKEN first pitches. At or above `swing_above`,
-  # taking often puts the hitter down 0-1; at or below `take_below`, taking
-  # is fine. Between the two, the plan says there is no strong case.
-  #
-  # Across the run this rate had a median of 0.45 and a middle half of
-  # 0.39-0.49. The old pair (0.55 / 0.45) told 53% of sides to take and 4% to
-  # swing. These sit near the quartiles, so roughly a quarter get each piece
-  # of advice and the middle half get none. The split reads true: zone-pounders
-  # (Webb, Hendricks) land on "swing", Snell, Senga and Mason Miller on "take".
-  first_pitch_swing_above: 0.50
-  first_pitch_take_below: 0.40
-
-  # ...and only on at least this many taken first pitches. The holdout check
-  # (scripts/holdout.py, first half vs second half of 2025) found every
-  # take/swing call that flipped rested on fewer than 60 takes, and none above
-  # that. A full season gives a starter 250-450 takes per side, so starters
-  # keep the advice and most relievers do not; below the floor the line still
-  # names his first-pitch mix.
-  first_pitch_min_takes: 80
+  # No cutoff for the first-pitch line: it states his mix and nothing else.
+  # It used to add "take" or "swing" from the called-strike rate on TAKEN
+  # first pitches (cutoffs 0.50 / 0.40, on at least 80 takes). On 2026, a
+  # season those cutoffs had never seen, the advice held 7 times in 12 and his
+  # own rate predicted his second half no better than the average pitcher's
+  # (skill +0.01, 95% interval -0.53 to +0.35), so the advice and its three
+  # cutoffs were removed. The run is reproducible at commit cc5a2ed.
 
   # When the hitter is ahead in the count: "sit hard" when fastballs take at
   # least `sit_hard_share`; otherwise "sit <pitch>" when one pitch takes at
@@ -217,16 +203,11 @@ flags:
   min_n:
     predictable_count: 20
     handedness_gap: 40
-    hittable_pitch: 50
     fatigue_outings: 10
     sequencing_tell: 25
     location_leak: 40
     location_tell: 40
     first_pitch: 30
-
-    # Third-trip findings are measured in pitches, not outings, because the
-    # decomposition compares rates rather than counting starts.
-    times_through_order: 150
 
   thresholds:
     # Every usage lift — a pitch in a count, in a location band, after a setup
@@ -276,15 +257,6 @@ flags:
     # Usage gap between vs-LHH and vs-RHH for an effective pitch
     handedness_usage_gap: 0.20
 
-    # xwOBA above league average for that pitch type...
-    hittable_pitch_xwoba_delta: 0.060
-
-    # ...and at least this many standard errors above it. Only the pitch that
-    # ends a plate appearance has an xwOBA, so the 50-pitch gate is about a
-    # dozen of them and a standard error near 0.10 — the floor alone is inside
-    # the noise for anything short of a starter's main pitch.
-    hittable_pitch_min_z: 2.0
-
     # Velocity decline, in mph, across an outing. Measured on his most-used
     # fastball only and within each outing (see splits.fatigue), so it is not
     # moved by his pitch mix or by which outings lasted.
@@ -310,18 +282,6 @@ flags:
     # pitcher's baseline rate for it. A 30% pitch at 2x baseline is a tell even
     # though 30% is not a majority.
     sequencing_tell_lift: 1.50
-
-    # Third time through the order, an xwOBA rise of at least this much is
-    # worth calling results decaying...
-    tto_xwoba_rise: 0.020
-
-    # ...but only if it is also this many standard errors from zero. The
-    # floor above is a fixed number and the noise is not: xwOBA per plate
-    # appearance has an SD near 0.35, a third trip is about 200 plate
-    # appearances, so the standard error of a trip-to-trip difference is about
-    # 0.03 and the floor alone sits inside one of them. Skubal's 2025 change
-    # was +0.022 with a standard error of 0.034.
-    tto_xwoba_min_z: 2.0
 
     # Share of a pitch type concentrated in a single zone quadrant.
     # Descriptive only — see location_tell_lift below for why this is not
@@ -358,6 +318,6 @@ flags:
     # carrying information overall. Revisit once more pitchers have been run.
     location_tell_info: 0.08
 
-    # First-pitch predictability. The "take the first pitch" finding uses the
-    # plan's own cutoff, plan.first_pitch_take_below, so the two always agree.
+    # First-pitch predictability: the share of first pitches that are his
+    # most-used opener.
     first_pitch_share: 0.70

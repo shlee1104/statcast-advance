@@ -118,20 +118,13 @@ def _cut(key: str, default: float) -> float:
 # ---------------------------------------------------------------------------
 
 
-def first_pitch_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
-    """First-pitch mix to this side, and how often TAKEN first pitches are strikes."""
+def first_pitch_numbers(usage: pd.DataFrame, side: str) -> dict | None:
+    """His first-pitch mix to this side: the two pitches he opens with most."""
     min_n = int(config.get("flags.min_n.first_pitch", 30))
     rows = _top(usage, "first_pitch", side)
     if len(rows) == 0 or int(rows.iloc[0]["situation_n"]) < min_n:
         return None
 
-    side_frame = frame[(frame["stand"] == side)
-                       & (frame["balls"] == 0) & (frame["strikes"] == 0)]
-    taken = side_frame[~side_frame["is_swing"].eq(True)]
-    called = (
-        float(taken["is_called_strike"].eq(True).mean())
-        if len(taken) >= min_n else float("nan")
-    )
     lead = rows.iloc[0]
     second = rows.iloc[1] if len(rows) > 1 else None
     return {
@@ -140,8 +133,6 @@ def first_pitch_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> 
         "top_share": float(lead.share),
         "second": second.pitch_type if second is not None else None,
         "second_share": float(second.share) if second is not None else float("nan"),
-        "takes": int(len(taken)),
-        "called_on_takes": called,
     }
 
 
@@ -164,27 +155,6 @@ def hitters_count_numbers(usage: pd.DataFrame, side: str) -> dict | None:
         "second_share": float(rows.iloc[1].share) if len(rows) > 1 else 0.0,
         "rows": rows,
     }
-
-
-def first_pitch_rule(m: dict) -> str | None:
-    """"swing", "take" or "neutral" from the called-strike rate on taken first
-    pitches; None when too few were taken to say.
-
-    The holdout check is why the sample floor is high. Built from half a season
-    and tested on the other half, every take/swing call that flipped came from
-    a pitcher with fewer than 60 taken first pitches — Muñoz, Imanaga to
-    lefties — and none flipped above that. Pitchers differ by only a few points
-    on this rate, so it takes a large sample before one pitcher's number means
-    more than the average pitcher's.
-    """
-    called = m["called_on_takes"]
-    if called != called or m["takes"] < _cut("first_pitch_min_takes", 80):
-        return None
-    if called >= _cut("first_pitch_swing_above", 0.50):
-        return "swing"
-    if called <= _cut("first_pitch_take_below", 0.40):
-        return "take"
-    return "neutral"
 
 
 def hitters_count_rule(m: dict) -> str:
@@ -312,22 +282,21 @@ def rare_pitches(frame: pd.DataFrame, side: str, max_share: float | None = None)
 # ---------------------------------------------------------------------------
 
 
-def first_pitch_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
-    """How he starts hitters on this side, and whether to take or swing.
+def first_pitch_key(usage: pd.DataFrame, side: str) -> dict | None:
+    """What he starts hitters on this side with.
 
-    The take-or-swing advice is based on what happens when the first pitch is
-    TAKEN — how often it is called a strike — because that is the only number
-    that answers the hitter's actual question: "if I take this, where does the
-    count go?"
-
-    The obvious number is wrong for this. The usual first-pitch strike rate
-    counts any pitch that is swung at as a strike, so it is inflated by every
-    other hitter who swung. Yamamoto's is 63%, which reads as "taking puts you
-    down 0-1"; but when hitters actually take his first pitch it is called a
-    strike only 45% of the time. The first version of this rule used the
-    inflated number and gave the opposite advice.
+    The mix only. This line used to go on to say whether to take or swing,
+    from how often his taken first pitches are called strikes — the right
+    number for the question, since the usual first-pitch strike rate counts
+    every swing as a strike. But the advice did not survive testing. Built on
+    the first half of 2026 and checked on the second, across 28 pitchers, it
+    held 7 times in 12, and his own rate predicted his second half no better
+    than the average pitcher's rate did (skill +0.01, 95% interval -0.53 to
+    +0.35). Pitchers differ by only a few points here — the middle half sit
+    between 39% and 49% — so the line was describing first pitches in
+    general, and it was removed.
     """
-    m = first_pitch_numbers(frame, usage, side)
+    m = first_pitch_numbers(usage, side)
     if m is None:
         return None
 
@@ -337,20 +306,6 @@ def first_pitch_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict
     if m["second"] and m["second_share"] >= 0.10:
         text += f", then {name(m['second'])} {_pct(m['second_share'])}"
     text += "."
-
-    called = m["called_on_takes"]
-    rule = first_pitch_rule(m)
-    if rule is not None:
-        if rule == "swing":
-            text += (f" Taken first pitches are called strikes {_pct(called)} of "
-                     f"the time, so taking often puts you down 0-1 — be ready to "
-                     f"swing at a strike.")
-        elif rule == "take":
-            text += (f" Taken first pitches are called strikes only {_pct(called)} "
-                     f"of the time — you can make him throw one.")
-        else:
-            text += (f" Taken first pitches are called strikes {_pct(called)} of "
-                     f"the time — no strong case for taking or swinging.")
 
     return _key("First pitch", text, m["n"])
 
@@ -820,7 +775,7 @@ def build(frame: pd.DataFrame, last_n: int = 5, changes: dict | None = None) -> 
 
     for side in ("L", "R"):
         for key in (
-            first_pitch_key(frame, usage, side),
+            first_pitch_key(usage, side),
             hitters_count_key(usage, side),
             two_strike_key(frame, usage, side),
             wont_show_key(frame, side),

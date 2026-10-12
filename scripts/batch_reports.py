@@ -135,10 +135,6 @@ def side_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict:
     """The measurement behind each per-side plan rule, whether or not it fired."""
     out = {f"{side}_pitches": int((frame["stand"] == side).sum())}
 
-    fp = gameplan.first_pitch_numbers(frame, usage, side)
-    out[f"{side}_fp_called_on_takes"] = _r(fp["called_on_takes"]) if fp else ""
-    out[f"{side}_fp_takes"] = fp["takes"] if fp else ""
-
     hc = gameplan.hitters_count_numbers(usage, side)
     if hc:
         rule = {"hard": "sit hard", "pitch": f"sit {hc['top']}",
@@ -297,22 +293,6 @@ def thresholds(rows: list[dict]) -> list[dict]:
             "fires": fires, "fires_pct": round(fires / n, 3) if n else "",
             "spread": _quantiles(vals), "note": note,
         })
-
-    called = _values(ok, "fp_called_on_takes")
-    hi, lo = gameplan._cut("first_pitch_swing_above", .50), gameplan._cut("first_pitch_take_below", .40)
-    # The advice also needs first_pitch_min_takes taken first pitches. Counting
-    # every side past the rate cutoff reported the line as firing on sides
-    # where the plan stays silent.
-    min_takes = gameplan._cut("first_pitch_min_takes", 80)
-    advised = [
-        float(r[f"{side}_fp_called_on_takes"]) for r in ok for side in ("L", "R")
-        if r.get(f"{side}_fp_called_on_takes", "") not in ("", None)
-        and float(r.get(f"{side}_fp_takes") or 0) >= min_takes
-    ]
-    add("first_pitch_swing_above", hi, called, sum(v >= hi for v in advised),
-        f"share told 'be ready to swing' (on {min_takes:.0f}+ taken first pitches)")
-    add("first_pitch_take_below", lo, called, sum(v <= lo for v in advised),
-        f"share told 'make him throw one' (on {min_takes:.0f}+ taken first pitches)")
 
     hard = _values(ok, "ahead_hard_share")
     cut = gameplan._cut("sit_hard_share", .70)

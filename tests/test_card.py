@@ -295,53 +295,43 @@ class TestSeasonLine:
 
 
 class TestFirstPitchKey:
-    """The rule that once gave backwards advice."""
+    """The first-pitch line states his mix, and only his mix."""
 
-    def test_uses_called_strikes_on_takes_not_strikes_or_swings(self):
-        """Over half of first pitches are swung at (inflating the usual strike
-        rate), but the TAKEN ones are called strikes only 25% of the time.
-        Taking is the right advice; the inflated number says the opposite."""
+    def test_names_the_two_pitches_he_opens_with(self):
         frame = make_frame([
-            {"pitch_type": "FF", "n": 120, "is_swing": True, "type": "S",
-             "description": "foul"},
-            {"pitch_type": "FF", "n": 20, "is_swing": False, "type": "S",
-             "description": "called_strike"},
-            {"pitch_type": "FF", "n": 60, "is_swing": False, "type": "B",
-             "description": "ball"},
+            {"pitch_type": "FF", "n": 60},
+            {"pitch_type": "SL", "n": 40},
         ])
-        usage = counts.situational_usage(frame)
-        key = gameplan.first_pitch_key(frame, usage, "R")
-        assert key is not None
-        assert "25%" in key["text"]
-        assert "make him throw one" in key["text"]
-        assert "down 0-1" not in key["text"]
+        key = gameplan.first_pitch_key(counts.situational_usage(frame), "R")
+        assert key["text"] == "Four-seam 60%, then slider 40%."
+        assert key["n"] == 100
 
-    def test_recommends_swinging_when_takes_are_usually_strikes(self):
+    def test_leaves_out_a_second_pitch_he_rarely_opens_with(self):
         frame = make_frame([
-            {"pitch_type": "FF", "n": 70, "is_swing": False,
-             "description": "called_strike"},
-            {"pitch_type": "FF", "n": 30, "is_swing": False, "type": "B",
-             "description": "ball"},
+            {"pitch_type": "FF", "n": 95},
+            {"pitch_type": "SL", "n": 5},
         ])
-        usage = counts.situational_usage(frame)
-        key = gameplan.first_pitch_key(frame, usage, "R")
-        assert "down 0-1" in key["text"]
+        key = gameplan.first_pitch_key(counts.situational_usage(frame), "R")
+        assert key["text"] == "Four-seam 95%."
 
     def test_silent_below_the_sample_gate(self):
         frame = make_frame([{"pitch_type": "FF", "n": 10}])
         usage = counts.situational_usage(frame)
-        assert gameplan.first_pitch_key(frame, usage, "R") is None
+        assert gameplan.first_pitch_key(usage, "R") is None
 
-    def test_no_take_or_swing_advice_on_few_takes(self):
-        """In the holdout check every take/swing call that flipped rested on
-        fewer than 60 taken pitches. Below the floor the line keeps the mix
-        and drops the advice."""
+    @pytest.mark.parametrize("called_strikes", [10, 190])
+    def test_gives_no_take_or_swing_advice(self, called_strikes):
+        """The line used to tell a hitter to take or swing from how often
+        taken first pitches were called strikes. Tested on a season its
+        cutoffs had never seen, that advice showed no skill and was removed.
+        However lopsided the take rate, the line stays the mix."""
         frame = make_frame([
-            {"pitch_type": "FF", "n": 15, "is_swing": False, "description": "called_strike"},
-            {"pitch_type": "FF", "n": 45, "is_swing": False, "type": "B",
-             "description": "ball"},
+            {"pitch_type": "FF", "n": called_strikes, "is_swing": False,
+             "description": "called_strike"},
+            {"pitch_type": "FF", "n": 200 - called_strikes, "is_swing": False,
+             "type": "B", "description": "ball"},
         ])
-        key = gameplan.first_pitch_key(frame, counts.situational_usage(frame), "R")
+        key = gameplan.first_pitch_key(counts.situational_usage(frame), "R")
         assert key["text"] == "Four-seam 100%."
 
 

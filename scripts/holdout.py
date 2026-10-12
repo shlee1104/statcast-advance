@@ -95,7 +95,7 @@ def print_summary(summary: list[dict], split: str, pitchers: int) -> None:
     print("  advice   times the first part told the hitter something")
     print("  held     the advice was still usable in the second part (see src/validation.py)")
     print("  strict   the second part would have written the same line by the plan's own cutoffs")
-    print("  weaker   the second part said less — \"no case\", \"he mixes\", \"look fastball\"")
+    print("  weaker   the second part said less — \"he mixes\", \"look fastball\"")
     print("  flipped  the second part pointed the other way — the failure that matters")
     print("  skill    above 0: his own number beats the average pitcher's at")
     print("           predicting what he did next; 0 means knowing him adds nothing")

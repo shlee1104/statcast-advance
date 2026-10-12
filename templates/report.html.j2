@@ -91,6 +91,8 @@ section.card > .lede{font-size:13px;color:var(--muted);margin-bottom:16px;max-wi
 .chartbox h3{font-size:14px;font-weight:650;margin-bottom:2px}
 .chartbox .lede{font-size:12px;color:var(--muted);margin-bottom:14px}
 .chartbox .holder{position:relative;height:280px}
+.chartbox h3.sub3{font-size:13px;margin:18px 0 6px}
+.chartbox th,.chartbox td{padding:7px 7px}
 canvas{max-height:280px}
 
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -106,19 +108,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .neg{color:var(--good)}
 .dim{color:var(--muted)}
 
-/* Zone map: Savant's 3x3 strike zone floating inside the four outside
+/* Zone maps: Savant's 3x3 strike zone floating inside the four outside
    regions, which is how a hitter pictures it. */
-.zonewrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
-.zone{position:relative;width:250px;height:280px;flex:0 0 auto;margin-bottom:24px}
-.zone .outer{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
-             grid-template-rows:1fr 1fr;border-radius:6px;overflow:hidden}
-.zone .inner{position:absolute;left:22%;top:20%;width:56%;height:60%;
-             display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
-             border:2px solid rgba(20,28,40,.65);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
-.cell{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;
-       border:1px solid rgba(255,255,255,.45);color:#16202e}
-.zone .legend{position:absolute;bottom:-20px;width:100%;text-align:center;font-size:11px;
-              color:var(--muted)}
 /* Small multiples: all six pitches at once, so comparison is by eye rather
    than by memory. A dropdown that swaps one grid forces the reader to hold
    the previous one in their head. */
@@ -174,9 +165,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
    zone over their middle, so a label centred in a quadrant — or placed in the
    corner nearest the zone — ends up underneath the strike-zone box. Each label
    is pinned to its quadrant's OUTER corner, the only part of the quadrant the
-   box can never cover. Before this, zone 14 (low, catcher's right) was hidden
-   on the single map and all four outside labels were hidden on the small
-   grids — including the 35% of Skubal's changeups that finish in zone 14. */
+   box can never cover. Before this, all four outside labels were hidden on
+   the grids — including the 35% of Skubal's changeups that finish in zone 14. */
 .oz{position:relative;border:1px solid rgba(255,255,255,.45);
     -webkit-print-color-adjust:exact;print-color-adjust:exact}
 .oz .lab{position:absolute;display:flex;flex-direction:column;padding:5px 7px;
@@ -187,7 +177,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .oz-12 .lab{top:0;right:0;align-items:flex-end}
 .oz-13 .lab{bottom:0;left:0;align-items:flex-start}
 .oz-14 .lab{bottom:0;right:0;align-items:flex-end}
-.oz.dark .lab,.cell.dark,.zcell.dark{color:#fff}
+.oz.dark .lab,.zcell.dark{color:#fff}
 /* Hand-drawn SVG charts (slope, movement): sized by viewBox so they scale to
    the column and print at full resolution. */
 .svgchart{width:100%;height:auto;display:block;font-family:inherit}
@@ -199,9 +189,6 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .svgchart .blab{font-size:12px;font-weight:700;fill:#1c2024}
 .svgchart .bsub{font-size:10.5px;fill:#55606b}
 .svgchart.move{max-width:640px}
-.zonekey{font-size:12px;color:var(--muted);max-width:34ch}
-.zonekey .sw{display:flex;align-items:center;gap:6px;margin-top:8px}
-.zonekey .sw i{width:14px;height:14px;border-radius:3px;display:inline-block}
 select{padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;
        font-size:13px;color:var(--ink)}
 .controls{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
@@ -433,14 +420,12 @@ button.more:hover{background:#f3f6fa}
         <span class="chip">{{ payload.flag_labels.get(t.flag, t.flag) }}</span>
         <span>n = {{ t.n }}</span>
         <span>strength {{ "%.1f"|format(t.severity) }}</span>
-        {# A run chip is only shown as a cost or a saving when the estimate
-           survived the correction. Otherwise a chip saying "costs him 3.4
-           runs" sits next to a sentence saying the cost is unresolved, and
-           the chip is what a skimming reader sees. #}
-        {% if t.runs_cost is not none %}
-          {% if not t.resolved %}
-          <span class="chip">run cost unresolved</span>
-          {% elif t.runs_cost > 0 %}
+        {# A run chip appears only when the estimate survived the correction,
+           which is rare. "Run cost unresolved" used to be printed on every
+           other finding, and a label on nearly everything says nothing; the
+           note under the list says it once. #}
+        {% if t.runs_cost is not none and t.resolved %}
+          {% if t.runs_cost > 0 %}
           <span class="chip cost">costs him {{ "%.1f"|format(t.runs_cost) }} runs</span>
           {% else %}
           <span class="chip works">saves him {{ "%.1f"|format(-t.runs_cost) }} runs</span>
@@ -452,12 +437,10 @@ button.more:hover{background:#f3f6fa}
   {% endfor %}
   <p class="note">
     {{ payload.finding_count }} findings cleared their gates in total; the list above
-    is deduplicated to the strongest per category.
+    is the strongest in each category, and the rest are rows in the tables below.
     Counts and sequences are compared against <b>his own</b> overall rates, not the
     league's — the league answers "who is this pitcher", his own rate answers "what is
     he about to throw", and only the second is a hitter's question.
-    Where the run column is present it is the estimated cost of the pattern over
-    this sample, from Savant's run expectancy.
   </p>
   <p class="note">
     <b>How many comparisons produced this.</b>
@@ -628,17 +611,6 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 
 <div class="charts">
   <div class="chartbox">
-    <h3>Arsenal usage{% if payload.meta.has_league %} vs league{% endif %}</h3>
-    <p class="lede">
-      {% if payload.meta.has_league %}A pitch thrown well above league rate is the defining
-      fact about a pitcher.{% else %}Share of all pitches.{% endif %}
-    </p>
-    <div class="holder"><canvas id="arsenalChart"></canvas></div>
-  </div>
-</div>
-
-<div class="charts">
-  <div class="chartbox">
     <h3>Velocity through the outing</h3>
     <p class="lede">
       {% if payload.fatigue.pitch %}His {{ c.coach_names.get(payload.fatigue.pitch, payload.fatigue.pitch) }} only{% else %}One fastball only{% endif %}
@@ -649,6 +621,17 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
       {{ payload.fatigue.min_outings }} outings.
     </p>
     <div class="holder"><canvas id="fatigueChart"></canvas></div>
+    {% if payload.tto %}
+    <h3 class="sub3">By trip through the order</h3>
+    <div class="scroll"><table id="ttoTable"><thead></thead><tbody></tbody></table></div>
+    <p class="note">
+      "Vs 1st trip" is the same fastball's velocity, compared inside each outing that
+      reached both trips, with the number of outings compared beside it. The
+      other columns are plain per-trip figures, and a later trip holds only
+      the outings that lasted that long. The third trip is also roughly
+      pitches 70 to 100, so this shows what happens late, not why.
+    </p>
+    {% endif %}
   </div>
   {# Slope chart, drawn as SVG by the template. Coordinates and label
      positions come from charts.slope_layout; nothing is computed here. #}
@@ -695,36 +678,11 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 <section class="card">
   <h2>Location</h2>
   <p class="lede">
-    Coordinates are normalized: horizontally to the pitcher's arm side, vertically to
-    each batter's own strike zone. The grid below is Savant's, read from the catcher's
-    view — the 3&times;3 is the strike zone, the four surrounding regions are outside it.
-  </p>
-  <div class="controls">
-    <label for="zonePick">Pitch type</label>
-    <select id="zonePick"></select>
-  </div>
-  <div class="zonewrap">
-    <div class="zone">
-      <div class="outer" id="zoneOuter"></div>
-      <div class="inner" id="zoneInner"></div>
-      <div class="legend">catcher's view</div>
-    </div>
-    <div class="zonekey">
-      Share of this pitch type going to each region. Darker is more concentrated.
-      <div class="sw"><i style="background:#dce6f0"></i> low</div>
-      <div class="sw"><i style="background:#2f6fb2"></i> high</div>
-      <div id="bandNote" class="note"></div>
-    </div>
-  </div>
-
-  <h3 style="font-size:13px;margin:26px 0 6px">
-    Every pitch, by count state and batter handedness
-  </h3>
-  <p class="lede">
-    All six grids share one colour scale, so a cell means the same thing in
-    every panel and across every slice — switching the controls does not
-    rescale anything. Each cell carries its own percentage and pitch count,
-    because colour alone should not be load-bearing.
+    Each grid is Savant's, read from the catcher's view: the 3&times;3 is the strike
+    zone and the four surrounding regions are outside it. All of them share one colour
+    scale, so a cell means the same thing in every panel and across every slice —
+    switching the controls does not rescale anything. Each cell carries its own
+    percentage and pitch count, because colour alone should not be load-bearing.
   </p>
   <div class="controls">
     <label for="sliceState">Count</label>
@@ -754,6 +712,7 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 
   {% if payload.location_tells %}
   <h3 style="font-size:13px;margin:22px 0 8px">What the pitch's height gives away</h3>
+  <p class="note" id="bandNote" style="margin:0 0 10px"></p>
   <div class="scroll">
     <table id="tellsTable">
       <thead><tr>
@@ -768,11 +727,15 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 </section>
 
 <section class="card">
-  <h2>Arsenal</h2>
+  <h2>Arsenal{% if payload.meta.has_league %} against the league{% endif %}, by batter side</h2>
   <p class="lede">
-    Movement in inches. Arm-side is horizontal movement toward his throwing arm,
-    with glove side negative — the same as the card, so the numbers match. Whiff
-    rate is per swing, not per pitch.
+    What the card's arsenal table leaves out.
+    {% if payload.meta.has_league %}Each "vs Lg" and &Delta; column is his pitch against
+    the league's version of the same pitch from the same hand: a pitch thrown well
+    above league rate is the defining fact about a pitcher.{% endif %}
+    Whiff rate is per swing, not per pitch, and is blank against a side that saw too
+    few of the pitch for a rate to mean anything. Movement and velocity range are on
+    the card.
   </p>
   <div class="scroll"><table id="arsenalTable"><thead></thead><tbody></tbody></table></div>
 </section>
@@ -784,20 +747,10 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
     count, 0.0 means an even spread across his whole arsenal.
     {% if payload.meta.has_league %}
     The league share is context — who he is. Whether a count is a finding is
-    decided against his own rate, in the table below.
+    decided against his own rate, in the count grid above.
     {% endif %}
   </p>
   <div class="scroll"><table id="predTable"><thead></thead><tbody></tbody></table></div>
-
-  <h3 style="font-size:13px;margin:22px 0 8px">
-    Counts that change his mind — every pitch, not only the plurality
-  </h3>
-  <p class="lede">
-    Lift is against <b>his own</b> overall rate for that pitch. The most useful
-    pattern is frequently not the most-thrown pitch in the count, so this table
-    covers every pitch-count pair rather than one row per count.
-  </p>
-  <div class="scroll"><table id="liftTable"><thead></thead><tbody></tbody></table></div>
 </section>
 
 <section class="card">
@@ -824,18 +777,6 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 </section>
 
 <section class="card">
-  <h2>Splits</h2>
-  <div class="scroll"><table id="platoonTable"><thead></thead><tbody></tbody></table></div>
-
-  {% if payload.tto_decomposition.headline %}
-  <h3 style="font-size:13px;margin:22px 0 8px">Times through the order</h3>
-  <div class="scroll"><table id="ttoTable"><thead></thead><tbody></tbody></table></div>
-  <p class="note"><b>{{ payload.tto_decomposition.headline }}.</b>
-    {{ payload.tto_decomposition.note }} {{ payload.tto_decomposition.caveat }}</p>
-  {% endif %}
-</section>
-
-<section class="card">
   <h2>Release consistency</h2>
   <p class="lede">
     Where each pitch leaves his hand, compared with his fastball. A pitch released
@@ -844,12 +785,6 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
     problem.
   </p>
   <div class="scroll"><table id="releaseTable"><thead></thead><tbody></tbody></table></div>
-</section>
-
-<section class="card">
-  <h2>All findings</h2>
-  <p class="lede">Everything that cleared its gate, before deduplication.</p>
-  <div class="scroll"><table id="findingsTable"><thead></thead><tbody></tbody></table></div>
 </section>
 
 <footer>
@@ -872,14 +807,14 @@ const sign = (v, d = 3) => v === null || v === undefined ? '—'
 
 /* ---------------------------------------------------------------- tables */
 /* One renderer for every table. Columns declare their own formatter, so a
-   rate can never be printed as a raw float by accident. */
+   rate can never be printed as a raw float by accident. A formatter gets the
+   cell's value and then its whole row, for a cell that prints its own n. */
 /* Codes stay in the data, for sorting; the reader sees words. */
 const PITCH_FIELDS = new Set(['pitch_type', 'top_pitch', 'setup_pitch', 'next_pitch']);
 const HEIGHTS = { UP: 'High', MID: 'Belt', MIDDLE: 'Belt', DOWN: 'Low' };
 function words(field, raw) {
   if (PITCH_FIELDS.has(field)) return (D.display_names || {})[raw] || raw;
   if (field === 'band' || field === 'setup_band') return HEIGHTS[raw] || raw;
-  if (field === 'flag') return (D.flag_labels || {})[raw] || raw;
   return raw;
 }
 
@@ -901,7 +836,7 @@ function table(id, rows, cols) {
 
     el.querySelector('tbody').innerHTML = data.map(r => '<tr>' + present.map(c => {
       const raw = r[c.f];
-      const txt = c.fmt ? c.fmt(raw) : (raw === null || raw === undefined ? '—' : words(c.f, raw));
+      const txt = c.fmt ? c.fmt(raw, r) : (raw === null || raw === undefined ? '—' : words(c.f, raw));
       let cls = c.n ? 'num' : '';
       if (c.tone && typeof raw === 'number') cls += raw > 0 ? ' pos' : ' neg';
       return `<td class="${cls}">${txt}</td>`;
@@ -923,6 +858,9 @@ function table(id, rows, cols) {
   draw(rows);
 }
 
+/* What the card's arsenal table does not carry: the league comparisons, zone
+   rate, and whiff rate by batter side. Movement, spin and chase are on the
+   card and are not repeated here. */
 table('arsenalTable', D.arsenal, [
   { f: 'pitch_type', l: 'Pitch' },
   { f: 'n', l: 'n', n: 1, fmt: int },
@@ -931,13 +869,13 @@ table('arsenalTable', D.arsenal, [
   { f: 'usage_ratio', l: 'vs Lg', n: 1, fmt: v => num(v, 2) + 'x' },
   { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
   { f: 'velo_delta', l: 'Δ velo', n: 1, fmt: v => sign(v, 1) },
-  { f: 'spin', l: 'Spin', n: 1, fmt: int },
-  { f: 'arm_run', l: 'Arm-side (in)', n: 1, fmt: v => num(v, 1) },
-  { f: 'v_break', l: 'Ride (in)', n: 1, fmt: v => num(v, 1) },
   { f: 'zone_rate', l: 'Zone%', n: 1, fmt: pct0 },
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
   { f: 'whiff_delta', l: 'Δ whiff', n: 1, fmt: v => sign(v, 3) },
-  { f: 'chase_rate', l: 'Chase', n: 1, fmt: pct },
+  { f: 'whiff_L', l: 'Whiff vs L', n: 1, fmt: pct },
+  { f: 'n_L', l: 'n to L', n: 1, fmt: int },
+  { f: 'whiff_R', l: 'Whiff vs R', n: 1, fmt: pct },
+  { f: 'n_R', l: 'n to R', n: 1, fmt: int },
   { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
   { f: 'xwoba_delta', l: 'Δ xwOBA', n: 1, fmt: v => sign(v, 3), tone: 1 },
 ]);
@@ -951,19 +889,6 @@ table('predTable', D.predictability, [
   { f: 'share_delta', l: 'vs league', n: 1, fmt: v => sign(v, 3), tone: 1 },
   { f: 'share_z', l: 'SEs from league', n: 1, fmt: v => num(v, 1) },
   { f: 'predictability', l: 'Predictability', n: 1, fmt: v => num(v, 3) },
-]);
-
-table('liftTable', D.count_lifts, [
-  { f: 'count', l: 'Count' },
-  { f: 'pitch_type', l: 'Pitch' },
-  { f: 'n', l: 'n', n: 1, fmt: int },
-  { f: 'count_n', l: 'in count', n: 1, fmt: int },
-  { f: 'share', l: 'Share', n: 1, fmt: pct },
-  { f: 'own_rate', l: 'His overall', n: 1, fmt: pct },
-  { f: 'lift', l: 'vs his usual', n: 1, fmt: v => num(v, 2) + 'x' },
-  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
-  { f: 'xwoba_when', l: 'xwOBA here', n: 1, fmt: v => num(v, 3) },
-  { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);
 
 table('setupTable', D.setups, [
@@ -992,25 +917,18 @@ table('putawayTable', D.putaway, [
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
 ]);
 
-table('platoonTable', D.platoon, [
-  { f: 'pitch_type', l: 'Pitch' },
-  { f: 'usage_L', l: 'To LHH', n: 1, fmt: pct },
-  { f: 'usage_R', l: 'To RHH', n: 1, fmt: pct },
-  { f: 'gap', l: 'Gap', n: 1, fmt: v => sign(v, 3) },
-  { f: 'whiff_L', l: 'Whiff L', n: 1, fmt: pct },
-  { f: 'whiff_R', l: 'Whiff R', n: 1, fmt: pct },
-  { f: 'n_L', l: 'n L', n: 1, fmt: int },
-  { f: 'n_R', l: 'n R', n: 1, fmt: int },
-]);
-
+/* Seven columns, because this table sits in a half-width box. The paired
+   velocity change prints the outings it rests on in the same cell. */
 table('ttoTable', (D.tto || []).filter(r => r.reliable), [
   { f: 'tto', l: 'Trip' },
-  { f: 'n', l: 'Pitches', n: 1, fmt: int },
-  { f: 'batters', l: 'Batters', n: 1, fmt: int },
   { f: 'outings', l: 'Outings', n: 1, fmt: int },
   { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
+  { f: 'velo_delta', l: 'vs 1st trip', n: 1,
+    fmt: (v, r) => v === null || v === undefined ? '—'
+      : `${sign(v, 1)} <span class="dim">in ${int(r.velo_pairs)}</span>` },
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
   { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
+  { f: 'batters', l: 'Batters', n: 1, fmt: int },
 ]);
 
 table('releaseTable', D.release, [
@@ -1036,66 +954,11 @@ table('tellsTable', D.location_tells, [
   { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);
 
-table('findingsTable', D.findings, [
-  { f: 'flag', l: 'Type' },
-  { f: 'severity', l: 'Strength', n: 1, fmt: v => num(v, 1) },
-  { f: 'severity_basis', l: 'Basis' },
-  { f: 'n', l: 'n', n: 1, fmt: int },
-  { f: 'runs_cost', l: 'Runs', n: 1, fmt: v => sign(v, 1), tone: 1 },
-  { f: 'claim', l: 'Claim' },
-]);
-
-/* ------------------------------------------------------------- zone map */
-const zoneRows = {};
-(D.zone.rows || []).forEach(r => zoneRows[r.pitch_type] = r);
-const zonePitches = Object.keys(zoneRows);
-
-function shade(share, max) {
-  if (share === null || share === undefined || !max) return '#eef1f4';
-  const t = Math.min(share / max, 1);
-  // Interpolate pale blue -> accent blue. Two stops keeps the ramp readable
-  // in print, where a rainbow scale turns into mud.
-  const c0 = [220, 230, 240], c1 = [47, 111, 178];
-  return 'rgb(' + c0.map((v, i) => Math.round(v + (c1[i] - v) * t)).join(',') + ')';
-}
-
 /* An outside-the-zone quadrant with its label pinned to the outer corner —
    see the .oz styles for why the corner matters. */
 function outerCell(z, bg, labelHtml, title, dark) {
   return `<div class="oz oz-${z}${dark ? ' dark' : ''}" style="background:${bg}"
     title="${title}"><span class="lab">${labelHtml}</span></div>`;
-}
-
-function drawZone(pitch) {
-  const row = zoneRows[pitch];
-  const inner = document.getElementById('zoneInner');
-  const outer = document.getElementById('zoneOuter');
-  if (!row) { inner.innerHTML = ''; outer.innerHTML = ''; return; }
-
-  const all = [...D.zone.inner, ...D.zone.outer].map(z => row[z] || 0);
-  const max = Math.max(...all);
-
-  const darkAt = z => max && (row[z] || 0) / max >= 0.6;
-
-  inner.innerHTML = D.zone.inner.map(z =>
-    `<div class="cell${darkAt(z) ? ' dark' : ''}" style="background:${shade(row[z], max)}"
-      title="zone ${z}">${pct0(row[z] || 0)}</div>`).join('');
-
-  // 11 12 / 13 14 maps onto a 2x2 grid in that order, which is how Savant
-  // numbers the outside regions from the catcher's view.
-  outer.innerHTML = D.zone.outer.map(z =>
-    outerCell(z, shade(row[z], max), `<b>${pct0(row[z] || 0)}</b>`,
-              `zone ${z}`, darkAt(z))).join('');
-}
-
-if (zonePitches.length) {
-  const pick = document.getElementById('zonePick');
-  pick.innerHTML = zonePitches.map(p => {
-    const label = (D.display_names || {})[p] || p;
-    return `<option value="${p}">${label}</option>`;
-  }).join('');
-  pick.onchange = () => drawZone(pick.value);
-  drawZone(zonePitches[0]);
 }
 
 /* ------------------------------------------------- sliced zone heatmaps */
@@ -1234,60 +1097,29 @@ if (ZS.pitches.length) {
 }
 
 const bi = D.band_information || {};
-if (bi.v_band) {
-  document.getElementById('bandNote').textContent =
-    `Vertical band removes ${pct(bi.v_band.info_gain_pct)} of pitch-type ` +
-    `uncertainty; quadrant removes ${pct((bi.quadrant || {}).info_gain_pct)}. ` +
-    `Clearest: ${bi.v_band.top_band} → ${bi.v_band.top_pitch} ` +
-    `${pct0(bi.v_band.top_share)}.`;
+const bandNote = document.getElementById('bandNote');
+if (bi.v_band && bandNote) {
+  bandNote.textContent =
+    `Knowing only the pitch's height removes ${pct(bi.v_band.info_gain_pct)} of ` +
+    `the uncertainty about which pitch it is; knowing its quadrant removes ` +
+    `${pct((bi.quadrant || {}).info_gain_pct)}. Clearest: ` +
+    `${words('band', bi.v_band.top_band)} → ` +
+    `${words('pitch_type', bi.v_band.top_pitch)} ${pct0(bi.v_band.top_share)}.`;
 }
 
 /* --------------------------------------------------------------- charts */
-/* Chart.js is the one external dependency. If it is blocked the tables above
-   still carry every number, so the page is degraded rather than broken. */
+/* Chart.js is the one external dependency, and only the velocity chart uses
+   it. If it is blocked the rest of the page is unaffected, so the page is
+   degraded rather than broken. */
 if (typeof Chart === 'undefined') {
   document.querySelectorAll('.chartbox .holder').forEach(h => {
-    h.innerHTML = '<p class="nodata">Charts need a network connection. ' +
-                  'Every figure is in the tables below.</p>';
+    h.innerHTML = '<p class="nodata">This chart needs a network connection ' +
+                  'to draw.</p>';
   });
 } else {
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   Chart.defaults.font.size = 11;
   Chart.defaults.animation = false;
-
-  const ars = D.arsenal || [];
-  if (ars.length) {
-    const sets = [{
-      label: 'His usage',
-      data: ars.map(r => r.usage),
-      backgroundColor: COLORS[0],
-      borderRadius: 3,
-    }];
-    if (D.meta.has_league && ars.some(r => r.league_usage !== null)) {
-      sets.push({
-        label: 'League',
-        data: ars.map(r => r.league_usage),
-        backgroundColor: '#c9d2dc',
-        borderRadius: 3,
-      });
-    }
-    new Chart(document.getElementById('arsenalChart'), {
-      type: 'bar',
-      data: { labels: ars.map(r => r.pitch_type), datasets: sets },
-      options: {
-        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-        scales: {
-          x: { ticks: { callback: v => (v * 100).toFixed(0) + '%' },
-               grid: { color: '#f0f2f4' } },
-          y: { grid: { display: false } },
-        },
-        plugins: {
-          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7 } },
-          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${pct(c.parsed.x)}` } },
-        },
-      },
-    });
-  }
 
   const fg = D.fatigue;
   if (fg && fg.buckets.length) {

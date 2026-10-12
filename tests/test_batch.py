@@ -56,19 +56,21 @@ class TestMeasurementsAreReturnedWhenRulesStaySilent:
         assert m["rare"] == []
         assert m["min_share"] == pytest.approx(0.20)
 
-    def test_first_pitch_numbers_carry_the_take_rate(self):
+    def test_first_pitch_numbers_carry_the_mix(self):
         frame = make_frame([
-            {"pitch_type": "FF", "n": 20, "is_swing": False, "description": "called_strike"},
-            {"pitch_type": "FF", "n": 20, "is_swing": False, "type": "B", "description": "ball"},
+            {"pitch_type": "FF", "n": 30},
+            {"pitch_type": "SL", "n": 10},
         ])
-        m = gameplan.first_pitch_numbers(frame, counts.situational_usage(frame), "R")
-        assert m["takes"] == 40
-        assert m["called_on_takes"] == pytest.approx(0.5)
+        m = gameplan.first_pitch_numbers(counts.situational_usage(frame), "R")
+        assert m["n"] == 40
+        assert (m["top"], m["second"]) == ("FF", "SL")
+        assert m["top_share"] == pytest.approx(0.75)
+        assert m["second_share"] == pytest.approx(0.25)
 
     def test_measurements_respect_their_gates(self):
         frame = make_frame([{"pitch_type": "FF", "n": 5}])
         usage = counts.situational_usage(frame)
-        assert gameplan.first_pitch_numbers(frame, usage, "R") is None
+        assert gameplan.first_pitch_numbers(usage, "R") is None
         assert gameplan.rare_pitches(frame, "R") is None
 
 
@@ -76,8 +78,7 @@ class TestCutoffsComeFromConfig:
     def test_every_plan_cutoff_is_in_config(self):
         """The calibration run can only move a cutoff that lives in config."""
         from src import config
-        for key in ("first_pitch_swing_above", "first_pitch_take_below",
-                    "sit_hard_share", "sit_pitch_share", "lay_off_low_share",
+        for key in ("sit_hard_share", "sit_pitch_share", "lay_off_low_share",
                     "min_two_strike_swings", "rare_share", "count_tell_lift",
                     "two_strike_min_share", "count_tell_min_share",
                     "two_strike_min_lead", "two_strike_look_hard_min"):
@@ -178,6 +179,6 @@ class TestOfflineRun:
                 rows = list(csv.DictReader(handle))
             assert rows[0]["status"] == "ok"
             assert rows[0]["hand"] == "L"
-            assert rows[0]["L_fp_called_on_takes"] != ""
+            assert rows[0]["L_ahead_rule"] != ""
             assert (out / "plan_lines.csv").exists()
             assert (out / "thresholds.csv").exists()

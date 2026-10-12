@@ -318,7 +318,7 @@ def count_grid(
     in 1-2 it is 6 of 330 — and those near-empty cells are the finding: he
     abandons the cutter with two strikes. A share's precision is governed by
     its denominator, so 5 of 225 is a well-measured 2%, not a missing value.
-    The same principle governs the platoon table.
+    The same principle governs usage by batter side (splits.platoon_gaps).
 
     Pitches below `min_usage` get no grid at all. A pitch thrown 3% of the time
     appears a handful of times per count, and its lift swings by a factor of two

@@ -102,7 +102,7 @@ def main() -> int:
     # First, because this is what the report leads with and what a coach reads
     # if he reads nothing else. Everything below it is the evidence.
     show("KEY TAKEAWAYS")
-    top = flags.takeaways(frame, league_outcomes, league_mix)
+    top = flags.takeaways(frame, league_mix)
     if len(top) == 0:
         print("  nothing clears the sample gates")
     else:
@@ -110,7 +110,7 @@ def main() -> int:
             print(f"  {i + 1}. {row['claim']}")
             print(f"     [{row['flag']}, severity {row['severity']:.2f} "
                   f"by {row['severity_basis']}]")
-        total = len(flags.evaluate(frame, league_outcomes, league_mix))
+        total = len(flags.evaluate(frame, league_mix))
         print(f"\n  {total} findings total, deduplicated to one per flag type.")
 
     # ---------------------------------------------------------------- arsenal
@@ -202,11 +202,6 @@ def main() -> int:
         print("  n_thruorder_pitcher not present in this frame")
     else:
         print(tto.to_string(index=False))
-        decomposition = splits.decompose_tto(frame)
-        print(f"\n  velocity change 1st -> 3rd : {decomposition['velo_delta']:+.2f} mph")
-        print(f"  xwOBA change 1st -> 3rd    : {decomposition['xwoba_delta']:+.3f}")
-        print(f"  attribution                : {decomposition['attribution']}")
-        print(f"  {decomposition['note']}")
 
     # -------------------------------------------------------- predictability
     pred = counts.predictability(frame, min_pitches=20)

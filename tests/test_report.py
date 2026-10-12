@@ -61,7 +61,7 @@ def make_frame(specs: list[dict]) -> pd.DataFrame:
                 "delta_run_exp": 0.0,
                 "n_thruorder_pitcher": spec.get("tto", 1),
                 "is_swing": spec.get("is_swing", False),
-                "is_whiff": False,
+                "is_whiff": spec.get("is_whiff", False),
                 "is_called_strike": True,
                 "is_in_zone": spec.get("zone", 5) in range(1, 10),
                 "is_chase": False,
@@ -125,15 +125,19 @@ class TestBuildPayload:
 
     def test_every_claim_carries_its_sample_size(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        for finding in payload["findings"]:
+        assert payload["takeaways"]
+        for finding in payload["takeaways"]:
             assert "n=" in finding["claim"]
 
-    def test_zone_rows_sum_to_one_per_pitch(self):
-        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        zones = payload["zone"]["inner"] + payload["zone"]["outer"]
-        for row in payload["zone"]["rows"]:
-            total = sum(row.get(str(z)) or 0 for z in zones)
-            assert total == pytest.approx(1.0)
+    def test_zone_grid_counts_every_located_pitch(self):
+        """The grid is the only zone map now, so it has to hold everything the
+        single-pitch map did: every pitch of every type, by zone."""
+        frame = sample_frame()
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        slices = payload["zone_slices"]
+        for pitch in slices["pitches"]:
+            counted = sum(c["n"] for c in slices["cells"] if c["p"] == pitch)
+            assert counted == int((frame["pitch_type"] == pitch).sum())
 
     def test_count_grid_covers_all_twelve_counts(self):
         """The grid draws a fixed 4x3 lattice, so every pitch needs every
@@ -148,11 +152,125 @@ class TestBuildPayload:
         assert "count_mix" not in payload
         assert "countChart" not in report.render(payload)
 
-    def test_takeaways_are_a_subset_of_findings(self):
+    def test_takeaways_are_one_per_finding_type(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        claims = {f["claim"] for f in payload["findings"]}
-        for t in payload["takeaways"]:
-            assert t["claim"] in claims
+        kinds = [t["flag"] for t in payload["takeaways"]]
+        assert len(kinds) == len(set(kinds))
+        assert payload["finding_count"] >= len(kinds)
+
+
+class TestArsenalDetailTable:
+    """One table for what the card's arsenal table leaves out. It replaced a
+    second arsenal table, a platoon table and a usage bar chart, each of
+    which held one thing shown nowhere else."""
+
+    def swinging_frame(self):
+        return make_frame([
+            {"pitch_type": "FF", "n": 120, "stand": "L"},
+            {"pitch_type": "SL", "n": 60, "stand": "L", "is_swing": True, "is_whiff": True},
+            {"pitch_type": "SL", "n": 20, "stand": "L", "is_swing": True},
+            {"pitch_type": "FF", "n": 100, "stand": "R"},
+            {"pitch_type": "SL", "n": 50, "stand": "R", "is_swing": True, "is_whiff": True},
+            {"pitch_type": "SL", "n": 50, "stand": "R", "is_swing": True},
+        ])
+
+    def test_carries_whiff_rate_by_batter_side(self):
+        payload = report.build_payload(self.swinging_frame(), "Test Pitcher", 2025)
+        slider = next(r for r in payload["arsenal"] if r["pitch_type"] == "SL")
+        assert slider["whiff_L"] == pytest.approx(0.75)
+        assert slider["whiff_R"] == pytest.approx(0.50)
+        assert (slider["n_L"], slider["n_R"]) == (80, 100)
+
+    def test_a_thin_side_is_blank_not_a_rate(self):
+        """Nine sliders to lefties give a whiff rate worth nothing. The usage
+        stays on the card; the rate is left empty."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 191, "stand": "L"},
+            {"pitch_type": "SL", "n": 9, "stand": "L", "is_swing": True, "is_whiff": True},
+            {"pitch_type": "FF", "n": 100, "stand": "R"},
+            {"pitch_type": "SL", "n": 100, "stand": "R", "is_swing": True},
+        ])
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        slider = next(r for r in payload["arsenal"] if r["pitch_type"] == "SL")
+        assert slider["whiff_L"] is None
+        assert slider["n_L"] == 9
+
+    def test_side_columns_are_left_off_when_one_side_was_barely_faced(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 200, "stand": "R"},
+            {"pitch_type": "SL", "n": 100, "stand": "R"},
+            {"pitch_type": "FF", "n": 5, "stand": "L"},
+        ])
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        assert payload["arsenal"]
+        assert all("whiff_L" not in row for row in payload["arsenal"])
+
+    def test_page_draws_the_side_columns(self):
+        html = report.render(
+            report.build_payload(self.swinging_frame(), "Test Pitcher", 2025)
+        )
+        assert "{ f: 'whiff_L', l: 'Whiff vs L'" in html
+        assert "{ f: 'zone_rate', l: 'Zone%'" in html
+
+
+class TestCutSections:
+    """Sections removed after the split-half check, and what stayed because
+    later work reads it. A removed section takes its payload field with it:
+    a field nothing draws is a number nobody checks."""
+
+    REMOVED_FIELDS = ("findings", "count_lifts", "quadrants", "first_pitch",
+                      "zone", "platoon", "tto_decomposition")
+    REMOVED_FROM_PAGE = ("arsenalChart", "platoonTable", "liftTable",
+                         "findingsTable", "zonePick", "All findings",
+                         "run cost unresolved")
+    KEPT_FIELDS = ("release", "setups", "putaway", "location_profile",
+                   "band_information", "zone_slices", "movement", "tto",
+                   "predictability")
+
+    def build(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        return payload, report.render(payload)
+
+    def test_removed_sections_leave_no_field_behind(self):
+        payload, _ = self.build()
+        for field in self.REMOVED_FIELDS:
+            assert field not in payload, field
+
+    def test_removed_sections_are_not_on_the_page(self):
+        _, html = self.build()
+        for text in self.REMOVED_FROM_PAGE:
+            assert text not in html, text
+
+    def test_what_tunneling_and_sequencing_read_is_still_there(self):
+        payload, html = self.build()
+        for field in self.KEPT_FIELDS:
+            assert field in payload, field
+        for table in ("releaseTable", "putawayTable", "zgrid"):
+            assert f'id="{table}"' in html, table
+        assert html.index("<h2>Sequencing</h2>") < html.index("<h2>Release consistency</h2>")
+        assert "<h2>Splits</h2>" not in html
+
+    def test_by_trip_table_sits_with_the_velocity_chart(self):
+        payload, html = self.build()
+        assert payload["tto"] and "velo_delta" in payload["tto"][0]
+        chart = html.index('id="fatigueChart"')
+        trips = html.index('id="ttoTable"')
+        assert chart < trips < html.index("<h2>Location</h2>")
+        assert "Third time through" not in html
+        # The change and the outings it rests on are printed in one cell.
+        assert "{ f: 'velo_delta', l: 'vs 1st trip'" in html
+        assert "r.velo_pairs" in html
+
+    def test_height_note_moved_to_the_height_table(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 120, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 30, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 120, "plate_z": 1.7},
+            {"pitch_type": "FF", "n": 30, "plate_z": 1.7},
+        ])
+        html = report.render(report.build_payload(frame, "Test Pitcher", 2025))
+        heading = html.index("What the pitch's height gives away")
+        assert heading < html.index('id="bandNote"') < html.index('id="tellsTable"')
 
 
 class TestDataGaps:
@@ -244,9 +362,9 @@ class TestZoneMapLayout:
 
     The strike-zone box is drawn over the middle of the four outside quadrants.
     Labels placed in a quadrant's centre, or in the corner nearest the zone,
-    end up underneath it — which hid zone 14 on the single map and all four
-    outside labels on the small grids, including the 35% of Skubal's changeups
-    that finish low and to the catcher's right.
+    end up underneath it — which hid all four outside labels on the grids,
+    including the 35% of Skubal's changeups that finish low and to the
+    catcher's right.
     """
 
     def render(self):
@@ -260,10 +378,10 @@ class TestZoneMapLayout:
         assert ".oz-13 .lab{bottom:0;left:0" in html
         assert ".oz-14 .lab{bottom:0;right:0" in html
 
-    def test_both_maps_use_the_pinned_labels(self):
+    def test_the_grids_use_the_pinned_labels(self):
         html = self.render()
-        assert "outerCell(z, shade(" in html          # single map
-        assert "return outerCell(z, bg, text" in html  # small grids
+        assert "function outerCell(" in html
+        assert "return outerCell(z, bg, text" in html
 
     def test_small_grids_open_on_share_not_lift(self):
         """Lift against the whole season is 1.0x in every cell when nothing is

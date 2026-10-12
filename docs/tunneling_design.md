@@ -1,7 +1,16 @@
 # Pitch Tunneling — Design Notes (Phase 2.5)
 
-Status: designed, not yet built. Blocked on `metrics/sequencing.py`, which
-supplies the plate-appearance pairing logic this module reuses.
+Status: step 1 of 4 is built — release consistency, shown in the report
+directly under Sequencing. Steps 2 to 4 are not built.
+
+What the remaining steps read is in place and is kept in the report for that
+reason: the plate-appearance pairing logic and transition tables in
+`metrics/sequencing.py`, the league baselines, movement and plate location.
+What is missing is data. The cache schema (`store.PITCH_SCHEMA`) does not
+store `vx0`, `vy0`, `vz0`, `ax`, `ay`, `az` or `release_pos_y`, which the
+trajectory reconstruction needs. They are in Savant's raw feed and in the test
+fixtures, so step 2 starts with adding those seven columns to the schema and
+re-fetching.
 
 ---
 

@@ -42,24 +42,26 @@ self-contained interactive HTML report comes out.
 - Arsenal metrics — velocity, spin, movement and results by pitch type, plus a
   release-point consistency check that flags offerings thrown from a different
   slot than the fastball
-- Splits — platoon usage gaps, in-outing velocity decay, and a times-through-order
-  comparison that reports what changes late without claiming why, since trip
-  number and pitch count are collinear
+- Splits — platoon usage gaps, in-outing velocity decay, and a by-trip table
+  whose velocity change is measured inside each outing. It reports what changes
+  late without claiming why, since trip number and pitch count are collinear
 - Location — plate coordinates normalized to the pitcher's arm side and to the
   batter's own strike zone, with per-pitch quadrant concentration, command
   spread, and a conditional-entropy score for how much a location band gives
   away about which pitch is coming
-- Weakness-flag rules engine — seven rules over the metrics layer, each finding
+- Weakness-flag rules engine — six rules over the metrics layer, each finding
   carrying its sample size in the sentence, ranked on a single severity axis
   that records whether it came from a league z-score or a weighted threshold.
   A usage lift has to clear its minimum sample and stand at least three
   standard errors from no lift before it is a finding
-- Interactive HTML report — takeaways first, then arsenal, location, count,
-  sequencing and splits evidence; a normalized zone heat map; self-contained in
-  one file with no server and no build step
+- Interactive HTML report — the dugout card and findings first, then the count,
+  movement, location, arsenal, sequencing and release evidence; zone heat maps
+  sliceable by count and batter side; self-contained in one file with no server
+  and no build step
 - Single-command CLI — `python -m src.cli --pitcher "Name"` from name to report
-- Outcome coupling — every tell reports what the pattern costs him in runs, with
-  a confidence interval, and says so when the interval does not exclude zero
+- Outcome coupling — every tell's cost in runs is estimated with a confidence
+  interval, and printed only if it survives the correction below; the page says
+  once how many comparisons were run and how many survived
 - Multiple-comparison correction — Benjamini-Hochberg across every run-value
   comparison the report makes (not just the ones that became findings), with
   the number of comparisons printed next to the number of findings
@@ -95,12 +97,19 @@ self-contained interactive HTML report comes out.
   rules make in the first half of a season on the second half, and correlates
   every table column between halves, so each section of the report can be
   judged on whether it repeats
-- 517 unit tests, plus an end-to-end validation suite over live data
+- Pruning — what fails those two checks comes out of the report, with its
+  cutoffs and its code: the first-pitch "take or swing" advice, a verdict on
+  the third trip through the order, a "hittable pitch" finding, and a run
+  estimate printed on every finding (see "Does the plan hold up?" and "Do the
+  findings repeat?")
+- 512 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
-- Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Hitter reports
+- Pitch sequence graph — the transition tables are built and tested; the report
+  shows setup pairs as a table and does not draw them yet
+- Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Swing-disruption metrics from the bat-tracking fields
 
 ## Setup
@@ -221,26 +230,39 @@ dugout version first, and the detail behind it after.
 
 - **Dugout card** — one printable page. Season line (K%, BB%, whiff, chase,
   zone, xwOBA). A hitting plan for lefties and for righties: what he starts
-  hitters with and whether taking is a good idea, what to sit on when ahead in
-  the count, his two-strike pitch and where it finishes, and which pitches he
-  essentially never shows that side. Every line carries its sample size. Below
-  that, the arsenal as a scout writes it ("sits 94–97, touches 98", ride,
-  arm-side run, usage vs each side), count tendencies by side, and his last
-  five outings. The running game — time to the plate, pickoff move, tipping —
-  is named as not covered, because it needs video rather than pitch data.
-- **Arsenal** — velocity, spin, movement, usage, and whiff rate by pitch type
-- **Count tendencies** — pitch mix across all 12 counts, plus a normalized-entropy
-  predictability score identifying the counts where selection is most anticipatable
-- **Sequencing** — within-plate-appearance pitch transition matrices, variants
-  conditioned on the previous pitch outcome, two-strike putaway mix, and
-  setup-pitch detection keyed on pitch type and location band
-- **Location** — where each pitch lives in coordinates normalized to the pitcher's
-  arm side and the batter's own zone, command spread, and how much knowing the
-  region narrows down which pitch is coming
-- **Splits** — platoon splits, velocity decay within outings, times-through-order
-- **Findings** — the rule-based findings behind the plan, ranked, each carrying
-  its sample size, with run consequences stated as unresolved where they do not
-  survive correction
+  hitters with, what to sit on when ahead in the count, his two-strike pitch
+  and where it finishes, and which pitches he essentially never shows that
+  side. Every line carries its sample size. Below that, the arsenal as a scout
+  writes it ("sits 94–97, touches 98", ride, arm-side run, usage vs each
+  side), count tendencies by side, and his last five outings. The running
+  game — time to the plate, pickoff move, tipping — is named as not covered,
+  because it needs video rather than pitch data.
+- **Findings** — the rule-based findings behind the plan, the strongest in each
+  category, each carrying its sample size, with one note on how many
+  comparisons produced them and how many run-cost estimates survived
+  correction
+- **Count grid** — one balls-by-strikes grid per pitch: how far each count
+  moves him from his own usual rate, with the share and pitch count in every
+  cell
+- **Movement** — ride against arm-side run for each pitch, with the league's
+  version of the pitch marked behind it
+- **Velocity through the outing** — his main fastball by pitch count, each
+  outing compared with its own first pitches, and a by-trip table underneath
+- **Usage by batter side** — one line per pitch from its share against lefties
+  to its share against righties
+- **Location** — a zone grid for every pitch, sliceable by count state and
+  batter side, as share or as lift over his usual; and what a pitch's height
+  gives away about which pitch it is
+- **Arsenal against the league, by batter side** — usage, velocity, whiff rate
+  and xwOBA for each pitch next to the league's version of it, zone rate, and
+  whiff rate against each side
+- **Count tendencies** — a normalized-entropy predictability score for each
+  count, with the league's share of the same pitch as context
+- **Sequencing** — setup pairs keyed on pitch type and height, with how much
+  more likely the follow-up becomes and whether it then misses more bats; and
+  his two-strike mix and put-away rates
+- **Release consistency** — where each pitch leaves his hand compared with his
+  fastball, the first step of the tunneling design
 
 ## Does the plan hold up?
 
@@ -255,7 +277,6 @@ pitchers threw in it:
 
 | Plan line (2026) | Advice given | Held (95% CI) | Same line by the plan's own cutoff | Weaker | Flipped (95% CI) | Skill (95% CI) |
 |---|---|---|---|---|---|---|
-| First pitch: take or swing | 12 | 58% (32–81%) | 58% | 33% | 8% (1–35%) | +0.01 (−0.53 to +0.35) |
 | Hitter's count: what to sit on | 24 | 67% (47–82%) | 67% | 29% | 4% (1–20%) | +0.29 (+0.01 to +0.50) |
 | Two strikes: the put-away pitch | 46 | 70% (55–81%) | 70% | 30% | 0% (0–8%) | +0.19 (−0.09 to +0.39) |
 | Two strikes: lay off it low | 21 | 76% (55–89%) | 76% | 24% | 0% (0–15%) | +0.68 (+0.53 to +0.78) |
@@ -264,7 +285,7 @@ pitchers threw in it:
 | Read the height | 11 | 82% (52–95%) | 82% | 18% | 0% (0–26%) | — |
 
 *Held* means the advice was still usable in the second half. *Weaker* means it
-said less — "he mixes", "no strong case" — which costs a hitter nothing he
+said less — "he mixes", "look fastball" — which costs a hitter nothing he
 would have had without the report. *Flipped* means it pointed the other way,
 the failure that matters. *Skill* is how much better the pitcher's own
 first-half number predicts his second half than the average pitcher's does:
@@ -274,15 +295,21 @@ pitchers.
 
 What that table says:
 
-- **The plan rarely points a hitter the wrong way.** Two flips in 152 pieces
+- **The plan rarely points a hitter the wrong way.** One flip in 140 pieces
   of advice, and none on the two-strike, won't-see, count or height lines.
 - **"Lay off it low" and "won't see" are the strongest lines.** Where a
   pitcher's two-strike pitch finishes is his own habit and it carries over
   (+0.68); a pitch one side never saw in the first half stays unseen.
-- **The first-pitch take-or-swing advice does not hold up.** Skill of +0.01
-  with an interval from −0.53 to +0.35, the lowest hold rate, and one of the
-  two flips. Pitchers differ too little on that rate for half a season to
-  separate them. It is the line to drop.
+- **The first-pitch take-or-swing advice did not hold up, and is gone.** The
+  plan used to tell a hitter to take or swing at the first pitch, from how
+  often his taken first pitches were called strikes. On this run it gave that
+  advice 12 times and it held 7 (58%, interval 32–81%), flipped once, and
+  showed a skill of +0.01 (−0.53 to +0.35): his own rate predicted his second
+  half no better than the average pitcher's. Pitchers differ too little on
+  that rate for half a season to separate them. The line now states his
+  first-pitch mix and nothing else, and its three cutoffs are out of the
+  config. The table above is the plan as it stands; the row that was removed
+  is reproducible at commit `cc5a2ed`.
 - **Naming the put-away pitch is safe, and less informative than it looked.**
   It never flipped, but its skill interval reaches zero: which pitch he goes
   to is stable, how much he leans on it is not much better predicted by his
@@ -299,7 +326,6 @@ The same check on 2025 (30 pitchers), where the cutoffs were set:
 
 | Plan line (2025) | Advice given | Held (95% CI) | Same line by the plan's own cutoff | Weaker | Flipped (95% CI) | Skill (95% CI) |
 |---|---|---|---|---|---|---|
-| First pitch: take or swing | 11 | 73% (43–90%) | 73% | 27% | 0% (0–26%) | +0.11 (−0.33 to +0.32) |
 | Hitter's count: what to sit on | 36 | 72% (56–84%) | 72% | 25% | 3% (0–14%) | +0.45 (+0.20 to +0.60) |
 | Two strikes: the put-away pitch | 57 | 68% (56–79%) | 68% | 30% | 2% (0–9%) | +0.43 (+0.27 to +0.55) |
 | Two strikes: lay off it low | 21 | 76% (55–89%) | 76% | 24% | 0% (0–15%) | +0.70 (+0.54 to +0.80) |
@@ -309,14 +335,17 @@ The same check on 2025 (30 pitchers), where the cutoffs were set:
 
 The first run of this check changed the plan. "Sit <pitch>" flipped 28% of
 the time, always on two-pitch relievers near 50/50 where the leader in one half
-was the runner-up in the other; it now needs a 15-point lead. Every
-take-or-swing call that flipped rested on fewer than 60 taken first pitches;
-that advice now needs 80. Rerun on the same pitchers and season, those two
-flip rates went from 12% to 3% and from 14% to 0% — but the cutoffs were chosen
-to remove exactly those flips, so the 2025 table measures how well they fit
-2025, not how they do on new data. Hold rates came through to 2026 about
-where they were; the skill scores did not, falling from +0.45 to +0.29 for the
-hitter's count and from +0.43 to +0.19 for the put-away pitch.
+was the runner-up in the other; it now needs a 15-point lead. Rerun on the same
+pitchers and season, the hitter's-count flip rate went from 12% to 3% — but the
+cutoff was chosen to remove exactly those flips, so the 2025 table measures how
+well it fits 2025, not how it does on new data. Hold rates came through to 2026
+about where they were; the skill scores did not, falling from +0.45 to +0.29
+for the hitter's count and from +0.43 to +0.19 for the put-away pitch.
+
+The take-or-swing line is the cautionary case. It got the same treatment — a
+floor of 80 taken first pitches, chosen because every flip sat below 60 — and
+on 2025 its flip rate went from 14% to 0%. On 2026 it had no skill at all.
+A cutoff tuned on the season it is tested on will look fixed.
 
 Skill also depends on who is in the run. It compares each pitcher's own number
 with the average across the list, and the calibration list was built to span
@@ -348,7 +377,7 @@ rule's own bar.
 | Lefty/righty split | 15 | 67% (42–85%) | 100% | 17 | 71% (47–87%) | 100% |
 | Sequencing | 10 | 40% (17–69%) | 90% | 11 | 55% (28–79%) | 91% |
 | Velocity late in starts | 6 | 33% (10–70%) | 100% | 4 | 75% (30–95%) | 100% |
-| Third time through (verdict) | 2 | 0% (0–66%) | 0% | 5 | 20% (4–62%) | 40% |
+| Third time through (verdict), since removed | 2 | 0% (0–66%) | 0% | 5 | 20% (4–62%) | 40% |
 
 *Held* means the second half cleared the same bar on its own. *Same direction*
 means it at least still pointed the same way. A second half too thin to
@@ -358,7 +387,8 @@ measure a finding in is left out, not counted as a miss. Thirty pitchers in
 The usage findings — counts, height, batter side — almost never reverse, and
 hold their full size half to four-fifths of the time. Sequencing keeps its
 direction but holds its size about half the time, on few cases. The verdict on
-the third trip through the order came back once in seven.
+the third trip through the order came back once in seven, and was removed; the
+by-trip table it was read from is still in the report.
 
 The same script computes every table column in each half and correlates them
 across pitcher-pitches (86 in 2025, 77 in 2026):
@@ -386,8 +416,13 @@ over. (No league sample is cached for 2026, so the league column is 2025
 only.)
 
 Across the 58 full-season reports the rules made 284 findings, and the run
-consequence of one of them survived correction. The hittable-pitch finding
-fired for 2 of 30 pitchers in 2025.
+consequence of one of them survived correction, so the run estimate came off
+every finding and is stated once. The hittable-pitch finding fired for 2 of 30
+pitchers in 2025 and was removed.
+
+The script as it stands measures the rules that remain (260 findings across
+the same 58 reports). The figures for the removed rules are reproducible at
+commit `432abb0`, where those rules still exist.
 
 ```bash
 python scripts/replication.py --season 2025
@@ -420,8 +455,8 @@ findings has run far more comparisons than eight. This one runs 120 — 44 count
 chance alone. Benjamini-Hochberg is applied across all 120 in the engine,
 where the whole family is visible, and the comparison count is printed next to
 the finding count. On Yamamoto, sixteen comparisons clear the raw threshold and
-none survive the correction, which is why every run consequence in that report
-is stated as unresolved. (More than six clear it because the null is not
+none survive the correction, which is why that report prints no run figure for
+any finding. (More than six clear it because the null is not
 exactly true: where a pitch is thrown, and in what count, moves its run value
 whether or not anyone saw it coming. A comparison that does survive says the
 pitch does better or worse in that spot than it does for him generally; it
@@ -448,13 +483,25 @@ Hitters know Yamamoto's splitter is coming with two strikes and still manage
 only a .163 xwOBA against it there, against .203 on everything else he throws
 with two strikes. (xwOBA here is per plate appearance, strikeouts counted as
 zero, so any two-strike number runs low; the comparison is what means
-something.) So every tell reports what the pattern costs him in runs
-— and reports honestly that one season of one pitcher usually cannot resolve
-that: run value per pitch has a standard deviation near 0.19 against
-pattern-level differences of 0.01 to 0.02. Where the interval spans zero the
-report says the frequency pattern is the finding and the run consequence is
-unresolved, rather than printing a run figure that implies precision it does
-not have.
+something.) So the cost of every tell is estimated in runs — and one season of
+one pitcher usually cannot resolve it: run value per pitch has a standard
+deviation near 0.19 against pattern-level differences of 0.01 to 0.02. A run
+figure is printed only when it survives the correction. Otherwise the
+frequency pattern is the finding and the report prints no run figure, rather
+than one that implies precision it does not have. It says so once, under the
+findings, with the number of comparisons behind it; it used to say so in a
+sentence on every finding, and a caveat attached to everything is read by no
+one.
+
+**What does not repeat comes out.** A line in the plan is a prediction, and a
+finding type is only worth its space if it comes back in games it was not
+found in. The first-pitch take-or-swing advice was calibrated, gated on
+sample size and unit-tested, and still predicted nothing on a new season, so
+it was deleted rather than hedged. A verdict on the third trip through the
+order (back in 1 of 7 cases) and a "hittable pitch" finding (fired for 2 of 30
+pitchers) were removed the same way after being re-measured on the other half
+of the season; the tables they were read from are still in the report, without
+the conclusion.
 
 **The cache is a real data layer.** Pitch data is fetched on demand per player,
 then persisted to a local DuckDB store. Repeat requests skip the network, and the

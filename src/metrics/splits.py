@@ -1,17 +1,14 @@
 """Situational splits: handedness, fatigue, and times through the order.
 
-The times-through-order section is the one that repays attention. That
-performance decays on later trips is well known and not worth reporting on its
-own. What matters is *why*, because the two causes call for opposite advice:
-
-  - velocity declines           -> fatigue      -> he is beatable late, extend
-                                                   at-bats and force pitches
-  - velocity holds, results decay -> familiarity -> his pattern is readable on
-                                                   second look, sit on the
-                                                   sequence he showed earlier
-
-Both look identical in an xwOBA-by-trip table. Separating them is the whole
-point of decompose_tto().
+The times-through-order table is descriptive on purpose. This module used to
+turn it into a verdict — "third time through: hit harder", "velocity drops,
+results hold" — and the verdict did not repeat. Built on half a season and
+checked on the other, across 30 pitchers in 2025 and 28 in 2026, it came back
+in 1 of 7 cases; the third-trip change in hitters' xwOBA correlated between
+halves at 0.06 and 0.29, while the change in fastball velocity correlated at
+0.86 and 0.76 (scripts/replication.py). So the table keeps the velocity
+change, measured within outing, and prints the outcome columns without
+drawing a conclusion from them.
 
 Inputs are expected to have passed through `clean.py` and
 `events.add_event_flags()`.
@@ -349,12 +346,22 @@ def times_through_order(frame: pd.DataFrame) -> pd.DataFrame:
     the presence of pinch hitters.
 
     `velo` is his most-used fastball only (see velocity_pitch), and `xwoba` is
-    per plate appearance ending in that trip (see events.season_line). These
-    are plain per-trip averages for the table; decompose_tto() does the
-    comparison between trips, and does it differently.
+    per plate appearance ending in that trip (see events.season_line). Both
+    are plain per-trip averages, and a later trip holds only the outings that
+    lasted that long.
+
+    `velo_delta` is the one column that corrects for that: the change in that
+    fastball from the first trip, taken inside each outing that reached both
+    trips and then averaged (see paired_change), with `velo_pairs` the number
+    of outings it rests on. It is blank for the first trip. Read the velocity
+    trend from this column, not from the difference between two `velo` cells.
+
+    No column here says why anything changes. The third trip is also roughly
+    the 70th to 100th pitch, so trip number and pitch count move together and
+    a by-trip table cannot separate fatigue from familiarity.
     """
-    columns = ["tto", "n", "velo", "whiff_rate", "xwoba", "batters",
-               "outings", "reliable"]
+    columns = ["tto", "n", "velo", "velo_delta", "velo_pairs", "whiff_rate",
+               "xwoba", "batters", "outings", "reliable"]
 
     if len(frame) == 0 or "n_thruorder_pitcher" not in frame.columns:
         return pd.DataFrame(columns=columns)
@@ -364,16 +371,25 @@ def times_through_order(frame: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=columns)
 
     fastball = velocity_pitch(working)
+    all_fastballs = working[working["pitch_type"] == fastball]
 
     records = []
     for tto, group in working.groupby("n_thruorder_pitcher"):
         fastballs = group[group["pitch_type"] == fastball]
         swings = int(group["is_swing"].eq(True).sum())
         whiffs = int(group["is_whiff"].eq(True).sum())
+        if int(tto) == 1:
+            velo_delta, velo_pairs = float("nan"), 0
+        else:
+            velo_delta, _, velo_pairs = paired_change(
+                all_fastballs, "n_thruorder_pitcher", 1, tto
+            )
         records.append({
             "tto": int(tto),
             "n": len(group),
             "velo": _mean(fastballs, "release_speed"),
+            "velo_delta": velo_delta,
+            "velo_pairs": velo_pairs,
             "whiff_rate": whiffs / swings if swings else float("nan"),
             "xwoba": _mean(group, "estimated_woba_using_speedangle"),
             "batters": int(group.groupby(PA_KEYS).ngroups),
@@ -386,189 +402,6 @@ def times_through_order(frame: pd.DataFrame) -> pd.DataFrame:
 
     table = pd.DataFrame(records).sort_values("tto")
     return mark_reliable(table)[columns]
-
-
-def decompose_tto(frame: pd.DataFrame) -> dict:
-    """Describe what changes by the third trip through the order.
-
-    Compares the third trip against the first:
-
-      velo_delta      float, mph change in his main fastball, averaged
-                      within outing (see paired_change)
-      xwoba_delta     float, change in xwOBA per plate appearance
-      xwoba_se        float, standard error of that change
-      whiff_delta     float, change in whiff rate
-      attribution     str, what is observed: "velocity_declines" |
-                      "results_decay" | "both" | "neither" | "unknown"
-      note            str, one-line reading
-      caveat          str, why this cannot be read causally
-      reliable        bool, whether both trips clear the outings gate
-
-    THIS FUNCTION NO LONGER CLAIMS A CAUSE, and the rename of its output values
-    is the point rather than cosmetic. It previously returned "fatigue" or
-    "familiarity", which this design cannot distinguish: the third trip is also
-    the 70th-to-100th pitch, so trip number and pitch count are very nearly
-    collinear and a marginal comparison cannot say which is doing the work.
-    Reporting "fatigue" from a velocity decline alone asserted a mechanism the
-    data does not contain.
-
-    It was also reporting an xwOBA change of +0.004 — .264 to .268 across three
-    trips — alongside that claim as if it were corroboration. It is noise, and
-    `results_decay` requires the change to clear `tto_xwoba_rise` before the
-    word "decay" is used at all.
-
-    That floor alone was not enough, because it is a fixed number and the
-    noise is not. xwOBA per plate appearance has a standard deviation near
-    0.35, and a starter's third trip is about 200 plate appearances, so the
-    difference between two trips carries a standard error near 0.03 — the
-    0.020 floor sits inside ONE standard error. Skubal's 2025 report said
-    "third time through: hit harder" on a change of +0.022 with a standard
-    error of 0.034, which is z = 0.6. So the change must also be at least
-    `tto_xwoba_min_z` standard errors, and the note prints the margin.
-
-    Separating fatigue from familiarity needs cases where trip number and pitch
-    count diverge: comparing a batter's second plate appearance after a short
-    inning against a long one, or holding pitch count fixed within trip. That
-    is a real analysis and it is not this one.
-    """
-    blank = {
-        "velo_delta": float("nan"),
-        "xwoba_delta": float("nan"),
-        "xwoba_se": float("nan"),
-        "whiff_delta": float("nan"),
-        "attribution": "unknown",
-        "headline": None,
-        "note": "insufficient data",
-        "caveat": "",
-        "reliable": False,
-    }
-
-    # A missing column and a thin sample both produce no result, and they call
-    # for completely different responses — one is "re-fetch", the other is
-    # "this pitcher did not go three times through". Saying "insufficient
-    # data" for both hid a caching bug behind a plausible-looking message for
-    # a whole season of starts.
-    if len(frame) and "n_thruorder_pitcher" not in frame.columns:
-        return blank | {
-            "note": (
-                "n_thruorder_pitcher is not present in this data. It is a "
-                "Savant feed column; if this came from the cache, re-fetch "
-                "the player-season to populate it."
-            ),
-        }
-
-    table = times_through_order(frame)
-    if len(table) == 0:
-        return blank
-
-    indexed = table.set_index("tto")
-    if 1 not in indexed.index or 3 not in indexed.index:
-        return blank
-
-    first, third = indexed.loc[1], indexed.loc[3]
-
-    # Velocity: one pitch, each outing against itself. A third trip only
-    # exists in the starts that lasted, so two pooled averages would compare
-    # his good days late with all his days early.
-    fastballs = frame[frame["pitch_type"] == velocity_pitch(frame)]
-    velo_delta, _, _ = paired_change(fastballs, "n_thruorder_pitcher", 1, 3)
-
-    # xwOBA: plate appearances are the units, and the two trips are separate
-    # sets of them, so this is an ordinary two-sample comparison.
-    xw = pd.to_numeric(
-        frame.get("estimated_woba_using_speedangle",
-                  pd.Series(float("nan"), index=frame.index)),
-        errors="coerce",
-    )
-    xw_first = xw[frame["n_thruorder_pitcher"] == 1].dropna()
-    xw_third = xw[frame["n_thruorder_pitcher"] == 3].dropna()
-    xwoba_delta = float(third["xwoba"] - first["xwoba"])
-    if len(xw_first) > 1 and len(xw_third) > 1:
-        xwoba_se = float((xw_first.var(ddof=1) / len(xw_first)
-                          + xw_third.var(ddof=1) / len(xw_third)) ** 0.5)
-    else:
-        xwoba_se = float("nan")
-
-    whiff_delta = float(third["whiff_rate"] - first["whiff_rate"])
-    reliable = bool(first.get("reliable", True) and third.get("reliable", True))
-
-    velo_drop = float(config.get("flags.thresholds.fatigue_velo_drop_mph", 1.0))
-    xwoba_rise = float(config.get("flags.thresholds.tto_xwoba_rise", 0.020))
-    min_z = float(config.get("flags.thresholds.tto_xwoba_min_z", 2.0))
-
-    slower = velo_delta <= -velo_drop
-    # "Decay" requires clearing a floor AND the noise. The floor keeps a
-    # well-measured but trivial change from being called decay; the standard
-    # error keeps an unmeasurable one from being called anything.
-    worse = (xwoba_delta >= xwoba_rise
-             and xwoba_se == xwoba_se
-             and xwoba_delta >= min_z * xwoba_se)
-    margin = (f" (±{1.96 * xwoba_se:.3f})" if xwoba_se == xwoba_se else "")
-
-    caveat = (
-        "The third trip is also the 70th-to-100th pitch, so trip number and "
-        "pitch count move together and this comparison cannot say which is "
-        "responsible. Read it as what happens late, not why."
-    )
-
-    def mph(value: float) -> str:
-        # No outing with his fastball in both trips: nothing to compare.
-        if value != value:
-            return "not comparable"
-        # Round first, then add 0.0, so a -0.03 change prints "+0.0" rather
-        # than "-0.0".
-        return f"{round(value, 1) + 0.0:+.1f} mph"
-
-    # "Holds" only when it does. Wheeler's line once read "velocity holds
-    # (-0.9 mph)", which contradicts itself.
-    if velo_delta != velo_delta:
-        velo_phrase = "velocity could not be compared"
-    elif abs(velo_delta) < 0.5:
-        velo_phrase = f"velocity holds ({mph(velo_delta)})"
-    elif velo_delta < 0:
-        velo_phrase = f"velocity dips slightly ({mph(velo_delta)})"
-    else:
-        velo_phrase = f"velocity ticks up ({mph(velo_delta)})"
-
-    if slower and worse:
-        attribution = "both"
-        note = (f"By the third trip his fastball is {abs(velo_delta):.1f} mph "
-                f"slower and hitters' xwOBA is {xwoba_delta:+.3f}{margin}. "
-                f"Both move the wrong way for him late.")
-    elif slower:
-        attribution = "velocity_declines"
-        note = (f"His fastball is {abs(velo_delta):.1f} mph slower by the third "
-                f"trip, while results show no change that can be told from "
-                f"noise ({xwoba_delta:+.3f}{margin} xwOBA). The velocity is "
-                f"real; the consequence is not visible in outcomes.")
-    elif worse:
-        attribution = "results_decay"
-        note = (f"Hitters' xwOBA rises {xwoba_delta:+.3f}{margin} by the third "
-                f"trip while {velo_phrase}.")
-    else:
-        attribution = "neither"
-        note = (f"No third-trip change that can be told from noise: velocity "
-                f"{mph(velo_delta)}, xwOBA {xwoba_delta:+.3f}{margin}.")
-
-    # A heading a coach can read. The attribution code is for the program.
-    headline = {
-        "both": "Third time through: slower and hit harder",
-        "velocity_declines": "Third time through: velocity drops, results hold",
-        "results_decay": "Third time through: hit harder",
-        "neither": "Third time through: no real change",
-    }[attribution]
-
-    return {
-        "velo_delta": velo_delta,
-        "xwoba_delta": xwoba_delta,
-        "xwoba_se": xwoba_se,
-        "whiff_delta": whiff_delta,
-        "attribution": attribution,
-        "headline": headline,
-        "note": note,
-        "caveat": caveat,
-        "reliable": reliable,
-    }
 
 
 def primary_fastball(frame: pd.DataFrame) -> str | None:

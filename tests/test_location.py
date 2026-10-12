@@ -490,34 +490,3 @@ class TestZoneSlices:
     def test_empty_frame(self):
         frame = make_pitches([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
         assert len(location.zone_slices(frame)) == 0
-
-
-class TestZoneTable:
-    def test_columns_are_the_thirteen_savant_zones(self):
-        frame = make_pitches([{"pitch_type": "FF", "n": 20, "zone": 5}])
-        table = location.zone_table(frame)
-        assert list(table.columns) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14]
-
-    def test_rows_sum_to_one(self):
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 20, "zone": 5},
-            {"pitch_type": "FF", "n": 10, "zone": 13},
-            {"pitch_type": "SL", "n": 30, "zone": 14},
-        ])
-        table = location.zone_table(frame)
-        for _, row in table.iterrows():
-            assert row.sum() == pytest.approx(1.0)
-
-    def test_shares_are_within_pitch_type(self):
-        frame = make_pitches([
-            {"pitch_type": "FF", "n": 30, "zone": 5},
-            {"pitch_type": "FF", "n": 10, "zone": 11},
-            {"pitch_type": "SL", "n": 100, "zone": 14},
-        ])
-        table = location.zone_table(frame)
-        assert table.loc["FF", 5] == pytest.approx(0.75)
-        assert table.loc["SL", 14] == pytest.approx(1.0)
-
-    def test_empty_frame(self):
-        frame = make_pitches([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
-        assert len(location.zone_table(frame)) == 0

@@ -17,8 +17,8 @@ Two splits are offered:
 For each plan rule, three things are measured across pitchers:
 
   same call     the second part gives the same advice as the first
-  flipped       the second part gives contradicting advice — "take" became
-                "swing", "sit slider" became "sit four-seam". This is the
+  flipped       the second part gives contradicting advice — "sit slider"
+                became "sit four-seam". This is the
                 failure that matters: a plan that is merely less sure later is
                 fine, one that points the hitter the wrong way is not.
   skill         how much better his own first-part number predicts his
@@ -29,6 +29,12 @@ For each plan rule, three things are measured across pitchers:
 
 Every rule is read through the same functions the report uses, so what is
 tested is exactly what a hitter would have been told.
+
+A rule that fails this check comes out of the plan, and then out of this
+module. The first-pitch "take or swing" line went that way: on 2026, a season
+its cutoffs had never seen, it held 7 times in 12 with a skill of +0.01
+(95% interval -0.53 to +0.35), which is no skill. The run that measured it is
+reproducible at commit cc5a2ed.
 
 Two readings of "the advice held" are recorded, because for three rules they
 differ and a single number hid which one was being reported:
@@ -117,13 +123,6 @@ def side_calls(frame: pd.DataFrame, side: str) -> dict:
     usage = counts.situational_usage(frame)
     out: dict = {}
 
-    fp = gameplan.first_pitch_numbers(frame, usage, side)
-    rule = gameplan.first_pitch_rule(fp) if fp else None
-    out["first_pitch"] = (
-        {"call": rule, "value": fp["called_on_takes"], "n": fp["takes"]}
-        if rule else None
-    )
-
     hc = gameplan.hitters_count_numbers(usage, side)
     if hc:
         kind = gameplan.hitters_count_rule(hc)
@@ -167,10 +166,8 @@ def _target(call: str | None, look_fastball_is_a_call: bool = False) -> frozense
 
 
 def _advice_given(row: pd.Series) -> bool:
-    """Did the first part tell the hitter something, rather than "no case"?"""
+    """Did the first part tell the hitter something, rather than "he mixes"?"""
     rule, call = row["rule"], row["call_first"]
-    if rule == "first_pitch":
-        return call in ("take", "swing")
     if rule in ("hitters_count", "two_strikes"):
         return call != "mixes"
     if rule == "lay_off_low":
@@ -180,8 +177,6 @@ def _advice_given(row: pd.Series) -> bool:
 
 def _flipped(a: str | None, b: str | None, broad: bool = False) -> bool:
     """True when both parts give advice and the advice points different ways."""
-    if {a, b} == {"take", "swing"}:
-        return True
     ta, tb = _target(a, broad), _target(b, broad)
     return ta is not None and tb is not None and not (ta & tb)
 
@@ -223,11 +218,6 @@ def compare(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
 
     for side in ("L", "R"):
         a, b = side_calls(first, side), side_calls(second, side)
-
-        if a["first_pitch"] and b["first_pitch"]:
-            fa, fb = a["first_pitch"], b["first_pitch"]
-            rows.append(_row("first_pitch", side, fa["call"], fb["call"],
-                             fa["value"], fb["value"], fa["n"], fb["n"]))
 
         if a["hitters_count"] and b["hitters_count"]:
             ha, hb = a["hitters_count"], b["hitters_count"]
@@ -337,10 +327,9 @@ def _height_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
 # Skill needs a number that varies across pitchers. A "won't see" pitch is
 # near 0% for everyone, and the count and height lines track a different
 # pitch per pitcher, so an average-pitcher baseline means nothing for them.
-SKILL_RULES = frozenset({"first_pitch", "hitters_count", "two_strikes", "lay_off_low"})
+SKILL_RULES = frozenset({"hitters_count", "two_strikes", "lay_off_low"})
 
 RULE_LABELS: dict[str, str] = {
-    "first_pitch": "First pitch: take / swing",
     "hitters_count": "Hitter's count: what to sit on",
     "two_strikes": "Two strikes: the put-away pitch",
     "lay_off_low": "Two strikes: lay off it low",
@@ -444,7 +433,7 @@ def summarise(rows: list[dict], n_boot: int = 2000, seed: int = 17) -> list[dict
         sub = table[table["rule"] == rule]
         if sub.empty:
             continue
-        # "Neutral" and "mixes" are calls too, but the question that matters
+        # "Mixes" is a call too, but the question that matters
         # for a hitter is whether ADVICE held, so hold rates count only the
         # cases where the first part told him something.
         advised = sub[sub.apply(_advice_given, axis=1)]
@@ -456,8 +445,8 @@ def summarise(rows: list[dict], n_boot: int = 2000, seed: int = 17) -> list[dict
             skill_lo, skill_hi = _skill_interval(values, n_boot, seed)
         # Every piece of advice lands in exactly one of three places: the
         # second part said the same thing (held), said something that points
-        # the other way (flipped), or said less — "no case", "he mixes",
-        # "look fastball" — (weakened). Weakened advice costs a hitter
+        # the other way (flipped), or said less — "he mixes", "look
+        # fastball" — (weakened). Weakened advice costs a hitter
         # nothing he would not have had without the report; flipped advice
         # sends him the wrong way.
         held = advised["same_call"]
