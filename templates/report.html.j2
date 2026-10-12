@@ -641,10 +641,12 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   <div class="chartbox">
     <h3>Velocity through the outing</h3>
     <p class="lede">
-      Fastballs only — averaging offspeed in tracks pitch selection, not fatigue.
-      Dashed and greyed buckets come from fewer than
-      {{ payload.fatigue.min_outings }} outings: only the starts that got that
-      deep are in them, so a rise there is selection, not recovery.
+      {% if payload.fatigue.pitch %}His {{ c.coach_names.get(payload.fatigue.pitch, payload.fatigue.pitch) }} only{% else %}One fastball only{% endif %}
+      — blending in a slower pitch tracks pitch selection, not fatigue.
+      Each point is the average change <em>within</em> an outing from its own
+      first pitches, so the line is not moved by which outings lasted.
+      Dashed and greyed buckets rest on fewer than
+      {{ payload.fatigue.min_outings }} outings.
     </p>
     <div class="holder"><canvas id="fatigueChart"></canvas></div>
   </div>
@@ -930,7 +932,7 @@ table('arsenalTable', D.arsenal, [
   { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
   { f: 'velo_delta', l: 'Δ velo', n: 1, fmt: v => sign(v, 1) },
   { f: 'spin', l: 'Spin', n: 1, fmt: int },
-  { f: 'h_break', l: 'Arm-side (in)', n: 1, fmt: v => num(v, 1) },
+  { f: 'arm_run', l: 'Arm-side (in)', n: 1, fmt: v => num(v, 1) },
   { f: 'v_break', l: 'Ride (in)', n: 1, fmt: v => num(v, 1) },
   { f: 'zone_rate', l: 'Zone%', n: 1, fmt: pct0 },
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
@@ -947,7 +949,7 @@ table('predTable', D.predictability, [
   { f: 'top_share', l: 'Share', n: 1, fmt: pct },
   { f: 'league_top_share', l: 'Lg share', n: 1, fmt: pct },
   { f: 'share_delta', l: 'vs league', n: 1, fmt: v => sign(v, 3), tone: 1 },
-  { f: 'share_z', l: 'SDs from league', n: 1, fmt: v => num(v, 1) },
+  { f: 'share_z', l: 'SEs from league', n: 1, fmt: v => num(v, 1) },
   { f: 'predictability', l: 'Predictability', n: 1, fmt: v => num(v, 3) },
 ]);
 
@@ -986,7 +988,7 @@ table('putawayTable', D.putaway, [
   { f: 'putaway_rate', l: 'Putaway', n: 1, fmt: pct },
   { f: 'league_putaway', l: 'Lg putaway', n: 1, fmt: pct },
   { f: 'putaway_delta', l: 'vs league', n: 1, fmt: v => sign(v, 3) },
-  { f: 'putaway_z', l: 'SDs from league', n: 1, fmt: v => num(v, 1) },
+  { f: 'putaway_z', l: 'SEs from league', n: 1, fmt: v => num(v, 1) },
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
 ]);
 
@@ -1289,12 +1291,18 @@ if (typeof Chart === 'undefined') {
 
   const fg = D.fatigue;
   if (fg && fg.buckets.length) {
-    // Buckets built from too few separate outings are greyed, not removed.
-    // A late bucket only contains the starts that got that deep, which are
-    // the starts that were going well, so its rise is selection rather than
-    // recovery. Dropping those points would make the curve look better
-    // supported than it is; greying them says what happened.
+    // The line is his opening velocity plus the average within-outing change
+    // to each bucket (fg.paired), not the plain average of each bucket. The
+    // plain average of a late bucket holds only the starts that got that
+    // deep, which are the starts that were going well, so it can rise from
+    // selection alone; the within-outing change cannot.
+    //
+    // Buckets built from too few separate outings are still greyed, not
+    // removed: few outings is few data points however they are compared, and
+    // dropping them would make the curve look better supported than it is.
     const ok = fg.reliable || fg.buckets.map(() => true);
+    const series = fg.paired || fg.velo;
+    const outings = fg.pairs || fg.outings;
     const solid = '#2f6fb2', faded = '#b9c6d4';
 
     new Chart(document.getElementById('fatigueChart'), {
@@ -1303,7 +1311,7 @@ if (typeof Chart === 'undefined') {
         labels: fg.buckets,
         datasets: [{
           label: 'Fastball velo',
-          data: fg.velo,
+          data: series,
           borderColor: solid,
           backgroundColor: 'rgba(47,111,178,.10)',
           // Straight segments. A smoothed curve implies measurements between
@@ -1333,11 +1341,11 @@ if (typeof Chart === 'undefined') {
               label: c => `${num(c.parsed.y, 2)} mph`,
               // The outing count is what governs interpretation: a drop seen
               // in three starts is three starts.
-              afterLabel: c => `${fg.outings[c.dataIndex]} outings, ` +
+              afterLabel: c => `${outings[c.dataIndex]} outings, ` +
                                `n=${fg.n[c.dataIndex]}` +
                                (ok[c.dataIndex] ? ''
-                                 : `\nUnder ${fg.min_outings} outings — only the ` +
-                                   `starts that got this deep are in here.`),
+                                 : `\nUnder ${fg.min_outings} outings — too few ` +
+                                   `to read a change from.`),
             },
           },
         },

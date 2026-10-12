@@ -171,6 +171,31 @@ class TestCli:
         assert cli.thin_sample_suggestion(3000, [2026]) is None
         assert cli.thin_sample_suggestion(900, [2025, 2026]) is None
 
+    def test_player_id_skips_the_name_lookup(self, monkeypatch, tmp_path):
+        """The lookup's ambiguity error says "Pass --player-id to
+        disambiguate", and the option did not exist."""
+        from tests.test_card import make_frame as card_frame
+        asked = []
+
+        def fake_load(mlbam_id, season, refresh=False):
+            asked.append((mlbam_id, season))
+            frame = card_frame([{"pitch_type": "FF", "n": 60},
+                                {"pitch_type": "SL", "n": 40}])
+            frame["game_year"] = season
+            return frame
+
+        def no_lookup(*args, **kwargs):
+            raise AssertionError("the name lookup should not run")
+
+        monkeypatch.setattr(cli, "load_by_id", fake_load)
+        monkeypatch.setattr(cli, "load_seasons_from_savant", no_lookup)
+        out = tmp_path / "report.html"
+        code = cli.main(["--pitcher", "Luis Garcia", "--player-id", "472610",
+                         "--season", "2025", "--no-league", "--out", str(out)])
+        assert code == 0
+        assert asked == [(472610, 2025)]
+        assert "Luis Garcia" in out.read_text(encoding="utf-8")
+
 
 class TestLatelyWithCombinedSeasons:
     def test_lately_is_measured_against_the_current_season(self):

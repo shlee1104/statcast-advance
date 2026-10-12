@@ -287,7 +287,7 @@ def fetch_date_range(start_date: str, end_date: str) -> pd.DataFrame:
     sampling days rather than pulling a whole season, which would be hundreds
     of thousands of rows and a great many requests.
 
-    A single day is roughly 4,400 pitches and takes about ten seconds, so keep
+    A full slate is roughly 4,400 pitches and takes about ten seconds, so keep
     ranges short and let the caller loop with the rate limiter in between.
     """
     params = {

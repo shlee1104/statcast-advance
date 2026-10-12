@@ -68,9 +68,12 @@ def _pair_pitches(frame: pd.DataFrame) -> pd.DataFrame:
     of each PA can never be paired with the first pitch of the next one.
     """
     # delta_run_exp and xwOBA travel with the successor so the outcome of the
-    # follow-up can be measured without a second join.
+    # follow-up can be measured without a second join. Its balls and strikes
+    # travel too: the count a pitch is chosen in is the count AFTER the pitch
+    # before it, which is the successor's count, not this row's.
     columns = ["pitch_type", "description", "zone", "is_swing", "is_whiff",
-               "delta_run_exp", "estimated_woba_using_speedangle"]
+               "delta_run_exp", "estimated_woba_using_speedangle",
+               "balls", "strikes"]
 
     ordered = frame.sort_values(PA_KEYS + ["pitch_number"]).copy()
 
@@ -311,15 +314,28 @@ def setup_pairs(
                    its whiff rate overall. Above 1 means the sequence is
                    actually working, not merely habitual.
 
+    `lift_z` says how many standard errors the frequency lift stands clear of
+    no lift at all (see events.lift_z); the rules engine requires it.
+
     High freq_lift with effect_lift near or below 1 is the most exploitable
     finding available: a predictable sequence that is not buying the pitcher
     anything.
 
-    `count_state` optionally restricts the analysis to "ahead" (strikes >
-    balls), "behind" (balls > strikes), or "even". Because the previous pitch's
-    outcome determines the resulting count, an unrestricted lift conflates
-    sequencing intent with ordinary count logic; holding the count fixed
-    isolates the sequencing signal.
+    `count_state` optionally restricts the analysis to pairs whose FOLLOW-UP
+    was thrown "ahead" (strikes > balls), "behind" (balls > strikes), or
+    "even". Because the setup pitch's outcome determines the resulting count,
+    an unrestricted lift conflates sequencing intent with ordinary count
+    logic; holding the count the follow-up is chosen in fixed isolates the
+    sequencing signal.
+
+    It has to be the follow-up's count. This used to filter on the count the
+    SETUP pitch was thrown in, which does not hold anything fixed: a high
+    fastball taken for a ball and one swung through leave the same starting
+    count for opposite ones. After a setup pitch thrown in an even count the
+    next pitch comes in an even count about 5% of the time (only a two-strike
+    foul keeps it there), so "even" was really a blend of ahead and behind.
+    Three states is still a coarse control — "ahead" pools 0-1 with 1-2 — and
+    a lift that survives it is supported, not proven.
 
     Returns one row per (setup_pitch, setup_band, next_pitch) combination with
     at least `min_n` occurrences, sorted by `score` descending, where
@@ -329,7 +345,7 @@ def setup_pairs(
     """
     columns = [
         "setup_pitch", "setup_band", "next_pitch", "n",
-        "p_next", "baseline_p", "freq_lift",
+        "p_next", "baseline_p", "freq_lift", "lift_z",
         "whiff_after", "whiff_baseline", "effect_lift", "score",
         "rv_when", "rv_base", "rv_delta", "runs_cost",
                "runs_lo", "runs_hi", "significant", "rv_p",
@@ -341,10 +357,11 @@ def setup_pairs(
         return pd.DataFrame(columns=columns)
 
     if count_state is not None:
+        balls, strikes = pairs["next_balls"], pairs["next_strikes"]
         states = {
-            "ahead": pairs["strikes"] > pairs["balls"],
-            "behind": pairs["balls"] > pairs["strikes"],
-            "even": pairs["balls"] == pairs["strikes"],
+            "ahead": strikes > balls,
+            "behind": balls > strikes,
+            "even": balls == strikes,
         }
         if count_state not in states:
             raise ValueError(
@@ -367,6 +384,7 @@ def setup_pairs(
     # Baselines are computed over the same filtered population the lifts are
     # measured against, so a count restriction narrows both sides equally.
     baseline_p = pairs["next_pitch_type"].value_counts(normalize=True)
+    next_totals = pairs["next_pitch_type"].value_counts()
 
     swings = pairs[pairs["next_is_swing"]]
     whiff_baseline = (
@@ -420,6 +438,11 @@ def setup_pairs(
                 "p_next": p_next,
                 "baseline_p": base,
                 "freq_lift": freq_lift,
+                # Against the follow-ups to every OTHER setup, since this
+                # setup's own follow-ups are part of the baseline.
+                "lift_z": events.lift_z(
+                    int(n), group_total, int(next_totals[next_pitch]), len(pairs)
+                ),
                 "whiff_after": whiff_after,
                 "whiff_baseline": base_whiff,
                 "effect_lift": effect_lift,

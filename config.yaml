@@ -32,8 +32,10 @@ data:
 
 baselines:
   # League reference data is built by sampling dates rather than pulling a full
-  # season. One date is roughly 4,400 pitches, so 30 dates gives ~130k — ample
-  # for count-level and pitch-type-level rates, at a fraction of the requests.
+  # season. A date with games averages about 3,700 pitches, and one or two of
+  # the 30 land on days without any, so the sample is roughly 100k (2025:
+  # 102,280 pitches from 28 dates) — ample for count-level and pitch-type-level
+  # rates, at a fraction of the requests.
   n_dates: 30
 
   # Sampling is stratified: the season is split into n_dates equal intervals and
@@ -123,7 +125,10 @@ seasons:
 # Cutoffs that decide which sentence the hitting plan writes.
 #
 # Set from the calibration run over 25 pitchers, 50 pitcher-sides, 2025
-# (scripts/batch_reports.py). The first values were set by judgment against
+# (scripts/batch_reports.py) — the 25 of the 30 on the list that ran at the
+# time. Rerun on all 30 (60 pitcher-sides) on 2026-10-12 with the same
+# cutoffs: the spreads quoted below did not move (called strikes on taken
+# first pitches: median 0.45, middle half 0.39-0.49). The first values were set by judgment against
 # Yamamoto and Skubal alone; the run showed several firing for nearly every
 # pitcher, which means the line describes the league rather than the man.
 # The aim for each is that it fires for a minority, and that the sentence it
@@ -188,6 +193,12 @@ plan:
   lay_off_low_share: 0.50
   min_two_strike_swings: 20
 
+  # ...and only when that share is measured on at least this many located
+  # pitches of that pitch. The line's own n counts every two-strike pitch to
+  # the side, so without this the share could rest on a dozen pitches under an
+  # n in the hundreds.
+  lay_off_low_min_pitches: 20
+
   # "Won't see": a pitch one side gets less than this share of the time.
   rare_share: 0.03
 
@@ -218,6 +229,20 @@ flags:
     times_through_order: 150
 
   thresholds:
+    # Every usage lift — a pitch in a count, in a location band, after a setup
+    # pitch — must be at least this many standard errors from no lift at all
+    # before it can be a finding, on top of its minimum sample.
+    #
+    # The minimum samples are not a noise filter on their own. "At least 20 of
+    # that pitch at 1.5x his usual rate" admits 20 where 13.3 were expected,
+    # which is 1.8 standard errors, and each report looks at 30-45 such cells
+    # per family; several clear a bar that low by chance. Skubal's 2025 report
+    # listed "in 0-1 he goes to the curveball 4% of the time against his own
+    # 3%" (n=21, z = 2.4) as a finding. 3.0 is roughly what a Bonferroni
+    # correction across 40 cells asks for (3.2). The test compares the cell
+    # against everything outside it; see events.lift_z.
+    frequency_min_z: 3.0
+
     # A count is a finding when it changes what HE does, measured against his
     # own overall rate for that pitch.
     #
@@ -251,15 +276,24 @@ flags:
     # Usage gap between vs-LHH and vs-RHH for an effective pitch
     handedness_usage_gap: 0.20
 
-    # xwOBA above league average for that pitch type
+    # xwOBA above league average for that pitch type...
     hittable_pitch_xwoba_delta: 0.060
 
-    # Velocity decline, in mph, across an outing
+    # ...and at least this many standard errors above it. Only the pitch that
+    # ends a plate appearance has an xwOBA, so the 50-pitch gate is about a
+    # dozen of them and a standard error near 0.10 — the floor alone is inside
+    # the noise for anything short of a starter's main pitch.
+    hittable_pitch_min_z: 2.0
+
+    # Velocity decline, in mph, across an outing. Measured on his most-used
+    # fastball only and within each outing (see splits.fatigue), so it is not
+    # moved by his pitch mix or by which outings lasted.
     fatigue_velo_drop_mph: 1.0
 
     # A tell only counts as a weakness if the pattern costs him runs when it
     # holds. Yamamoto's splitter is the case that forced this: hitters know it
-    # is coming with two strikes and still post a .191 xwOBA against it, so
+    # is coming with two strikes and still post a .163 xwOBA against it there
+    # (.203 on his other two-strike pitches; strikeouts count as zero), so
     # flagging it as exploitable hands a coach a plan that does not work.
     #
     # Measured as (run value when the pattern holds − his norm for that pitch)
@@ -277,10 +311,17 @@ flags:
     # though 30% is not a majority.
     sequencing_tell_lift: 1.50
 
-    # Third time through the order, an xwOBA rise of this much counts as
-    # results decaying. Paired with whether velocity held, that is what
-    # separates familiarity from fatigue.
+    # Third time through the order, an xwOBA rise of at least this much is
+    # worth calling results decaying...
     tto_xwoba_rise: 0.020
+
+    # ...but only if it is also this many standard errors from zero. The
+    # floor above is a fixed number and the noise is not: xwOBA per plate
+    # appearance has an SD near 0.35, a third trip is about 200 plate
+    # appearances, so the standard error of a trip-to-trip difference is about
+    # 0.03 and the floor alone sits inside one of them. Skubal's 2025 change
+    # was +0.022 with a standard error of 0.034.
+    tto_xwoba_min_z: 2.0
 
     # Share of a pitch type concentrated in a single zone quadrant.
     # Descriptive only — see location_tell_lift below for why this is not

@@ -201,6 +201,89 @@ class TestFatigue:
         frame = make_pitches([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
         assert len(splits.fatigue(frame)) == 0
 
+    def test_reads_one_fastball_not_the_family(self):
+        """A cutter is 4-5 mph under a four-seam. If he throws more of them
+        late, an average over both falls with no change in either pitch —
+        which is how Yamamoto's report came to say his velocity dropped 1.0
+        mph when his four-seam was down 0.65."""
+        frame = make_pitches([
+            {"pitch_type": "FF", "n": 13, "velo": 96.0},
+            {"pitch_type": "FC", "n": 2, "velo": 90.0},
+            {"pitch_type": "FF", "n": 7, "velo": 96.0},
+            {"pitch_type": "FC", "n": 8, "velo": 90.0},
+        ])
+        table = splits.fatigue(frame, bucket_size=15)
+        assert list(table["velo"]) == pytest.approx([96.0, 96.0])
+        assert table.iloc[1]["velo_delta"] == pytest.approx(0.0)
+
+    def test_change_is_measured_within_each_outing(self):
+        """Only the good day lasts. Game 1 sits 97 and goes 30 pitches; game 2
+        sits 93 and is done after 15. Neither loses anything, but the plain
+        average of pitches 16-30 (97) against pitches 1-15 (95) says velocity
+        ROSE 2 mph. Compared outing by outing, the change is zero."""
+        long_day = make_pitches([{"pitch_type": "FF", "n": 30, "velo": 97.0, "game_pk": 1}])
+        short_day = make_pitches([{"pitch_type": "FF", "n": 15, "velo": 93.0, "game_pk": 2}])
+        table = splits.fatigue(pd.concat([long_day, short_day]), bucket_size=15)
+        late = table.iloc[1]
+        assert late["velo"] - table.iloc[0]["velo"] == pytest.approx(2.0)
+        assert late["velo_delta"] == pytest.approx(0.0)
+        assert late["outings"] == 1 and late["pairs"] == 1
+
+    def test_reports_how_many_outings_the_change_rests_on(self):
+        frame = pd.concat([
+            make_pitches([{"pitch_type": "FF", "n": 30, "game_pk": g}]) for g in (1, 2, 3)
+        ])
+        table = splits.fatigue(frame, bucket_size=15)
+        assert list(table["pairs"]) == [3, 3]
+
+
+class TestVelocityPitch:
+    def test_is_his_most_used_fastball(self):
+        frame = make_pitches([
+            {"pitch_type": "SI", "n": 40}, {"pitch_type": "FF", "n": 25},
+            {"pitch_type": "SL", "n": 90},
+        ])
+        assert splits.velocity_pitch(frame) == "SI"
+
+    def test_a_cutter_first_pitcher_is_read_off_his_cutter(self):
+        frame = make_pitches([
+            {"pitch_type": "FC", "n": 60}, {"pitch_type": "SI", "n": 10},
+        ])
+        assert splits.velocity_pitch(frame) == "FC"
+
+    def test_none_without_a_fastball(self):
+        frame = make_pitches([{"pitch_type": "CU", "n": 10}])
+        assert splits.velocity_pitch(frame) is None
+
+
+class TestPairedChange:
+    def test_averages_the_change_inside_each_game(self):
+        frame = pd.concat([
+            make_pitches([{"pitch_type": "FF", "n": 5, "tto": 1, "velo": 96.0, "game_pk": 1},
+                          {"pitch_type": "FF", "n": 5, "tto": 3, "velo": 95.0, "game_pk": 1}]),
+            make_pitches([{"pitch_type": "FF", "n": 5, "tto": 1, "velo": 94.0, "game_pk": 2},
+                          {"pitch_type": "FF", "n": 5, "tto": 3, "velo": 91.0, "game_pk": 2}]),
+        ])
+        change, se, games = splits.paired_change(frame, "n_thruorder_pitcher", 1, 3)
+        assert change == pytest.approx(-2.0)     # mean of -1 and -3
+        assert se == pytest.approx(1.0)          # sd 1.414 over sqrt(2)
+        assert games == 2
+
+    def test_a_game_missing_one_end_is_left_out(self):
+        frame = pd.concat([
+            make_pitches([{"pitch_type": "FF", "n": 5, "tto": 1, "velo": 96.0, "game_pk": 1},
+                          {"pitch_type": "FF", "n": 5, "tto": 3, "velo": 95.0, "game_pk": 1}]),
+            make_pitches([{"pitch_type": "FF", "n": 5, "tto": 1, "velo": 90.0, "game_pk": 2}]),
+        ])
+        change, _, games = splits.paired_change(frame, "n_thruorder_pitcher", 1, 3)
+        assert change == pytest.approx(-1.0)
+        assert games == 1
+
+    def test_nothing_to_compare(self):
+        frame = make_pitches([{"pitch_type": "FF", "n": 5, "tto": 1}])
+        change, _, games = splits.paired_change(frame, "n_thruorder_pitcher", 1, 3)
+        assert math.isnan(change) and games == 0
+
 
 class TestTimesThroughOrder:
     def test_groups_by_trip(self):
@@ -295,6 +378,33 @@ class TestDecomposeTTO:
             {"pitch_type": "FF", "n": 40, "tto": 3, "velo": 96.0, "xwoba": 0.304},
         ])
         assert splits.decompose_tto(frame)["attribution"] == "neither"
+
+    def test_a_rise_inside_its_own_noise_is_not_decay(self):
+        """Clearing a fixed floor is not clearing the noise. Skubal's 2025
+        report said "third time through: hit harder" on +0.022 with a standard
+        error of 0.034. Here the third trip is +0.025 on the average but each
+        trip is 40 plate appearances swinging between .000 and about .600."""
+        specs = []
+        for tto, low, high in ((1, 0.000, 0.600), (3, 0.000, 0.650)):
+            specs += [{"pitch_type": "FF", "n": 20, "tto": tto, "velo": 96.0, "xwoba": low},
+                      {"pitch_type": "FF", "n": 20, "tto": tto, "velo": 96.0, "xwoba": high}]
+        result = splits.decompose_tto(make_pitches(specs))
+        assert result["xwoba_delta"] == pytest.approx(0.025)
+        assert result["xwoba_delta"] < 2 * result["xwoba_se"]
+        assert result["attribution"] == "neither"
+        assert "±" in result["note"]
+
+    def test_velocity_change_is_within_outing_on_one_pitch(self):
+        """Third-trip pitches come only from the starts that lasted."""
+        good = make_pitches([
+            {"pitch_type": "FF", "n": 20, "tto": 1, "velo": 97.0, "game_pk": 1},
+            {"pitch_type": "FF", "n": 20, "tto": 3, "velo": 97.0, "game_pk": 1},
+        ])
+        short = make_pitches([
+            {"pitch_type": "FF", "n": 20, "tto": 1, "velo": 93.0, "game_pk": 2},
+        ])
+        result = splits.decompose_tto(pd.concat([good, short]))
+        assert result["velo_delta"] == pytest.approx(0.0)   # not +2.0
 
     def test_missing_third_trip_returns_unknown(self):
         frame = make_pitches([

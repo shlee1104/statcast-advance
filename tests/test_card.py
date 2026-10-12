@@ -113,6 +113,18 @@ class TestScoutArsenal:
         assert arsenal.scout_arsenal(righty).loc["SI", "arm_run"] == pytest.approx(12.0)
         assert arsenal.scout_arsenal(lefty).loc["SI", "arm_run"] == pytest.approx(12.0)
 
+    def test_both_arsenal_tables_agree_on_arm_side(self):
+        """The card and the detailed table are both labelled "Arm-side". The
+        detailed one printed raw catcher's-view movement, so a right-hander's
+        four-seam read +7.0 on the card and -7.0 two sections later."""
+        for hand, pfx_x in (("R", -0.5), ("L", 0.5)):
+            frame = make_frame([{"pitch_type": "FF", "n": 40, "p_throws": hand,
+                                 "pfx_x": pfx_x}])
+            scout = arsenal.scout_arsenal(frame).loc["FF", "arm_run"]
+            detail = arsenal.profile(frame).loc["FF", "arm_run"]
+            assert scout == pytest.approx(6.0)
+            assert detail == pytest.approx(scout)
+
     def test_movement_is_in_inches(self):
         frame = make_frame([{"pitch_type": "FF", "n": 50, "pfx_z": 1.5}])
         assert arsenal.scout_arsenal(frame).loc["FF", "ivb"] == pytest.approx(18.0)
@@ -261,6 +273,21 @@ class TestSeasonLine:
         frame = make_frame([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
         assert events.season_line(frame)["batters"] == 0
 
+    def test_a_truncated_plate_appearance_is_not_a_batter_faced(self):
+        """Savant writes `truncated_pa` when a runner is thrown out to end the
+        inning mid-count. Nobody finished that plate appearance, so it must
+        not sit in the K% and BB% denominators. Yamamoto's 2025 line counted
+        829 batters where 828 completed a plate appearance."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 30, "events": "strikeout"},
+            {"pitch_type": "FF", "n": 70, "events": "field_out"},
+            {"pitch_type": "FF", "n": 5, "events": "truncated_pa"},
+            {"pitch_type": "FF", "n": 2, "events": "caught_stealing_2b"},
+        ])
+        line = events.season_line(frame)
+        assert line["batters"] == 100
+        assert line["k_rate"] == pytest.approx(0.30)
+
 
 # ---------------------------------------------------------------------------
 # Hitting plan
@@ -358,6 +385,22 @@ class TestPlanKeys:
         key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
         assert "splitter" in key["text"]
         assert "lay off it low" in key["text"]
+
+    def test_lay_off_low_needs_its_own_sample(self):
+        """The line's n is every two-strike pitch to the side. The share that
+        finishes low is measured on the lead pitch alone, and here only 12 of
+        those have a location — too few to tell a hitter to lay off it."""
+        frame = make_frame([
+            {"pitch_type": "FS", "n": 12, "strikes": 2, "plate_z": 1.0},
+            {"pitch_type": "FS", "n": 28, "strikes": 2, "plate_z": None},
+            {"pitch_type": "FF", "n": 20, "strikes": 2},
+        ])
+        usage = counts.situational_usage(frame)
+        m = gameplan.two_strike_numbers(frame, usage, "R")
+        assert m["n"] == 60 and m["below_n"] == 12 and m["below"] == 1.0
+        key = gameplan.two_strike_key(frame, usage, "R")
+        assert "Expect the splitter" in key["text"]
+        assert "lay off" not in key["text"]
 
     def test_no_sit_line_on_a_pitch_he_throws_less_than_half_the_time(self):
         """Snell's report said "sit four-seam — 42%". A plurality is not a plan."""
@@ -483,26 +526,34 @@ class TestHeightLine:
     def test_fastball_up_is_not_a_plan_line(self, monkeypatch):
         frame = self.tells(monkeypatch, [
             {"band": "UP", "pitch_type": "FF", "lift": 1.9, "p_pitch": 0.74,
-             "score": 5.0, "n": 600},
+             "lift_z": 20.0, "score": 5.0, "n": 600},
         ])
         assert gameplan.location_key(frame) is None
 
     def test_a_sinker_up_is_also_a_fastball(self, monkeypatch):
         frame = self.tells(monkeypatch, [
             {"band": "UP", "pitch_type": "SI", "lift": 1.5, "p_pitch": 0.70,
-             "score": 5.0, "n": 300},
+             "lift_z": 12.0, "score": 5.0, "n": 300},
         ])
         assert gameplan.location_key(frame) is None
 
     def test_offspeed_down_still_reads(self, monkeypatch):
         frame = self.tells(monkeypatch, [
             {"band": "UP", "pitch_type": "FF", "lift": 1.9, "p_pitch": 0.74,
-             "score": 9.0, "n": 600},
+             "lift_z": 20.0, "score": 9.0, "n": 600},
             {"band": "DOWN", "pitch_type": "CH", "lift": 1.7, "p_pitch": 0.54,
-             "score": 4.0, "n": 500},
+             "lift_z": 15.0, "score": 4.0, "n": 500},
         ])
         key = gameplan.location_key(frame)
         assert key["text"] == "If it's down, it's probably the changeup (54% of pitches there)."
+
+    def test_a_lift_inside_chance_is_not_a_plan_line(self, monkeypatch):
+        """Clearing the lift and share bars is not the same as clearing noise."""
+        frame = self.tells(monkeypatch, [
+            {"band": "DOWN", "pitch_type": "CH", "lift": 1.7, "p_pitch": 0.54,
+             "lift_z": 2.1, "score": 4.0, "n": 45},
+        ])
+        assert gameplan.location_key(frame) is None
 
 
 class TestCountGrid:

@@ -22,13 +22,13 @@ from __future__ import annotations
 import pandas as pd
 
 from src import config
-from src.metrics import counts
+from src.metrics import counts, events
 
 # A plate appearance is uniquely identified by game and at-bat number.
 PA_KEYS = ["game_pk", "at_bat_number"]
 
-# Pitch groups treated as fastballs when measuring velocity decay. Mixing a
-# curveball into an average velocity makes the whole series meaningless.
+# The fastball family. Velocity trends are read from ONE of these — the one he
+# throws most, see velocity_pitch() — never from a blend of them.
 FASTBALL_TYPES: frozenset[str] = frozenset({"FF", "SI", "FC"})
 
 
@@ -144,6 +144,10 @@ def platoon_gaps(
       cells are blanked below `min_rate_pitches` rather than the row being
       dropped, so the trustworthy half of the row survives.
 
+    `n_L` / `n_R` are pitches of that type thrown to each side; `faced_L` /
+    `faced_R` are all pitches thrown to each side, the denominators of the two
+    usage rates.
+
     Both default to `flags.min_n.handedness_gap`. Gating here rather than in the
     rules engine keeps the exploratory table and the flagged finding in
     agreement about what counts as enough evidence.
@@ -154,7 +158,7 @@ def platoon_gaps(
         min_rate_pitches = int(config.get("flags.min_n.handedness_gap", 40))
 
     columns = ["pitch_type", "usage_L", "usage_R", "gap",
-               "whiff_L", "whiff_R", "n_L", "n_R"]
+               "whiff_L", "whiff_R", "n_L", "n_R", "faced_L", "faced_R"]
 
     split = platoon(frame, min_pitches)
     if len(split) == 0:
@@ -179,6 +183,11 @@ def platoon_gaps(
     wide = wide.rename(columns={"whiff_rate_L": "whiff_L", "whiff_rate_R": "whiff_R"})
     wide["gap"] = wide["usage_L"].fillna(0) - wide["usage_R"].fillna(0)
 
+    # The denominators travel with the row, so anything quoting a usage rate
+    # can quote what it is a share of.
+    wide["faced_L"] = int(faced.get("L", 0))
+    wide["faced_R"] = int(faced.get("R", 0))
+
     # Blank the effectiveness cells that rest on too few pitches, leaving the
     # usage gap — which does not — intact.
     for side in ("L", "R"):
@@ -187,6 +196,68 @@ def platoon_gaps(
 
     result = wide.reset_index()[columns]
     return result.sort_values("gap", ascending=False, key=abs).reset_index(drop=True)
+
+
+def velocity_pitch(frame: pd.DataFrame) -> str | None:
+    """The one pitch a within-outing velocity trend is read from.
+
+    His most-used pitch in the fastball family: four-seam, sinker or cutter.
+    One pitch, not the family averaged together, because the three sit at
+    different speeds and he does not throw them in the same proportion all
+    game. Yamamoto's cutter is 91 mph against a 95.5 mph four-seam, and it
+    grows from 18% of his fastballs in the first 15 pitches to 24% by pitch
+    90. Averaged together that reads as a 1.0 mph "velocity drop", of which a
+    quarter is him choosing the slower pitch more often: the four-seam alone
+    is down 0.8, and 0.65 once each outing is compared with itself.
+
+    A cutter counts here, unlike in primary_fastball(), so a cutter-first
+    pitcher still gets a velocity trend — from the pitch he actually leans on.
+    """
+    if "pitch_type" not in frame.columns:
+        return None
+    hard = frame[frame["pitch_type"].isin(FASTBALL_TYPES)]["pitch_type"]
+    if len(hard) == 0:
+        return None
+    return str(hard.value_counts().index[0])
+
+
+def paired_change(
+    frame: pd.DataFrame,
+    group: str,
+    start,
+    end,
+    value: str = "release_speed",
+) -> tuple[float, float, int]:
+    """Mean within-outing change in `value` from `group` == start to end.
+
+    Returns (mean change, its standard error, outings compared).
+
+    Each outing is compared with ITSELF: the change is taken inside every game
+    that has both ends, then averaged across games. Comparing two pooled
+    averages instead — every late pitch against every early pitch — mixes in
+    which games got that deep, and the starts that reach pitch 100 or a third
+    trip are the ones where he had his best stuff. That selection is why a
+    late bucket could show velocity RISING; pairing removes it rather than
+    just flagging the bucket as thin.
+
+    The standard error is across outings, which are the independent units
+    here. Pitches within one outing share that day's arm.
+    """
+    blank = (float("nan"), float("nan"), 0)
+    if len(frame) == 0 or value not in frame.columns:
+        return blank
+    working = frame[frame[group].isin([start, end])]
+    values = pd.to_numeric(working[value], errors="coerce")
+    per_game = (
+        values.groupby([working["game_pk"], working[group]]).mean().unstack()
+    )
+    if start not in per_game.columns or end not in per_game.columns:
+        return blank
+    change = (per_game[end] - per_game[start]).dropna()
+    if len(change) == 0:
+        return blank
+    se = float(change.std(ddof=1) / len(change) ** 0.5) if len(change) > 1 else float("nan")
+    return float(change.mean()), se, int(len(change))
 
 
 def add_appearance_pitch_number(frame: pd.DataFrame) -> pd.DataFrame:
@@ -212,54 +283,75 @@ def fatigue(
 
       bucket        str, the pitch-count range
       n             int, pitches in the bucket
-      velo          float, mean velocity
-      velo_delta    float, change from the first bucket
-      outings       int, how many distinct games contribute
+      velo          float, mean velocity of every pitch in the bucket
+      velo_delta    float, mean within-outing change from the first bucket
+      outings       int, how many distinct games contribute to the bucket
+      pairs         int, how many of those also have a first-bucket reading,
+                    which is what `velo_delta` is averaged over
+      delta_se      float, standard error of `velo_delta` across outings
 
-    Restricted to fastballs by default. Averaging a curveball into a velocity
-    series produces a curve that tracks pitch selection rather than fatigue,
-    and selection genuinely does change late in outings.
+    Restricted by default to his most-used fastball (see velocity_pitch). A
+    curveball in a velocity series makes it track pitch selection rather than
+    fatigue, and so does a cutter mixed in with a four-seam.
 
-    `outings` is the number that governs interpretation. A 2 mph drop in the
+    `velo_delta` is paired: each outing's bucket is compared with that same
+    outing's first bucket, then averaged (see paired_change). `velo` is the
+    plain average of the bucket, for drawing the curve, so `velo` minus the
+    first row's `velo` will not equal `velo_delta` exactly — the difference is
+    the selection effect the pairing removes.
+
+    `pairs` is the number that governs interpretation. A 2 mph drop in the
     90-105 bucket means little if only two starts ever got that far.
     """
-    columns = ["bucket", "n", "velo", "velo_delta", "outings"]
+    columns = ["bucket", "n", "velo", "velo_delta", "outings", "pairs", "delta_se"]
 
     if len(frame) == 0:
         return pd.DataFrame(columns=columns)
 
     working = add_appearance_pitch_number(frame)
     if fastballs_only:
-        working = working[working["pitch_type"].isin(FASTBALL_TYPES)]
+        working = working[working["pitch_type"] == velocity_pitch(frame)]
     if len(working) == 0:
         return pd.DataFrame(columns=columns)
 
     working = working.copy()
     working["bucket_index"] = (working["appearance_pitch"] - 1) // bucket_size
+    first_bucket = working["bucket_index"].min()
 
     records = []
     for bucket_index, group in working.groupby("bucket_index"):
         low = int(bucket_index) * bucket_size + 1
+        if bucket_index == first_bucket:
+            delta, se, pairs = 0.0, 0.0, int(group["game_pk"].nunique())
+        else:
+            delta, se, pairs = paired_change(
+                working, "bucket_index", first_bucket, bucket_index
+            )
         records.append({
             "bucket": f"{low}-{low + bucket_size - 1}",
             "n": len(group),
             "velo": _mean(group, "release_speed"),
+            "velo_delta": delta,
             "outings": int(group["game_pk"].nunique()),
+            "pairs": pairs,
+            "delta_se": se,
         })
 
-    table = pd.DataFrame(records)
-    baseline = table.iloc[0]["velo"]
-    table["velo_delta"] = table["velo"] - baseline
-    return table[columns]
+    return pd.DataFrame(records)[columns]
 
 
 def times_through_order(frame: pd.DataFrame) -> pd.DataFrame:
-    """Velocity, whiff rate, and contact quality by trip through the lineup.
+    """Velocity, whiff rate, and xwOBA by trip through the lineup.
 
     Requires the `n_thruorder_pitcher` column, which Savant provides on the raw
     feed. Returns an empty frame if it is absent, since the alternative is
     reconstructing lineup turns from batter identity, which is error-prone in
     the presence of pinch hitters.
+
+    `velo` is his most-used fastball only (see velocity_pitch), and `xwoba` is
+    per plate appearance ending in that trip (see events.season_line). These
+    are plain per-trip averages for the table; decompose_tto() does the
+    comparison between trips, and does it differently.
     """
     columns = ["tto", "n", "velo", "whiff_rate", "xwoba", "batters",
                "outings", "reliable"]
@@ -271,9 +363,11 @@ def times_through_order(frame: pd.DataFrame) -> pd.DataFrame:
     if len(working) == 0:
         return pd.DataFrame(columns=columns)
 
+    fastball = velocity_pitch(working)
+
     records = []
     for tto, group in working.groupby("n_thruorder_pitcher"):
-        fastballs = group[group["pitch_type"].isin(FASTBALL_TYPES)]
+        fastballs = group[group["pitch_type"] == fastball]
         swings = int(group["is_swing"].eq(True).sum())
         whiffs = int(group["is_whiff"].eq(True).sum())
         records.append({
@@ -299,8 +393,10 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
 
     Compares the third trip against the first:
 
-      velo_delta      float, mph change in fastball velocity
-      xwoba_delta     float, change in expected wOBA
+      velo_delta      float, mph change in his main fastball, averaged
+                      within outing (see paired_change)
+      xwoba_delta     float, change in xwOBA per plate appearance
+      xwoba_se        float, standard error of that change
       whiff_delta     float, change in whiff rate
       attribution     str, what is observed: "velocity_declines" |
                       "results_decay" | "both" | "neither" | "unknown"
@@ -318,8 +414,17 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
 
     It was also reporting an xwOBA change of +0.004 — .264 to .268 across three
     trips — alongside that claim as if it were corroboration. It is noise, and
-    `results_decay` now requires the change to clear `tto_xwoba_rise` before
-    the word "decay" is used at all.
+    `results_decay` requires the change to clear `tto_xwoba_rise` before the
+    word "decay" is used at all.
+
+    That floor alone was not enough, because it is a fixed number and the
+    noise is not. xwOBA per plate appearance has a standard deviation near
+    0.35, and a starter's third trip is about 200 plate appearances, so the
+    difference between two trips carries a standard error near 0.03 — the
+    0.020 floor sits inside ONE standard error. Skubal's 2025 report said
+    "third time through: hit harder" on a change of +0.022 with a standard
+    error of 0.034, which is z = 0.6. So the change must also be at least
+    `tto_xwoba_min_z` standard errors, and the note prints the margin.
 
     Separating fatigue from familiarity needs cases where trip number and pitch
     count diverge: comparing a batter's second plate appearance after a short
@@ -329,6 +434,7 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
     blank = {
         "velo_delta": float("nan"),
         "xwoba_delta": float("nan"),
+        "xwoba_se": float("nan"),
         "whiff_delta": float("nan"),
         "attribution": "unknown",
         "headline": None,
@@ -361,19 +467,43 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
 
     first, third = indexed.loc[1], indexed.loc[3]
 
-    velo_delta = float(third["velo"] - first["velo"])
+    # Velocity: one pitch, each outing against itself. A third trip only
+    # exists in the starts that lasted, so two pooled averages would compare
+    # his good days late with all his days early.
+    fastballs = frame[frame["pitch_type"] == velocity_pitch(frame)]
+    velo_delta, _, _ = paired_change(fastballs, "n_thruorder_pitcher", 1, 3)
+
+    # xwOBA: plate appearances are the units, and the two trips are separate
+    # sets of them, so this is an ordinary two-sample comparison.
+    xw = pd.to_numeric(
+        frame.get("estimated_woba_using_speedangle",
+                  pd.Series(float("nan"), index=frame.index)),
+        errors="coerce",
+    )
+    xw_first = xw[frame["n_thruorder_pitcher"] == 1].dropna()
+    xw_third = xw[frame["n_thruorder_pitcher"] == 3].dropna()
     xwoba_delta = float(third["xwoba"] - first["xwoba"])
+    if len(xw_first) > 1 and len(xw_third) > 1:
+        xwoba_se = float((xw_first.var(ddof=1) / len(xw_first)
+                          + xw_third.var(ddof=1) / len(xw_third)) ** 0.5)
+    else:
+        xwoba_se = float("nan")
+
     whiff_delta = float(third["whiff_rate"] - first["whiff_rate"])
     reliable = bool(first.get("reliable", True) and third.get("reliable", True))
 
     velo_drop = float(config.get("flags.thresholds.fatigue_velo_drop_mph", 1.0))
     xwoba_rise = float(config.get("flags.thresholds.tto_xwoba_rise", 0.020))
+    min_z = float(config.get("flags.thresholds.tto_xwoba_min_z", 2.0))
 
     slower = velo_delta <= -velo_drop
-    # "Decay" requires clearing the noise threshold. A +0.004 xwOBA change
-    # across three trips is not a decline, and printing it next to a velocity
-    # number made it look like supporting evidence.
-    worse = xwoba_delta >= xwoba_rise
+    # "Decay" requires clearing a floor AND the noise. The floor keeps a
+    # well-measured but trivial change from being called decay; the standard
+    # error keeps an unmeasurable one from being called anything.
+    worse = (xwoba_delta >= xwoba_rise
+             and xwoba_se == xwoba_se
+             and xwoba_delta >= min_z * xwoba_se)
+    margin = (f" (±{1.96 * xwoba_se:.3f})" if xwoba_se == xwoba_se else "")
 
     caveat = (
         "The third trip is also the 70th-to-100th pitch, so trip number and "
@@ -382,13 +512,18 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
     )
 
     def mph(value: float) -> str:
+        # No outing with his fastball in both trips: nothing to compare.
+        if value != value:
+            return "not comparable"
         # Round first, then add 0.0, so a -0.03 change prints "+0.0" rather
         # than "-0.0".
         return f"{round(value, 1) + 0.0:+.1f} mph"
 
     # "Holds" only when it does. Wheeler's line once read "velocity holds
     # (-0.9 mph)", which contradicts itself.
-    if abs(velo_delta) < 0.5:
+    if velo_delta != velo_delta:
+        velo_phrase = "velocity could not be compared"
+    elif abs(velo_delta) < 0.5:
         velo_phrase = f"velocity holds ({mph(velo_delta)})"
     elif velo_delta < 0:
         velo_phrase = f"velocity dips slightly ({mph(velo_delta)})"
@@ -398,22 +533,22 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
     if slower and worse:
         attribution = "both"
         note = (f"By the third trip his fastball is {abs(velo_delta):.1f} mph "
-                f"slower and hitters' xwOBA is {xwoba_delta:+.3f}. Both move "
-                f"the wrong way for him late.")
+                f"slower and hitters' xwOBA is {xwoba_delta:+.3f}{margin}. "
+                f"Both move the wrong way for him late.")
     elif slower:
         attribution = "velocity_declines"
         note = (f"His fastball is {abs(velo_delta):.1f} mph slower by the third "
-                f"trip, while results are essentially unchanged "
-                f"({xwoba_delta:+.3f} xwOBA). The velocity is real; the "
-                f"consequence is not visible in outcomes.")
+                f"trip, while results show no change that can be told from "
+                f"noise ({xwoba_delta:+.3f}{margin} xwOBA). The velocity is "
+                f"real; the consequence is not visible in outcomes.")
     elif worse:
         attribution = "results_decay"
-        note = (f"Hitters' xwOBA rises {xwoba_delta:+.3f} by the third trip "
-                f"while {velo_phrase}.")
+        note = (f"Hitters' xwOBA rises {xwoba_delta:+.3f}{margin} by the third "
+                f"trip while {velo_phrase}.")
     else:
         attribution = "neither"
-        note = (f"No meaningful third-trip change: velocity {mph(velo_delta)}, "
-                f"xwOBA {xwoba_delta:+.3f}.")
+        note = (f"No third-trip change that can be told from noise: velocity "
+                f"{mph(velo_delta)}, xwOBA {xwoba_delta:+.3f}{margin}.")
 
     # A heading a coach can read. The attribution code is for the program.
     headline = {
@@ -426,6 +561,7 @@ def decompose_tto(frame: pd.DataFrame) -> dict:
     return {
         "velo_delta": velo_delta,
         "xwoba_delta": xwoba_delta,
+        "xwoba_se": xwoba_se,
         "whiff_delta": whiff_delta,
         "attribution": attribution,
         "headline": headline,
@@ -448,15 +584,8 @@ def primary_fastball(frame: pd.DataFrame) -> str | None:
     return str(candidates.value_counts().index[0])
 
 
-def _two_proportion_z(x1: int, n1: int, x2: int, n2: int) -> float:
-    """z for the difference between two observed proportions, pooled SE."""
-    if n1 <= 0 or n2 <= 0:
-        return float("nan")
-    pooled = (x1 + x2) / (n1 + n2)
-    if pooled in (0.0, 1.0):
-        return float("nan")
-    se = (pooled * (1 - pooled) * (1 / n1 + 1 / n2)) ** 0.5
-    return (x1 / n1 - x2 / n2) / se
+# Kept under its old name for the callers that already use it.
+_two_proportion_z = events.two_proportion_z
 
 
 def recent_form(

@@ -121,6 +121,66 @@ class TestCompare:
         frame = season([[{"pitch_type": "FF", "n": 50}]])
         assert validation.compare(frame, frame.iloc[0:0]) == []
 
+    def test_lay_off_low_records_the_sample_it_was_measured_on(self):
+        """The share that finishes low is a share of the named pitch's located
+        pitches (75 a half here), not of every two-strike pitch (99)."""
+        specs = [
+            {"pitch_type": "SL", "n": 25, "strikes": 2, "plate_z": 1.0},
+            {"pitch_type": "FF", "n": 8, "strikes": 2},
+        ]
+        rows = validation.compare(*two_halves(specs, specs))
+        row = next(r for r in rows if r["rule"] == "lay_off_low" and r["side"] == "R")
+        assert row["n_first"] == 75 and row["n_second"] == 75
+
+    def test_no_lay_off_low_check_when_the_first_part_was_too_thin_to_say(self):
+        thin = [
+            {"pitch_type": "SL", "n": 5, "strikes": 2, "plate_z": 1.0},
+            {"pitch_type": "FF", "n": 6, "strikes": 2},
+        ]
+        thick = [
+            {"pitch_type": "SL", "n": 25, "strikes": 2, "plate_z": 1.0},
+            {"pitch_type": "FF", "n": 8, "strikes": 2},
+        ]
+        rows = validation.compare(*two_halves(thin, thick))
+        assert any(r["rule"] == "two_strikes" for r in rows)
+        assert not any(r["rule"] == "lay_off_low" for r in rows)
+
+    def test_wont_see_records_both_readings_of_held(self):
+        """A pitch at 4% in the second half is still one a hitter can ignore
+        (held), but the plan's own 3% cutoff would not have written the line
+        (not held strictly). Both are kept so neither is mistaken for the
+        other."""
+        before = [{"pitch_type": "FF", "n": 60}, {"pitch_type": "SL", "n": 38},
+                  {"pitch_type": "CU", "n": 2}]
+        after = [{"pitch_type": "FF", "n": 60}, {"pitch_type": "SL", "n": 36},
+                 {"pitch_type": "CU", "n": 4}]
+        rows = validation.compare(*two_halves(before, after))
+        row = next(r for r in rows if r["rule"] == "wont_see" and r["side"] == "R")
+        assert row["value_second"] == pytest.approx(0.04)
+        assert row["same_call"] and not row["same_call_strict"]
+
+
+class TestWilsonInterval:
+    def test_zero_of_eleven_is_not_a_flip_rate_of_zero(self):
+        """The table once read "flipped 0%" on eleven pieces of advice."""
+        lo, hi = validation.wilson_interval(0, 11)
+        assert lo == pytest.approx(0.0)
+        assert hi == pytest.approx(0.2588, abs=1e-3)
+
+    def test_seven_of_seven_is_not_certain(self):
+        lo, hi = validation.wilson_interval(7, 7)
+        assert lo == pytest.approx(0.6457, abs=1e-3)
+        assert hi == pytest.approx(1.0)
+
+    def test_narrows_with_sample(self):
+        small = validation.wilson_interval(8, 11)
+        large = validation.wilson_interval(80, 110)
+        assert (large[1] - large[0]) < (small[1] - small[0])
+
+    def test_no_observations(self):
+        lo, hi = validation.wilson_interval(0, 0)
+        assert lo != lo and hi != hi
+
 
 class TestSummarise:
     def rows(self):
@@ -151,6 +211,43 @@ class TestSummarise:
         (s,) = validation.summarise(self.rows())
         assert s["own_error"] < s["average_pitcher_error"]
         assert s["skill"] > 0
+
+    def test_rates_carry_intervals(self):
+        (s,) = validation.summarise(self.rows())
+        assert s["held_lo"] < s["held_pct"] < s["held_hi"]
+        assert s["flipped_lo"] < s["flipped_pct"] < s["flipped_hi"]
+
+    def test_skill_interval_resamples_pitchers_not_rows(self):
+        """Two rows from one pitcher are one arm on the same nights. With the
+        pitcher named, the interval treats them as one unit and is wider."""
+        import numpy as np
+        rng = np.random.default_rng(3)
+        rows, labelled = [], []
+        for i in range(12):
+            base = 0.3 + 0.04 * i
+            for side in ("L", "R"):
+                row = {"rule": "hitters_count", "side": side, "call_first": "sit hard",
+                       "call_second": "sit hard", "same_call": True, "flipped": False,
+                       "value_first": base, "value_second": base + rng.normal(0, 0.03),
+                       "n_first": 100, "n_second": 100}
+                rows.append(row)
+                labelled.append({**row, "pitcher": f"P{i}"})
+        (by_row,) = validation.summarise(rows, n_boot=400)
+        (by_pitcher,) = validation.summarise(labelled, n_boot=400)
+        assert by_pitcher["skill"] == pytest.approx(by_row["skill"])
+        assert by_pitcher["skill_lo"] < by_pitcher["skill"] < by_pitcher["skill_hi"]
+        assert by_pitcher["pitchers"] == 12
+        assert ((by_pitcher["skill_hi"] - by_pitcher["skill_lo"])
+                > (by_row["skill_hi"] - by_row["skill_lo"]))
+
+    def test_strict_held_is_reported_beside_held(self):
+        rows = [{"rule": "wont_see", "side": "L", "call_first": "won't see SL",
+                 "call_second": "won't see SL", "same_call": True,
+                 "same_call_strict": strict, "flipped": False,
+                 "value_first": 0.01, "value_second": v, "n_first": 300, "n_second": 300}
+                for v, strict in ((0.0, True), (0.04, False), (0.01, True))]
+        (s,) = validation.summarise(rows)
+        assert s["advice_held"] == 3 and s["held_strict"] == 2
 
     def test_no_skill_score_for_wont_see(self):
         rows = [{"rule": "wont_see", "side": "L", "call_first": "won't see SL",

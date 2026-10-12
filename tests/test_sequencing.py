@@ -340,6 +340,18 @@ class TestSetupPairs:
         assert len(sequencing.setup_pairs(frame, min_n=25, count_state="ahead")) == 1
         assert len(sequencing.setup_pairs(frame, min_n=25, count_state="behind")) == 0
 
+    def test_count_state_is_the_count_the_follow_up_is_thrown_in(self):
+        """The pitcher picks the next pitch in the count the last one left.
+
+        A first-pitch four-seam taken for a strike makes it 0-1: the setup was
+        thrown even, the curveball that follows is thrown ahead. Filtering on
+        the setup's count called that pair "even" and so held nothing fixed.
+        """
+        frame = make_pairs([("FF", 2, "CU", 40, "called_strike")])
+        frame.loc[frame["pitch_number"] == 2, "strikes"] = 1
+        assert len(sequencing.setup_pairs(frame, min_n=25, count_state="ahead")) == 1
+        assert len(sequencing.setup_pairs(frame, min_n=25, count_state="even")) == 0
+
     def test_unknown_count_state_raises(self):
         frame = make_pairs([("FF", 2, "CU", 40, "called_strike")])
         with pytest.raises(ValueError):

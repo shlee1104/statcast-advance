@@ -182,6 +182,15 @@ def _add_missing_columns(conn: duckdb.DuckDBPyConnection) -> None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
 
 
+def season_complete_after(season: int) -> dt.datetime:
+    """A date by which a season, postseason included, is certainly over.
+
+    The World Series has never run past the first week of November, so the
+    middle of the month leaves room without guessing a schedule.
+    """
+    return dt.datetime(season, 11, 15)
+
+
 def is_cached(
     conn: duckdb.DuckDBPyConnection,
     mlbam_id: int,
@@ -208,9 +217,13 @@ def is_cached(
     fetched_at: dt.datetime = row[0]
     current_season = dt.date.today().year
 
-    # A finished season is immutable, so the cache never goes stale.
+    # A finished season is immutable, so a copy of ALL of it never goes stale.
+    # That is only what the cache holds if the fetch happened after the season
+    # ended. A season fetched in July and never touched again would otherwise
+    # be declared complete on the following New Year's Day, with every pitch
+    # from August on missing and nothing ever prompting a re-fetch.
     if season < current_season:
-        return True
+        return fetched_at >= season_complete_after(season)
 
     ttl_days = float(config.get("data.cache_ttl_days", 1))
     age = dt.datetime.now() - fetched_at

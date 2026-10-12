@@ -210,6 +210,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="Combine seasons, e.g. --seasons 2025 2026. For a "
                              "pitcher whose latest season is short. The report "
                              "says what changed between them.")
+    parser.add_argument("--player-id", type=int, metavar="MLBAM",
+                        help="Skip the name lookup and use this MLBAM id. For "
+                             "names shared by two active players, where the "
+                             "lookup refuses to guess; --pitcher is then only "
+                             "the name printed on the report.")
     parser.add_argument("--fixture", metavar="STEM",
                         help="Read a committed fixture instead of fetching "
                              "(e.g. --fixture yamamoto). Works offline.")
@@ -237,6 +242,12 @@ def main(argv: list[str] | None = None) -> int:
         raw = stack_seasons(
             [load_from_fixture(args.fixture, s) for s in season_list], season_list)
         print(f"  Fixture: {len(raw):,} raw rows")
+    elif args.player_id:
+        print(f"  Using MLBAM {args.player_id}")
+        raw = stack_seasons(
+            [load_by_id(args.player_id, s, refresh=args.refresh) for s in season_list],
+            season_list)
+        print(f"  Loaded: {len(raw):,} raw rows")
     else:
         raw = load_seasons_from_savant(args.pitcher, season_list, refresh=args.refresh)
         print(f"  Fetched: {len(raw):,} raw rows")

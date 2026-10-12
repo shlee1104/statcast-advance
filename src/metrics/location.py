@@ -332,6 +332,8 @@ def location_tells(
       p_pitch      float, P(pitch type | band)
       baseline_p   float, the pitcher's overall rate for that pitch
       lift         float, p_pitch / baseline_p
+      lift_z       float, standard errors between his rate for the pitch in
+                   this band and his rate everywhere else (events.lift_z)
       score        float, (lift - 1) * n
       rv_when      float, run value on that pitch in that band
       rv_base      float, run value on that pitch overall
@@ -361,7 +363,7 @@ def location_tells(
     so both sides of the ratio narrow together.
     """
     columns = ["band", "pitch_type", "n", "band_n",
-               "p_pitch", "baseline_p", "lift", "score",
+               "p_pitch", "baseline_p", "lift", "lift_z", "score",
                "rv_when", "rv_base", "rv_delta", "runs_cost",
                "runs_lo", "runs_hi", "significant", "rv_p",
                "xwoba_when", "xwoba_delta"]
@@ -374,6 +376,7 @@ def location_tells(
         return pd.DataFrame(columns=columns)
 
     baseline_p = working["pitch_type"].value_counts(normalize=True)
+    pitch_totals = working["pitch_type"].value_counts()
 
     records = []
     for band, group in working.groupby(by):
@@ -401,6 +404,9 @@ def location_tells(
                 "p_pitch": p_pitch,
                 "baseline_p": base,
                 "lift": lift,
+                "lift_z": events.lift_z(
+                    int(n), band_n, int(pitch_totals[pitch_type]), len(working)
+                ),
                 "score": (lift - 1.0) * n,
                 "rv_when": outcome["rv_when"],
                 "rv_base": outcome["rv_base"],

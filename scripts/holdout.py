@@ -69,26 +69,40 @@ def print_summary(summary: list[dict], split: str, pitchers: int) -> None:
     what = ("first half → second half" if split == "halves"
             else "regular season → postseason")
     print(f"\nDoes the plan hold up?  {what}, {pitchers} pitchers")
-    print("-" * 78)
+    print("-" * 96)
+
     def pct(v):
         return f"{v:.0%}" if v == v else "—"
 
-    print(f"  {'Rule':<34}{'advice':>7}{'held':>7}{'weaker':>8}{'flipped':>9}{'skill':>8}")
+    def span(lo, hi):
+        return f"{lo:.0%}–{hi:.0%}" if lo == lo and hi == hi else "—"
+
+    print(f"  {'Rule':<33}{'advice':>7}{'held':>6}{'95% CI':>10}{'strict':>8}"
+          f"{'weaker':>8}{'flipped':>9}{'95% CI':>9}{'skill':>7}{'95% CI':>15}")
     for s in summary:
         skill = f"{s['skill']:+.2f}" if s["skill"] == s["skill"] else "—"
-        print(f"  {s['label']:<34}{s['advice_given']:>7}{pct(s['held_pct']):>7}"
-              f"{pct(s['weakened_pct']):>8}{pct(s['flipped_pct']):>9}{skill:>8}")
+        skill_ci = (f"{s['skill_lo']:+.2f} to {s['skill_hi']:+.2f}"
+                    if s["skill_lo"] == s["skill_lo"] else "—")
+        print(f"  {s['label']:<33}{s['advice_given']:>7}{pct(s['held_pct']):>6}"
+              f"{span(s['held_lo'], s['held_hi']):>10}{pct(s['held_strict_pct']):>8}"
+              f"{pct(s['weakened_pct']):>8}{pct(s['flipped_pct']):>9}"
+              f"{span(s['flipped_lo'], s['flipped_hi']):>9}{skill:>7}{skill_ci:>15}")
     two = next((s for s in summary if s["rule"] == "two_strikes"), None)
     if two and two["flipped_broad_pct"] == two["flipped_broad_pct"]:
         print(f"\n  Two strikes, counting \"expect the X\" → \"look fastball\" as a flip: "
               f"{pct(two['flipped_broad_pct'])} flipped")
     print()
     print("  advice   times the first part told the hitter something")
-    print("  held     the second part gave the same advice")
+    print("  held     the advice was still usable in the second part (see src/validation.py)")
+    print("  strict   the second part would have written the same line by the plan's own cutoffs")
     print("  weaker   the second part said less — \"no case\", \"he mixes\", \"look fastball\"")
     print("  flipped  the second part pointed the other way — the failure that matters")
     print("  skill    above 0: his own number beats the average pitcher's at")
     print("           predicting what he did next; 0 means knowing him adds nothing")
+    print("  95% CI   Wilson for the rates; bootstrap over pitchers for skill")
+    print()
+    print("  Any cutoff moved after reading a run like this has been fitted to it.")
+    print("  Judge the plan on a season or pitchers the cutoffs have not seen.")
 
 
 def main(argv: list[str] | None = None) -> int:

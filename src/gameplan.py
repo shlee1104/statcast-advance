@@ -250,7 +250,7 @@ def two_strike_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> d
                     & (frame["pitch_type"] == lead.pitch_type)]
     swings = int(pitches["is_swing"].eq(True).sum())
     whiffs = int(pitches["is_whiff"].eq(True).sum())
-    below, _ = _finishes_low(frame, side, lead.pitch_type)
+    below, below_n = _finishes_low(frame, side, lead.pitch_type)
     families = rows["pitch_type"].map(PITCH_FAMILY)
     return {
         "n": int(lead["situation_n"]),
@@ -261,8 +261,28 @@ def two_strike_numbers(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> d
         "swings": swings,
         "whiff": whiffs / swings if swings else float("nan"),
         "below": below,
+        # How many located pitches `below` is a share of. The line's own n is
+        # every two-strike pitch to this side, which is a different and much
+        # larger number, so this has to be carried and gated separately.
+        "below_n": below_n,
         "rows": rows,
     }
+
+
+def lay_off_low_call(below: float, below_n: int) -> bool:
+    """Whether "lay off it low" is supported: enough pitches, and most finish low.
+
+    One function so the plan and the holdout check apply the same two bars.
+    The share was once gated only in the "no single put-away pitch" branch;
+    the "expect the <pitch>" branch wrote "N% finish below the zone" off
+    however few pitches the lead pitch had, under an n that counted all his
+    two-strike pitches.
+    """
+    return bool(
+        below == below
+        and below_n >= _cut("lay_off_low_min_pitches", 20)
+        and below >= _cut("lay_off_low_share", 0.50)
+    )
 
 
 def rare_pitches(frame: pd.DataFrame, side: str, max_share: float | None = None) -> dict | None:
@@ -393,13 +413,13 @@ def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict 
             text += " Mostly off-speed — no fastball to sit on."
         for r in slower:
             below, located = _finishes_low(frame, side, r.pitch_type)
-            if located >= 20 and below >= _cut("lay_off_low_share", 0.50):
+            if lay_off_low_call(below, located):
                 text += (f" {_pct(below)} of his {name(r.pitch_type)}s finish below "
                          f"the zone — lay off it low.")
                 break
         return _key("Two strikes", text, m["n"])
 
-    low = m["below"] == m["below"] and m["below"] >= _cut("lay_off_low_share", 0.50)
+    low = lay_off_low_call(m["below"], m["below_n"])
     text = f"Expect the {name(m['top'])} ({_pct(m['top_share'])})."
     if m["whiff"] == m["whiff"] and m["swings"] >= _cut("min_two_strike_swings", 20):
         text += f" It misses bats on {_pct(m['whiff'])} of swings"
@@ -523,9 +543,11 @@ def season_change_key(changes: dict | None) -> dict | None:
 def count_tells(frame: pd.DataFrame, min_lift: float | None = None) -> pd.DataFrame:
     """Count-and-pitch cells strong enough for a count-tell line.
 
-    Two bars, both required. The lift says the count changes what he does; the
-    share says the change is big enough to look for. Doubling a 2% curveball to
-    5% is a real lift and useless to a hitter.
+    Three bars, all required. The lift says the count changes what he does;
+    the share says the change is big enough to look for — doubling a 2%
+    curveball to 5% is a real lift and useless to a hitter; and the lift has
+    to stand clear of chance (`flags.thresholds.frequency_min_z`), which the
+    first two nearly always guarantee but do not promise.
 
     3-0 is excluded. Nearly every pitcher throws a fastball 3-0, so a lift there
     describes the count, not the pitcher, and a coach already knows it.
@@ -537,7 +559,9 @@ def count_tells(frame: pd.DataFrame, min_lift: float | None = None) -> pd.DataFr
     lifts = counts.count_lifts(frame, min_n=min_n)
     if len(lifts) == 0:
         return lifts
+    min_z = float(config.get("flags.thresholds.frequency_min_z", 3.0))
     return lifts[(lifts["lift"] >= min_lift) & (lifts["share"] >= min_share)
+                 & (lifts["lift_z"] >= min_z)
                  & (lifts["count"] != "3-0")]
 
 
@@ -575,8 +599,10 @@ def height_tells(frame: pd.DataFrame) -> pd.DataFrame:
     tells = location.location_tells(frame, by="v_band", min_n=min_n)
     if len(tells) == 0:
         return tells
+    min_z = float(config.get("flags.thresholds.frequency_min_z", 3.0))
     fastball_up = (tells["band"] == "UP") & (tells["pitch_type"].map(PITCH_FAMILY) == "hard")
     return tells[(tells["lift"] >= min_lift) & (tells["p_pitch"] >= min_share)
+                 & (tells["lift_z"] >= min_z)
                  & ~fastball_up]
 
 

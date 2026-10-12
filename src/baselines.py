@@ -7,8 +7,9 @@ predictable there than his peers — which is the opposite conclusion, and the
 useful one.
 
 This module builds that comparison layer by sampling days across a season
-rather than downloading it whole. One date is roughly 4,400 pitches, so thirty
-dates give around 130,000 — far more than needed for stable count-level and
+rather than downloading it whole. A date with games averages about 3,700
+pitches, so thirty dates give around 100,000 (2025: 102,280 from the 28 dates
+that had games) — far more than needed for stable count-level and
 pitch-type-level rates, at a thirtieth of the requests.
 
 Sampling is stratified: the season is divided into equal intervals and one date

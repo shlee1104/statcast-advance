@@ -148,6 +148,22 @@ class TestHandednessGaps:
         ])
         assert "n=" in flags.handedness_gaps(frame)[0]["claim"]
 
+    def test_sample_size_names_the_right_side(self):
+        """Skubal's 2025 report read "n=484 sinkers to lefties". He threw
+        lefties 256 sinkers; 484 was the count to righties, because the claim
+        printed the larger of the two counts under the favoured side's name.
+        Here the favoured side is also the one with fewer pitches."""
+        frame = make_frame([
+            {"pitch_type": "SI", "n": 60, "stand": "L"},
+            {"pitch_type": "FF", "n": 60, "stand": "L"},
+            {"pitch_type": "SI", "n": 100, "stand": "R"},
+            {"pitch_type": "FF", "n": 400, "stand": "R"},
+        ])
+        sinker = next(f for f in flags.handedness_gaps(frame) if "sinker" in f["claim"])
+        assert "50% of the time to lefties but only 20% to righties" in sinker["claim"]
+        assert "n=60 of 120 pitches to lefties, 100 of 500 to righties" in sinker["claim"]
+        assert sinker["n"] == 120
+
     def test_silent_when_the_gap_is_small(self):
         frame = make_frame([
             {"pitch_type": "FF", "n": 100, "stand": "L"},
@@ -164,17 +180,21 @@ class TestHandednessGaps:
             "pitch_type": "SL", "usage_L": 0.30, "usage_R": 0.0, "gap": 0.30,
             "whiff_L": 0.35, "whiff_R": float("nan"),
             "n_L": 120.0, "n_R": float("nan"),
+            "faced_L": 400, "faced_R": 380,
         }])
         monkeypatch.setattr(flags.splits, "platoon_gaps", lambda frame: table)
         found = flags.handedness_gaps(pd.DataFrame())
         assert len(found) == 1
-        assert found[0]["n"] == 120
+        # The sample behind a gap is the smaller of the two denominators.
+        assert found[0]["n"] == 380
+        assert "n=120 of 400 pitches to lefties, 0 of 380 to righties" in found[0]["claim"]
 
     def test_missing_usage_prints_as_zero_not_nan(self, monkeypatch):
         """Burnes 2025 read "only nan% to lefties"."""
         table = pd.DataFrame([{
             "pitch_type": "SI", "usage_L": float("nan"), "usage_R": 0.23, "gap": -0.23,
             "whiff_L": float("nan"), "whiff_R": 0.10, "n_L": float("nan"), "n_R": 97.0,
+            "faced_L": 300, "faced_R": 420,
         }])
         monkeypatch.setattr(flags.splits, "platoon_gaps", lambda frame: table)
         claim = flags.handedness_gaps(pd.DataFrame())[0]["claim"]
@@ -284,6 +304,20 @@ class TestRunConsequence:
         assert "does not exclude zero" in phrase
         assert "costs him" not in phrase
 
+    def test_says_why_when_the_interval_excludes_zero_but_the_correction_fails(self):
+        """The printed interval is the uncorrected one, so it can exclude zero
+        on a comparison that still fails the correction. Yamamoto's 3-0
+        finding read "[95% CI -2 to -0], which does not exclude zero"."""
+        exploitable, phrase = flags._consequence(
+            -1.1, 1.0, significant=False, runs_lo=-1.9, runs_hi=-0.2,
+            comparisons=120,
+        )
+        assert exploitable
+        assert "does not exclude zero" not in phrase
+        assert "excludes zero on its own" in phrase
+        assert "120 comparisons" in phrase
+        assert "-1.9 to -0.2" in phrase
+
     def test_unresolved_findings_are_not_demoted(self):
         """An unresolved run consequence is not evidence the pattern is
         harmless, so it must not halve the severity the way a demonstrated
@@ -316,7 +350,7 @@ class TestBenjaminiHochberg:
 
     A report runs well over a hundred comparisons before picking five things
     to say. At 120 comparisons, six clear an uncorrected p < .05 by chance
-    alone, so "9 significant" is barely distinguishable from coin flips.
+    alone, so "16 significant" is mostly coin flips.
     """
 
     def test_nothing_survives_pure_noise(self):
@@ -376,6 +410,172 @@ class TestComparisonCount:
         assert result["expected_by_chance"] == pytest.approx(
             0.05 * result["total"], abs=0.05
         )
+
+
+class TestCorrectionCoversEveryComparison:
+    """The page says "120 were run ... after a correction across all of them".
+    The correction used to run across the six or seven that became findings,
+    which makes "resolved" about twenty times easier to reach than described.
+    """
+
+    def one_finding(self, monkeypatch, family):
+        finding = flags._finding(
+            flag="predictable_count", severity=3.0, basis=flags.BASIS_THRESHOLD,
+            n=60, claim="In 2-1 he goes to the cutter (n=60).", observed=0.3,
+            reference=0.1, runs_cost=-2.0, runs_lo=-3.5, runs_hi=-0.5, rv_p=0.01,
+        )
+        for rule in ("handedness_gaps", "fatigue_decline", "sequencing_tells",
+                     "location_tells"):
+            monkeypatch.setattr(flags, rule, lambda frame: [])
+        monkeypatch.setattr(flags, "hittable_pitches", lambda frame, league: [])
+        monkeypatch.setattr(flags, "first_pitch_tendency", lambda frame, league=None: [])
+        monkeypatch.setattr(flags, "predictable_counts", lambda frame, league: [finding])
+        monkeypatch.setattr(flags, "comparison_p_values", lambda frame: family)
+        return flags.evaluate(make_frame([{"pitch_type": "FF", "n": 10}]))
+
+    def test_a_p_value_that_would_pass_alone_fails_among_120(self, monkeypatch):
+        family = {"count": [0.01] + [0.9] * 43, "location": [0.9] * 44,
+                  "sequencing": [0.9] * 32}
+        table = self.one_finding(monkeypatch, family)
+        assert not table.iloc[0]["resolved"]
+        assert "120 comparisons" in table.iloc[0]["claim"]
+
+    def test_the_same_p_value_passes_when_it_is_the_only_comparison(self, monkeypatch):
+        table = self.one_finding(monkeypatch, {"count": [0.01], "location": [],
+                                               "sequencing": []})
+        assert table.iloc[0]["resolved"]
+
+    def test_count_and_correction_read_the_same_family(self, monkeypatch):
+        """The number printed and the number corrected over cannot drift."""
+        family = {"count": [0.5] * 7, "location": [0.5] * 5, "sequencing": [0.5] * 3}
+        monkeypatch.setattr(flags, "comparison_p_values", lambda frame: family)
+        result = flags.comparison_count(make_frame([{"pitch_type": "FF", "n": 10}]))
+        assert result["families"] == {"count": 7, "location": 5, "sequencing": 3}
+        assert result["total"] == 15
+
+    def test_every_finding_s_own_comparison_is_in_the_family(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 120, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 30, "plate_z": 3.3},
+            {"pitch_type": "SL", "n": 120, "plate_z": 1.7},
+            {"pitch_type": "FF", "n": 30, "plate_z": 1.7},
+        ])
+        family = [p for values in flags.comparison_p_values(frame).values() for p in values]
+        for p in flags.evaluate(frame)["rv_p"].dropna():
+            assert any(p == q for q in family)
+
+
+class TestBhCutoff:
+    def test_nothing_rejected_gives_a_cutoff_no_p_value_can_clear(self):
+        assert flags.bh_cutoff([0.6] * 20) < 0
+
+    def test_is_the_largest_rejected_p_value(self):
+        assert flags.bh_cutoff([0.001, 0.002, 0.9, 0.9]) == pytest.approx(0.002)
+
+    def test_missing_values_do_not_count_toward_the_family(self):
+        assert flags.bh_cutoff([0.04, float("nan"), None]) == pytest.approx(0.04)
+
+
+class TestFrequencyLiftsMustClearChance:
+    """A minimum count is not a noise filter. "Twenty of that pitch at 1.5x
+    his rate" is 20 where 13 were expected — under two standard errors — and a
+    report looks at about forty such cells."""
+
+    def frame(self, scale: int = 1) -> pd.DataFrame:
+        # 2-1 is 20% sliders; every other pitch is 0-0 at 12% sliders. The
+        # same rates at any `scale`, so only the sample size changes.
+        return make_frame([
+            {"pitch_type": "SL", "n": 30 * scale, "balls": 2, "strikes": 1},
+            {"pitch_type": "FF", "n": 120 * scale, "balls": 2, "strikes": 1},
+            {"pitch_type": "SL", "n": 102 * scale},
+            {"pitch_type": "FF", "n": 748 * scale},
+        ])
+
+    def test_a_lift_inside_chance_does_not_fire(self):
+        """30 sliders in 150 pitches is 20% against 13% overall: 1.5x and well
+        past the 20-pitch gate, but only about 2.5 standard errors."""
+        found = flags.predictable_counts(self.frame(), None)
+        assert not any("2-1" in f["claim"] for f in found)
+
+    def test_the_same_lift_on_a_larger_sample_fires(self):
+        found = flags.predictable_counts(self.frame(scale=4), None)
+        assert any("In 2-1 he goes to the slider" in f["claim"] for f in found)
+
+    def test_lift_z_is_measured_against_everything_outside_the_cell(self):
+        from src.metrics import counts, events
+        table = counts.count_lifts(self.frame(), min_n=20)
+        cell = table[(table["count"] == "2-1") & (table["pitch_type"] == "SL")].iloc[0]
+        assert cell["lift_z"] == pytest.approx(events.two_proportion_z(30, 150, 102, 850))
+        assert 2.0 < cell["lift_z"] < 3.0
+
+
+class TestFatigueFlag:
+    def outing(self, game: int, cutters_late: int) -> pd.DataFrame:
+        """A 30-pitch outing: four-seams at 96 all game, cutters at 90."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 13, "velo": 96.0, "game_pk": game},
+            {"pitch_type": "FC", "n": 2, "velo": 90.0, "game_pk": game},
+            {"pitch_type": "FF", "n": 15 - cutters_late, "velo": 96.0, "game_pk": game},
+            {"pitch_type": "FC", "n": cutters_late, "velo": 90.0, "game_pk": game},
+        ])
+        frame["at_bat_number"] = range(1, len(frame) + 1)
+        return frame
+
+    def test_throwing_more_cutters_late_is_not_a_velocity_drop(self):
+        """Yamamoto's cutter grows from 18% to 24% of his fastballs through an
+        outing and sits 4 mph under the four-seam. Averaging the family read
+        that as a 1.0 mph drop and fired this flag; his four-seam was down
+        0.65."""
+        frame = pd.concat([self.outing(g, cutters_late=8) for g in range(1, 13)])
+        assert [f for f in flags.fatigue_decline(frame) if f["flag"] == "fatigue"] == []
+
+    def test_a_real_drop_names_the_pitch_and_the_outings(self):
+        games = []
+        for g in range(1, 13):
+            frame = make_frame([
+                {"pitch_type": "FF", "n": 15, "velo": 96.0, "game_pk": g},
+                {"pitch_type": "FF", "n": 15, "velo": 94.5, "game_pk": g},
+            ])
+            frame["at_bat_number"] = range(1, len(frame) + 1)
+            games.append(frame)
+        found = [f for f in flags.fatigue_decline(pd.concat(games)) if f["flag"] == "fatigue"]
+        assert len(found) == 1
+        assert found[0]["claim"].startswith("Four-seam velocity falls 1.5 mph by pitch 16-30")
+        assert "across 12 outings" in found[0]["claim"]
+        assert found[0]["delta"] == pytest.approx(-1.5)
+
+
+class TestHittablePitch:
+    """xwOBA exists only on the pitch that ends a plate appearance, so a gap
+    to the league has to be judged against how few of those there are."""
+
+    LEAGUE = pd.DataFrame([
+        {"pitch_type": "SL", "league_usage": 0.20, "avg_velo": 85.0,
+         "whiff_rate": 0.33, "avg_xwoba": 0.320},
+        {"pitch_type": "FF", "league_usage": 0.35, "avg_velo": 94.0,
+         "whiff_rate": 0.22, "avg_xwoba": 0.300},
+    ])
+
+    def frame(self, scale: int) -> pd.DataFrame:
+        # Sliders average .400 — .080 over the league's .320 — split evenly
+        # between outs and hard contact, the way real outcomes are spread.
+        return make_frame([
+            {"pitch_type": "SL", "n": 30 * scale, "xwoba": 0.000},
+            {"pitch_type": "SL", "n": 30 * scale, "xwoba": 0.800},
+            {"pitch_type": "FF", "n": 100 * scale, "xwoba": 0.300},
+        ])
+
+    def test_a_gap_inside_its_own_noise_does_not_fire(self):
+        """Sixty of them clear the 50-pitch gate and the .060 floor, with a
+        standard error of .052. The gap is 1.5 of those."""
+        assert flags.hittable_pitches(self.frame(1), self.LEAGUE) == []
+
+    def test_the_same_gap_well_measured_fires(self):
+        found = flags.hittable_pitches(self.frame(10), self.LEAGUE)
+        assert len(found) == 1
+        assert "0.400 xwOBA against his slider" in found[0]["claim"]
+        assert "±" in found[0]["claim"]
+        assert "n=600 plate appearances ending on it" in found[0]["claim"]
 
 
 class TestCorrectionIsAppliedInTheEngine:

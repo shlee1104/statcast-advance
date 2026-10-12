@@ -265,7 +265,25 @@ class TestPredictability:
         table = counts.predictability(frame, min_pitches=20)
         expected_h = -(0.75 * math.log2(0.75) + 0.25 * math.log2(0.25))
         assert table.loc["0-0", "entropy"] == pytest.approx(expected_h, abs=1e-6)
-        assert table.loc["0-0", "predictability"] == pytest.approx(1 - expected_h, abs=1e-6)
+        # The score uses the bias-corrected entropy: two pitch types seen in
+        # 100 pitches adds (2 - 1) / (2 * 100 * ln 2) bits.
+        corrected = expected_h + 1 / (2 * 100 * math.log(2))
+        assert table.loc["0-0", "predictability"] == pytest.approx(1 - corrected, abs=1e-6)
+
+    def test_a_thin_count_is_not_scored_as_more_predictable(self):
+        """The same 75/25 split on 20 pitches and on 400.
+
+        Entropy from observed shares runs low on a small sample, so the raw
+        score called the thin count exactly as predictable as the thick one
+        when it should be less sure. Corrected, the thin count scores lower.
+        """
+        frame = make_pitches([
+            ("3-0", "FF", 15), ("3-0", "SL", 5),
+            ("0-0", "FF", 300), ("0-0", "SL", 100),
+        ])
+        table = counts.predictability(frame, min_pitches=20)
+        assert table.loc["3-0", "entropy"] == pytest.approx(table.loc["0-0", "entropy"])
+        assert table.loc["3-0", "predictability"] < table.loc["0-0", "predictability"]
 
     def test_k_comes_from_full_arsenal_not_the_count(self):
         """The critical detail.
@@ -282,8 +300,10 @@ class TestPredictability:
         ])
         table = counts.predictability(frame, min_pitches=20)
         assert table.loc["3-0", "predictability"] == pytest.approx(1.0)
-        # 0-0 is a 50/50 over k=4: H=1, max=2, pred = 1 - 0.5 = 0.5
-        assert table.loc["0-0", "predictability"] == pytest.approx(0.5)
+        # 0-0 is a 50/50 over k=4: H=1, max=2, so 1 - 0.5 = 0.5 before the
+        # small-sample correction, which adds 1 / (2 * 50 * ln 2) bits to H.
+        corrected = 1.0 + 1 / (2 * 50 * math.log(2))
+        assert table.loc["0-0", "predictability"] == pytest.approx(1 - corrected / 2)
 
     def test_reports_top_pitch_and_share(self):
         frame = make_pitches([("1-2", "SL", 30), ("1-2", "FF", 10)])

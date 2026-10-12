@@ -178,8 +178,8 @@ def build_payload(
     fatigue = splits.fatigue(frame, bucket_size=15)
     first_pitch = counts.first_pitch_tendencies(frame)
 
-    takeaways = flags.takeaways(frame, league_outcomes, league_mix)
     all_findings = flags.evaluate(frame, league_outcomes, league_mix)
+    takeaways = flags.takeaways(frame, findings=all_findings)
 
     return {
         "meta": {
@@ -236,7 +236,7 @@ def build_payload(
         "zone_slices": _build_zone_slices(frame),
         "release": _records(arsenal.release_consistency(frame), index_name="pitch_type"),
         "platoon": _records(splits.platoon_gaps(frame)),
-        "fatigue": _build_fatigue(fatigue),
+        "fatigue": _build_fatigue(fatigue, splits.velocity_pitch(frame)),
         "tto": _records(splits.times_through_order(frame)),
         "tto_decomposition": {
             k: _clean(v) for k, v in splits.decompose_tto(frame).items()
@@ -440,34 +440,44 @@ def _build_zone_slices(frame: pd.DataFrame) -> dict:
     }
 
 
-def _build_fatigue(fatigue: pd.DataFrame) -> dict:
+def _build_fatigue(fatigue: pd.DataFrame, pitch: str | None = None) -> dict:
     """Velocity-by-pitch-count series, with each bucket marked trustworthy or not.
 
-    A late bucket is built from the starts that got that deep, which are the
-    starts that were going well — so the tail of this curve suffers from
-    survivorship, not just small samples. Yamamoto's last bucket is 12 pitches
-    across 4 outings and shows velocity rising 0.76 mph, which reads as
-    recovery and is actually selection.
+    Two series go out. `velo` is the plain average of each bucket. `paired` is
+    his opening velocity plus the average WITHIN-outing change to that bucket,
+    and it is the one the chart draws: a late bucket holds only the starts
+    that got that deep, which are the starts that were going well, so the
+    plain average of the tail suffers from survivorship and not just small
+    samples. Yamamoto's last bucket is a handful of pitches across 4 outings
+    whose plain average is 0.4 mph ABOVE his opening velocity, which reads as
+    recovery and is selection; within those same outings he is down 0.2.
 
-    Buckets below `flags.min_n.fatigue_outings` separate outings are marked
-    unreliable rather than dropped: removing them would make the curve look
-    cleaner than the evidence, and a reader would not know the line had been
-    trimmed. The chart greys them; the number stays available.
+    Buckets below `flags.min_n.fatigue_outings` separate outings are still
+    marked unreliable rather than dropped: removing them would make the curve
+    look cleaner than the evidence, and a reader would not know the line had
+    been trimmed. The chart greys them; the number stays available.
+
+    `pitch` is the one fastball the series is read from.
     """
     min_outings = int(config.get("flags.min_n.fatigue_outings", 10))
 
     if len(fatigue) == 0:
-        return {"buckets": [], "velo": [], "delta": [], "outings": [], "n": [],
-                "reliable": [], "min_outings": min_outings}
+        return {"buckets": [], "velo": [], "paired": [], "delta": [],
+                "outings": [], "pairs": [], "n": [], "reliable": [],
+                "min_outings": min_outings, "pitch": pitch}
 
+    opening = float(fatigue["velo"].iloc[0])
     return {
         "buckets": list(fatigue["bucket"]),
         "velo": [_clean(v) for v in fatigue["velo"]],
+        "paired": [_clean(opening + d) for d in fatigue["velo_delta"]],
         "delta": [_clean(v) for v in fatigue["velo_delta"]],
         "outings": [_clean(v) for v in fatigue["outings"]],
+        "pairs": [_clean(v) for v in fatigue["pairs"]],
         "n": [_clean(v) for v in fatigue["n"]],
-        "reliable": [bool(v >= min_outings) for v in fatigue["outings"]],
+        "reliable": [bool(v >= min_outings) for v in fatigue["pairs"]],
         "min_outings": min_outings,
+        "pitch": pitch,
     }
 
 

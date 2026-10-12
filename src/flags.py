@@ -112,37 +112,53 @@ def _consequence(
     significant: bool = False,
     runs_lo: float = float("nan"),
     runs_hi: float = float("nan"),
+    comparisons: int | None = None,
 ) -> tuple[bool, str]:
     """Whether a tell has a demonstrable run consequence, and how to say it.
 
     Returns (is_exploitable, phrase).
 
-    The significance test is what stops this from overclaiming, and it fails
-    almost always. Run value per pitch has a standard deviation near 0.19
-    while the differences here are 0.01-0.02, so a season of one pitcher
-    cannot resolve them: the up-fastball tell's "3.4 runs" carries a 95%
-    interval of about [-4, +11].
+    `significant` is the corrected verdict: whether this comparison survived
+    Benjamini-Hochberg across every comparison the report ran, of which there
+    are `comparisons`. It fails almost always. Run value per pitch has a
+    standard deviation near 0.19 while the differences here are 0.01-0.02, so
+    a season of one pitcher cannot resolve them.
 
     So the honest report says the frequency pattern is real and its run
     consequence is unresolved, rather than printing a run figure to one
     decimal and letting a reader treat it as measured. A pattern is only
-    called costly or working when the interval excludes zero.
+    called costly or working when it survives the correction.
 
     A point estimate is still shown, with its interval, because the direction
     is weak evidence and worth having — it just cannot carry a conclusion.
+
+    The interval printed is the ordinary uncorrected 95% one, so it can
+    exclude zero on a comparison that still fails the correction. The sentence
+    has to say which of the two happened: an earlier version printed
+    "[95% CI -2 to -0], which does not exclude zero" about an interval that
+    plainly did.
     """
     if pd.isna(runs_cost):
         return True, ""
 
     interval = ""
-    if runs_lo == runs_lo and runs_hi == runs_hi:
-        interval = f" [95% CI {runs_lo:+.0f} to {runs_hi:+.0f}]"
+    has_interval = runs_lo == runs_lo and runs_hi == runs_hi
+    if has_interval:
+        # One decimal: whole numbers printed a bound of -0.2 as "-0".
+        interval = f" [95% CI {runs_lo:+.1f} to {runs_hi:+.1f}]"
 
     if not significant:
+        if has_interval and (runs_lo > 0 or runs_hi < 0):
+            family = (f"the {comparisons} comparisons this report ran"
+                      if comparisons else "every comparison this report ran")
+            reason = (f"which excludes zero on its own but does not survive "
+                      f"the correction for {family}")
+        else:
+            reason = "which does not exclude zero"
         return True, (
             f" Run consequence is unresolved at this sample: the point "
-            f"estimate is {runs_cost:+.1f} runs{interval}, which does not "
-            f"exclude zero. Treat the frequency pattern as the finding."
+            f"estimate is {runs_cost:+.1f} runs{interval}, {reason}. Treat "
+            f"the frequency pattern as the finding."
         )
 
     if runs_cost >= min_runs:
@@ -162,6 +178,19 @@ def _consequence(
     )
 
 
+def _clear_of_chance(z: float) -> bool:
+    """Whether a usage lift is far enough from no lift to be reported at all.
+
+    The sample gates keep out rates built on a handful of pitches, but a gate
+    of "20 pitches at 1.5 times his usual rate" still admits 20 where 13 were
+    expected — under two standard errors — and a report looks at about forty
+    such cells in each family. `frequency_min_z` is the bar a lift must clear
+    on top of its gate. A lift that cannot be tested does not clear it.
+    """
+    min_z = float(config.get("flags.thresholds.frequency_min_z", 3.0))
+    return bool(z == z and z >= min_z)
+
+
 def benjamini_hochberg(p_values: list[float], q: float = 0.05) -> list[bool]:
     """Which comparisons survive a false-discovery-rate correction.
 
@@ -171,13 +200,15 @@ def benjamini_hochberg(p_values: list[float], q: float = 0.05) -> list[bool]:
     This has to happen where the whole family is visible, which is why it lives
     in the engine rather than in the metric modules. Each module sees its own
     rows; only `evaluate()` sees that a report runs 120 comparisons across
-    counts, locations and sequences before picking five things to say.
+    counts, locations and sequences before picking five things to say. See
+    `comparison_p_values()` for the family and `bh_cutoff()` for how a finding
+    is judged against it.
 
     The correction matters more here than the raw threshold ever did. On
-    Yamamoto, 9 comparisons clear an uncorrected p < .05 — against 6 expected
-    from pure noise at that volume — and **none** survive at q = .05. A report
-    that printed "9 significant" would be reporting coin flips with a decimal
-    point on them.
+    Yamamoto, 16 of 120 comparisons clear an uncorrected p < .05 — against 6
+    expected from pure noise at that volume — and **none** survive at q = .05.
+    A report that printed "16 significant" would be reporting mostly coin
+    flips with a decimal point on them.
 
     Benjamini-Hochberg rather than Bonferroni because these hypotheses are
     heavily dependent — the same pitch appears in a dozen counts — and
@@ -185,23 +216,31 @@ def benjamini_hochberg(p_values: list[float], q: float = 0.05) -> list[bool]:
     exercise anyway: of the things I am about to tell a coach, what share are
     likely to be nothing.
     """
-    indexed = [
-        (i, p) for i, p in enumerate(p_values)
-        if p is not None and p == p
+    cutoff = bh_cutoff(p_values, q)
+    return [
+        bool(p is not None and p == p and p <= cutoff) for p in p_values
     ]
-    if not indexed:
-        return [False] * len(p_values)
 
-    m = len(indexed)
-    indexed.sort(key=lambda pair: pair[1])
 
-    cutoff_rank = 0
-    for rank, (_, p) in enumerate(indexed, start=1):
+def bh_cutoff(p_values: list[float], q: float = 0.05) -> float:
+    """The largest p-value Benjamini-Hochberg rejects across `p_values`.
+
+    Anything at or below it survives; -1.0 when nothing does, so no p-value
+    can clear it. Missing p-values are not comparisons and do not count
+    toward the family size.
+
+    Returned as a number rather than a list of verdicts because the engine
+    corrects over the whole family of comparisons but only a handful of them
+    become findings. A finding survives if its own p-value is at or under the
+    cutoff set by all of them.
+    """
+    valid = sorted(p for p in p_values if p is not None and p == p)
+    m = len(valid)
+    cutoff = -1.0
+    for rank, p in enumerate(valid, start=1):
         if p <= q * rank / m:
-            cutoff_rank = rank
-
-    survivors = {i for i, _ in indexed[:cutoff_rank]}
-    return [i in survivors for i in range(len(p_values))]
+            cutoff = p
+    return cutoff
 
 
 def _threshold_severity(
@@ -282,7 +321,8 @@ def predictable_counts(frame: pd.DataFrame, league_mix: pd.DataFrame | None) -> 
     if len(table) == 0:
         return []
 
-    qualifying = table[table["lift"] >= min_lift]
+    qualifying = table[(table["lift"] >= min_lift)
+                       & table["lift_z"].map(_clear_of_chance)]
     if len(qualifying) == 0:
         return []
 
@@ -367,24 +407,36 @@ def handedness_gaps(frame: pd.DataFrame) -> list[dict]:
         high, low = (usage_L, usage_R) if gap > 0 else (usage_R, usage_L)
         # A pitch never thrown to one side has a missing count there, and
         # `NaN or 0` is NaN — NaN is truthy — so missing is replaced explicitly.
-        n_side = int(max(_count_or_zero(row.n_L), _count_or_zero(row.n_R)))
-        if n_side < min_n:
+        n_L, n_R = int(_count_or_zero(row.n_L)), int(_count_or_zero(row.n_R))
+        if max(n_L, n_R) < min_n:
             continue
+
+        # The sample behind a gap between two rates is the two denominators,
+        # and the smaller one is what limits it. The sentence used to print
+        # the LARGER pitch count labelled as the favoured side's — "n=484
+        # sinkers to lefties" for Skubal, who threw lefties 256 sinkers and
+        # righties 484 — so it gives both sides' counts and totals instead.
+        faced_L = int(_count_or_zero(getattr(row, "faced_L", None)))
+        faced_R = int(_count_or_zero(getattr(row, "faced_R", None)))
+        n_high, faced_high = (n_L, faced_L) if gap > 0 else (n_R, faced_R)
+        n_low, faced_low = (n_R, faced_R) if gap > 0 else (n_L, faced_L)
+        n_binding = min(faced_L, faced_R)
 
         findings.append(_finding(
             flag="handedness_gap",
             severity=_threshold_severity(
                 abs(gap), min_gap,
                 float(config.get("report.severity_weights.handedness_gap", 2.0)),
-                n_side, min_n,
+                n_binding, min_n,
             ),
             basis=BASIS_THRESHOLD,
-            n=n_side,
+            n=n_binding,
             claim=(
                 f"He throws the {pitch_name(row.pitch_type)} {high:.0%} of the "
                 f"time to {favored} but only {low:.0%} to {starved} — "
-                f"{abs(high - low) * 100:.0f} points more (n={n_side} "
-                f"{pitch_name(row.pitch_type)}s to {favored})."
+                f"{abs(high - low) * 100:.0f} points more (n={n_high:,} of "
+                f"{faced_high:,} pitches to {favored}, {n_low:,} of "
+                f"{faced_low:,} to {starved})."
             ),
             observed=high,
             reference=low,
@@ -401,9 +453,18 @@ def hittable_pitches(
 
     Requires league data, since "an xwOBA of .350 on his slider" means nothing
     without knowing what sliders generally allow.
+
+    The gap has to clear its own noise as well as the configured floor. xwOBA
+    exists only on the pitch that ends a plate appearance, about one pitch in
+    four, with a standard deviation near 0.35 — so 200 sliders are about 50
+    plate appearances and a standard error near 0.05. The 0.060 floor alone
+    is barely one standard error at that size, and at the 50-pitch gate it is
+    about half of one. The league figure is treated as known; its sample is
+    far larger than his.
     """
     min_n = int(config.get("flags.min_n.hittable_pitch", 50))
     min_delta = float(config.get("flags.thresholds.hittable_pitch_xwoba_delta", 0.060))
+    min_z = float(config.get("flags.thresholds.hittable_pitch_min_z", 2.0))
 
     if league_outcomes is None:
         return []
@@ -420,6 +481,10 @@ def hittable_pitches(
             continue
         if row.xwoba_delta < min_delta:
             continue
+        se = getattr(row, "xwoba_se", float("nan"))
+        if not (se == se and row.xwoba_delta >= min_z * se):
+            continue
+        ended = int(getattr(row, "xwoba_n", 0))
 
         # xwOBA is a mean, not a proportion, so proportion_z does not apply.
         # Scaled against its own threshold instead, and labelled as such.
@@ -435,8 +500,9 @@ def hittable_pitches(
             claim=(
                 f"Hitters post a {row.xwoba:.3f} xwOBA against his "
                 f"{pitch_name(row.pitch_type)}, {row.xwoba_delta:+.3f} above the league's "
-                f"{row.league_xwoba:.3f} for that pitch, and he throws it "
-                f"{row.usage:.0%} of the time (n={int(row.n)})."
+                f"{row.league_xwoba:.3f} for that pitch (±{1.96 * se:.3f}), "
+                f"and he throws it {row.usage:.0%} of the time (n={ended} "
+                f"plate appearances ending on it, of {int(row.n)} pitches)."
             ),
             observed=row.xwoba,
             reference=row.league_xwoba,
@@ -463,12 +529,19 @@ def fatigue_decline(frame: pd.DataFrame) -> list[dict]:
     table = splits.fatigue(frame)
     if len(table) > 0:
         # Only buckets backed by enough separate outings can support a claim;
-        # a 2 mph drop seen in two starts is two starts, not a pattern.
-        trusted = table[table["outings"] >= min_outings]
+        # a 2 mph drop seen in two starts is two starts, not a pattern. The
+        # count that matters is `pairs`: outings that reach this bucket AND
+        # have a first-bucket reading to be compared with.
+        trusted = table[table["pairs"] >= min_outings]
         if len(trusted) > 0:
             worst = trusted.loc[trusted["velo_delta"].idxmin()]
             drop = -float(worst["velo_delta"])
-            if drop >= min_drop:
+            se = float(worst["delta_se"])
+            # The worst of several buckets is picked, so it also has to stand
+            # clear of its own outing-to-outing noise.
+            if drop >= min_drop and (se != se or drop >= 2 * se):
+                pitch = pitch_name(splits.velocity_pitch(frame)).capitalize()
+                first_velo = float(table.iloc[0]["velo"])
                 findings.append(_finding(
                     flag="fatigue",
                     # Sample size here is outings, not pitches: the claim is
@@ -476,18 +549,21 @@ def fatigue_decline(frame: pd.DataFrame) -> list[dict]:
                     # from three of them is three data points.
                     severity=_threshold_severity(
                         drop, min_drop, weight,
-                        int(worst["outings"]), min_outings,
+                        int(worst["pairs"]), min_outings,
                     ),
                     basis=BASIS_THRESHOLD,
                     n=int(worst["n"]),
                     claim=(
-                        f"Fastball velocity falls {drop:.1f} mph by pitch "
-                        f"{worst['bucket']} of an outing, measured across "
-                        f"{int(worst['outings'])} starts (n={int(worst['n'])} "
+                        f"{pitch} velocity falls {drop:.1f} mph by pitch "
+                        f"{worst['bucket']} of an outing, each outing measured "
+                        f"against its own first pitches, across "
+                        f"{int(worst['pairs'])} outings (n={int(worst['n'])} "
                         f"pitches)."
                     ),
-                    observed=float(worst["velo"]),
-                    reference=float(table.iloc[0]["velo"]),
+                    # The paired change, so observed − reference is the
+                    # number in the sentence.
+                    observed=first_velo - drop,
+                    reference=first_velo,
                 ))
 
     decomposition = splits.decompose_tto(frame)
@@ -556,6 +632,8 @@ def sequencing_tells(frame: pd.DataFrame) -> list[dict]:
         # substantially more likely than baseline without reaching a majority.
         if row.p_next < min_prob and row.freq_lift < min_lift:
             continue
+        if not _clear_of_chance(row.lift_z):
+            continue
 
         severity = _threshold_severity(
             row.freq_lift, min_lift, weight, int(row.n), min_n
@@ -609,6 +687,8 @@ def location_tells(frame: pd.DataFrame) -> list[dict]:
         # Lift and absolute share must both clear. A large lift onto a 37%
         # share is a real effect that no hitter can act on.
         if row.p_pitch < min_share:
+            continue
+        if not _clear_of_chance(row.lift_z):
             continue
         # A fastball up is what nearly every pitcher does; it ranked as the
         # top finding in 28 of 32 reports while telling a hitter nothing. The
@@ -752,16 +832,27 @@ def evaluate(
         return pd.DataFrame(columns=FINDING_COLUMNS)
 
     # The false-discovery correction runs here because here is the only place
-    # the whole family is visible. A rule that corrected its own rows would be
-    # correcting for a fraction of the comparisons actually made.
-    resolved = benjamini_hochberg([f["rv_p"] for f in findings])
+    # the whole family is visible — and the family is every run-value
+    # comparison the report made, not the handful that went on to become
+    # findings. An earlier version corrected across `findings` alone: six or
+    # seven p-values where the page says 120 were run, which made the bar for
+    # "resolved" about twenty times too easy while the report described the
+    # stricter one. The cutoff is set by all of them; a finding survives if
+    # its own p-value is under it.
+    family = comparison_p_values(frame)
+    all_p = [p for values in family.values() for p in values]
+    cutoff = bh_cutoff(all_p)
+    n_comparisons = len(all_p)
     min_runs = float(config.get("flags.thresholds.min_runs_cost", 1.0))
 
-    for finding, is_resolved in zip(findings, resolved):
-        finding["resolved"] = bool(is_resolved)
+    for finding in findings:
+        p = finding["rv_p"]
+        is_resolved = bool(p == p and p <= cutoff)
+        finding["resolved"] = is_resolved
         exploitable, phrase = _consequence(
             finding["runs_cost"], min_runs, is_resolved,
             finding["runs_lo"], finding["runs_hi"],
+            comparisons=n_comparisons,
         )
         finding["claim"] = finding["claim"] + phrase
         # Only a demonstrated benefit to the pitcher demotes a finding.
@@ -785,17 +876,12 @@ def comparison_count(
 
     This belongs in the report because "8 findings" means something completely
     different depending on whether it came out of 15 comparisons or 400. On
-    Yamamoto the denominator is 120, the uncorrected hit count is 9, and 6 is
+    Yamamoto the denominator is 120, the uncorrected hit count is 16, and 6 is
     what pure noise produces — a difference a reader cannot assess without
     being told the denominator.
     """
     families = {
-        "count": len(counts.count_lifts(frame, min_n=20)),
-        "location": sum(
-            len(location.location_tells(frame, by=band, min_n=40))
-            for band in location.BAND_COLUMNS
-        ),
-        "sequencing": len(sequencing.setup_pairs(frame, min_n=25)),
+        name: len(values) for name, values in comparison_p_values(frame).items()
     }
     total = sum(families.values())
     return {
@@ -805,11 +891,43 @@ def comparison_count(
     }
 
 
+def comparison_p_values(frame: pd.DataFrame) -> dict[str, list[float]]:
+    """The uncorrected p-value of every run-value comparison the report makes.
+
+    One list per family: every count-and-pitch cell, every location band on
+    each of the three ways of cutting the plate, every setup pair. These are
+    the same tables the rules read, at the same sample gates, so each
+    finding's own comparison is in here.
+
+    `comparison_count()` and the correction in `evaluate()` both read this, so
+    the number of comparisons printed on the page and the number the
+    correction is taken over cannot drift apart. They did: the page said 120
+    and the correction ran over the six or seven that had become findings.
+    """
+    count_n = int(config.get("flags.min_n.predictable_count", 20))
+    location_n = int(config.get("flags.min_n.location_tell", 40))
+    sequencing_n = int(config.get("flags.min_n.sequencing_tell", 25))
+
+    location_p: list[float] = []
+    for band in location.BAND_COLUMNS:
+        location_p.extend(
+            location.location_tells(frame, by=band, min_n=location_n)["rv_p"]
+        )
+    return {
+        "count": list(counts.count_lifts(frame, min_n=count_n)["rv_p"]),
+        "location": location_p,
+        "sequencing": list(
+            sequencing.setup_pairs(frame, min_n=sequencing_n)["rv_p"]
+        ),
+    }
+
+
 def takeaways(
     frame: pd.DataFrame,
     league_outcomes: pd.DataFrame | None = None,
     league_mix: pd.DataFrame | None = None,
     limit: int | None = None,
+    findings: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """The top findings, one per flag type, capped at `report.max_takeaways`.
 
@@ -818,11 +936,14 @@ def takeaways(
     takeaways drawn from five different rules tell him five. Within a flag the
     highest-severity finding survives, so nothing is lost except repetition —
     the full set remains available from evaluate().
+
+    Pass `findings` to reuse a table evaluate() already produced.
     """
     if limit is None:
         limit = int(config.get("report.max_takeaways", 5))
 
-    table = evaluate(frame, league_outcomes, league_mix)
+    table = (findings if findings is not None
+             else evaluate(frame, league_outcomes, league_mix))
     if len(table) == 0:
         return table
 

@@ -29,12 +29,30 @@ For each plan rule, three things are measured across pitchers:
 
 Every rule is read through the same functions the report uses, so what is
 tested is exactly what a hitter would have been told.
+
+Two readings of "the advice held" are recorded, because for three rules they
+differ and a single number hid which one was being reported:
+
+  held          the advice was still good enough to act on. For "won't see",
+                the pitch stayed under 5% (the plan fires at 3%); for a count
+                tell, the pitch was still at 1.5x his own rate in those counts
+                (the plan fires at 2x and a 25% share); for the height line,
+                the band still pointed to the pitch 45% of the time (the plan
+                also needs a 1.35x lift).
+  held_strict   the second part, on its own, would have written the same line
+                under the plan's own cutoffs. For the four call-type rules the
+                two are the same thing.
+
+Rates here are small-sample rates and are reported with intervals: a rule that
+gave advice 11 times and never flipped has shown a flip rate somewhere between
+0% and about 26%, not a flip rate of 0%.
 """
 
 from __future__ import annotations
 
 import math
 
+import numpy as np
 import pandas as pd
 
 from src import config, gameplan
@@ -120,7 +138,8 @@ def side_calls(frame: pd.DataFrame, side: str) -> dict:
         kind = gameplan.two_strike_rule(ts)
         call = f"expect {ts['top']}" if kind == "expect" else kind
         out["two_strikes"] = {"call": call, "top": ts["top"], "value": ts["top_share"],
-                              "below": ts["below"], "n": ts["n"], "rows": ts["rows"]}
+                              "below": ts["below"], "below_n": ts["below_n"],
+                              "n": ts["n"], "rows": ts["rows"]}
     else:
         out["two_strikes"] = None
 
@@ -172,11 +191,16 @@ def _flipped(a: str | None, b: str | None, broad: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _row(rule, side, call_a, call_b, value_a, value_b, n_a, n_b, same=None, flipped=None):
+def _row(rule, side, call_a, call_b, value_a, value_b, n_a, n_b, same=None,
+         flipped=None, strict=None):
+    same_call = bool(call_a == call_b) if same is None else bool(same)
     return {
         "rule": rule, "side": side,
         "call_first": call_a, "call_second": call_b,
-        "same_call": bool(call_a == call_b) if same is None else bool(same),
+        "same_call": same_call,
+        # Would the second part have written this line by the plan's own
+        # cutoffs? Same as `same_call` unless a rule passes its own answer.
+        "same_call_strict": same_call if strict is None else bool(strict),
         "flipped": _flipped(call_a, call_b) if flipped is None else bool(flipped),
         "flipped_broad": (_flipped(call_a, call_b, broad=True) if flipped is None
                           else bool(flipped)),
@@ -218,15 +242,20 @@ def compare(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
                              ta["value"], _share_in(tb["rows"], ta["top"]),
                              ta["n"], tb["n"]))
 
-            low_cut = gameplan._cut("lay_off_low_share", 0.50)
-            if ta["below"] == ta["below"]:
-                below_b, located = gameplan._finishes_low(second, side, ta["top"])
-                if located >= 20:
-                    call_a = "lay off low" if ta["below"] >= low_cut else "no low call"
-                    call_b = "lay off low" if below_b >= low_cut else "no low call"
-                    rows.append(_row("lay_off_low", side, call_a, call_b,
-                                     ta["below"], below_b, ta["n"], located,
-                                     flipped=False))
+            # Both parts need enough located pitches of that pitch for the
+            # share to mean anything, and the n recorded is that count — not
+            # every two-strike pitch to the side, which is what the first
+            # version wrote down and several times larger.
+            min_located = gameplan._cut("lay_off_low_min_pitches", 20)
+            below_b, located = gameplan._finishes_low(second, side, ta["top"])
+            if ta["below_n"] >= min_located and located >= min_located:
+                call_a = ("lay off low" if gameplan.lay_off_low_call(ta["below"], ta["below_n"])
+                          else "no low call")
+                call_b = ("lay off low" if gameplan.lay_off_low_call(below_b, located)
+                          else "no low call")
+                rows.append(_row("lay_off_low", side, call_a, call_b,
+                                 ta["below"], below_b, ta["below_n"], located,
+                                 flipped=False))
 
         if a["rare"] and a["rare"]["rare"] and b["side_n"] >= 100:
             side_b = second[second["stand"] == side]["pitch_type"].value_counts(normalize=True)
@@ -239,6 +268,7 @@ def compare(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
                     share_a, share_b, a["rare"]["n"], b["side_n"],
                     same=share_b < WONT_SEE_HOLDS_BELOW,
                     flipped=share_b >= 0.10,
+                    strict=share_b < gameplan._cut("rare_share", 0.03),
                 ))
 
     rows.extend(_count_tell_rows(first, second))
@@ -262,11 +292,15 @@ def _count_tell_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     lift_b = share_b / own_b if own_b else float("nan")
     lift_a = float(told["lift"].max())
     holds = lift_b == lift_b and lift_b >= 1.5
+    strict = (lift_b == lift_b
+              and lift_b >= gameplan._cut("count_tell_lift", 2.0)
+              and share_b >= gameplan._cut("count_tell_min_share", 0.25))
     label = f"{pitch} in {'/'.join(sorted(told['count']))}"
     return [_row("count_tell", "both", label,
                  label if holds else f"{pitch} not elevated ({lift_b:.1f}x)",
                  lift_a, lift_b, int(told["n"].sum()), len(in_counts),
-                 same=holds, flipped=lift_b == lift_b and lift_b < 1.0)]
+                 same=holds, flipped=lift_b == lift_b and lift_b < 1.0,
+                 strict=strict)]
 
 
 def _height_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
@@ -286,12 +320,14 @@ def _height_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     share_b = float(match["p_pitch"].iloc[0])
     lift_b = float(match["lift"].iloc[0])
     min_share = float(config.get("flags.thresholds.location_tell_share", 0.45))
+    min_lift = float(config.get("flags.thresholds.location_tell_lift", 1.35))
     holds = share_b >= min_share
     label = f"{top.band.lower()} = {top.pitch_type}"
     return [_row("height", "both", label,
                  label if holds else f"{top.band.lower()} = {top.pitch_type} {share_b:.0%}",
                  float(top.p_pitch), share_b, int(top.n), n_band,
-                 same=holds, flipped=lift_b < 1.0)]
+                 same=holds, flipped=lift_b < 1.0,
+                 strict=holds and lift_b >= min_lift)]
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +350,63 @@ RULE_LABELS: dict[str, str] = {
 }
 
 
-def summarise(rows: list[dict]) -> list[dict]:
+def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """95% Wilson score interval for a proportion.
+
+    Wilson rather than the textbook p ± z·sqrt(p(1−p)/n) because these are
+    rates like 0 of 11 and 7 of 7, where the textbook interval collapses to a
+    single point and claims a certainty eleven observations cannot give.
+    """
+    if n <= 0:
+        return float("nan"), float("nan")
+    p = successes / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def _skill(values: pd.DataFrame) -> tuple[float, float, float]:
+    """(skill, own error, average-pitcher error) for one rule's rows."""
+    if len(values) < 3:
+        return float("nan"), float("nan"), float("nan")
+    own_err = float((values["value_second"] - values["value_first"]).abs().mean())
+    avg_err = float((values["value_second"] - values["value_first"].mean()).abs().mean())
+    skill = 1 - own_err / avg_err if avg_err else float("nan")
+    return skill, own_err, avg_err
+
+
+def _skill_interval(values: pd.DataFrame, n_boot: int, seed: int) -> tuple[float, float]:
+    """95% bootstrap interval for skill, resampling PITCHERS.
+
+    A pitcher contributes a lefty row and a righty row, and those two are the
+    same arm on the same nights, so the independent units are pitchers. A
+    bootstrap over rows would treat 60 rows as 60 pitchers and come out too
+    narrow. Falls back to rows when the rows do not say whose they are.
+    """
+    if len(values) < 3:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    if "pitcher" in values.columns and values["pitcher"].notna().all():
+        groups = [g for _, g in values.groupby("pitcher")]
+    else:
+        groups = [values.iloc[[i]] for i in range(len(values))]
+    if len(groups) < 3:
+        return float("nan"), float("nan")
+
+    draws = []
+    for _ in range(n_boot):
+        picked = rng.integers(0, len(groups), len(groups))
+        skill, _, _ = _skill(pd.concat([groups[i] for i in picked]))
+        if skill == skill:
+            draws.append(skill)
+    if len(draws) < n_boot / 2:
+        return float("nan"), float("nan")
+    lo, hi = np.percentile(draws, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
+def summarise(rows: list[dict], n_boot: int = 2000, seed: int = 17) -> list[dict]:
     """One line per rule: how often the call held, flipped, and the skill score.
 
     Skill compares two predictions of each second-part number: the pitcher's
@@ -323,11 +415,31 @@ def summarise(rows: list[dict]) -> list[dict]:
     means knowing the pitcher adds nothing and 1 means it predicts perfectly.
     The average uses first-part numbers only, so nothing from the second part
     leaks into the baseline.
+
+    Every rate carries a 95% interval (`*_lo`, `*_hi`): Wilson for the held
+    and flipped rates, a bootstrap over pitchers for skill. With a few dozen
+    pitchers these intervals are wide, and that is the point of printing them.
+
+    Two things this number cannot tell you, both about what it was run on:
+
+    Skill depends on how different the pitchers in the run are from each
+    other. The average-pitcher error is large when the list mixes a
+    sinkerballer with a splitter specialist, which is exactly what the
+    calibration list was built to do, so skill measured on it is higher than
+    it would be across a random sample of the league. Read it as "on a
+    deliberately varied list", not as a league-wide figure.
+
+    And a cutoff that was moved after looking at a holdout run has been fitted
+    to that run. Rerunning the same pitchers and season afterwards measures
+    how well the fit worked, not how the rule will do on new data. Only a
+    season or a set of pitchers the cutoffs have never seen answers that.
     """
     table = pd.DataFrame(rows)
     out = []
     if table.empty:
         return out
+    if "same_call_strict" not in table.columns:
+        table["same_call_strict"] = table["same_call"]
     for rule, label in RULE_LABELS.items():
         sub = table[table["rule"] == rule]
         if sub.empty:
@@ -338,10 +450,10 @@ def summarise(rows: list[dict]) -> list[dict]:
         advised = sub[sub.apply(_advice_given, axis=1)]
         values = sub.dropna(subset=["value_first", "value_second"])
         skill, own_err, avg_err = float("nan"), float("nan"), float("nan")
-        if rule in SKILL_RULES and len(values) >= 3:
-            own_err = float((values["value_second"] - values["value_first"]).abs().mean())
-            avg_err = float((values["value_second"] - values["value_first"].mean()).abs().mean())
-            skill = 1 - own_err / avg_err if avg_err else float("nan")
+        skill_lo, skill_hi = float("nan"), float("nan")
+        if rule in SKILL_RULES:
+            skill, own_err, avg_err = _skill(values)
+            skill_lo, skill_hi = _skill_interval(values, n_boot, seed)
         # Every piece of advice lands in exactly one of three places: the
         # second part said the same thing (held), said something that points
         # the other way (flipped), or said less — "no case", "he mixes",
@@ -351,26 +463,40 @@ def summarise(rows: list[dict]) -> list[dict]:
         held = advised["same_call"]
         flipped = advised["flipped"] & ~held
         weakened = ~held & ~flipped
+        n_advised = int(len(advised))
 
         def pct(mask) -> float:
-            return float(mask.mean()) if len(advised) else float("nan")
+            return float(mask.mean()) if n_advised else float("nan")
+
+        held_lo, held_hi = wilson_interval(int(held.sum()), n_advised)
+        flipped_lo, flipped_hi = wilson_interval(int(flipped.sum()), n_advised)
 
         out.append({
             "rule": rule,
             "label": label,
             "checked": int(len(sub)),
-            "advice_given": int(len(advised)),
+            "pitchers": (int(sub["pitcher"].nunique())
+                         if "pitcher" in sub.columns else float("nan")),
+            "advice_given": n_advised,
             "advice_held": int(held.sum()),
             "held_pct": pct(held),
+            "held_lo": held_lo,
+            "held_hi": held_hi,
+            "held_strict": int(advised["same_call_strict"].sum()),
+            "held_strict_pct": pct(advised["same_call_strict"]),
             "weakened": int(weakened.sum()),
             "weakened_pct": pct(weakened),
             "flipped": int(flipped.sum()),
             "flipped_pct": pct(flipped),
+            "flipped_lo": flipped_lo,
+            "flipped_hi": flipped_hi,
             "flipped_broad_pct": (pct(advised["flipped_broad"] & ~held)
                                   if "flipped_broad" in advised else float("nan")),
             "same_call_all_pct": float(sub["same_call"].mean()),
             "own_error": own_err,
             "average_pitcher_error": avg_err,
             "skill": skill,
+            "skill_lo": skill_lo,
+            "skill_hi": skill_hi,
         })
     return out

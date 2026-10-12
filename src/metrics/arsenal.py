@@ -35,25 +35,38 @@ def profile(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame
       velo_max     float, 95th percentile release speed
       spin         float, average spin rate (rpm)
       h_break      float, horizontal movement (inches, catcher's view)
+      arm_run      float, the same movement toward his ARM side, positive,
+                   as scout_arsenal reports it. This is the one a report
+                   should print: `h_break` flips sign with pitcher hand, and
+                   the page once showed a right-hander's four-seam as +7.0 in
+                   one table and -7.0 in the next.
       v_break      float, vertical movement (inches, positive is "rise")
       extension    float, release extension toward the plate (feet)
       zone_rate    float, share thrown inside the strike zone
       swing_rate   float, share the batter offered at
       whiff_rate   float, whiffs per SWING (not per pitch)
       chase_rate   float, swings per pitch OUTSIDE the zone
-      xwoba        float, expected wOBA on contact
+      xwoba        float, xwOBA per plate appearance ending on this pitch
+                   (strikeouts count as zero; see events.season_line)
+      xwoba_n      int, plate appearances that ended on this pitch
+      xwoba_se     float, standard error of `xwoba`
       run_value    float, average change in run expectancy
 
     Only pitch types clearing the arsenal gate are included, so a handful of
     misclassified pitches do not appear as a phantom sixth offering.
 
+    `xwoba_n` is much smaller than `n`: only the last pitch of a plate
+    appearance carries an xwOBA, about one pitch in four. A pitch thrown 200
+    times has an xwOBA resting on roughly 50 plate appearances, and its
+    standard error says so.
+
     velo_max is the 95th percentile rather than the maximum, because a single
     mis-tracked reading would otherwise define the top of a pitcher's range.
     """
     columns = [
-        "n", "usage", "velo", "velo_max", "spin", "h_break", "v_break",
+        "n", "usage", "velo", "velo_max", "spin", "h_break", "arm_run", "v_break",
         "extension", "zone_rate", "swing_rate", "whiff_rate", "chase_rate",
-        "xwoba", "run_value",
+        "xwoba", "xwoba_n", "xwoba_se", "run_value",
     ]
 
     if len(frame) == 0:
@@ -65,11 +78,13 @@ def profile(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame
 
     subset = frame[frame["pitch_type"].isin(keep)]
     total = len(subset)
+    arm_sign = _arm_sign(subset)
 
     records = []
     for pitch_type, group in subset.groupby("pitch_type"):
         swings = int(group["is_swing"].eq(True).sum())
         whiffs = int(group["is_whiff"].eq(True).sum())
+        xwoba = _values(group, "estimated_woba_using_speedangle")
 
         out_of_zone = group[group["zone"].notna() & ~group["is_in_zone"].eq(True)]
         chases = int(out_of_zone["is_swing"].eq(True).sum())
@@ -82,13 +97,17 @@ def profile(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.DataFrame
             "velo_max": _quantile(group, "release_speed", 0.95),
             "spin": _mean(group, "release_spin_rate"),
             "h_break": _mean(group, "pfx_x") * FEET_TO_INCHES,
+            "arm_run": _mean(group, "pfx_x") * FEET_TO_INCHES * arm_sign,
             "v_break": _mean(group, "pfx_z") * FEET_TO_INCHES,
             "extension": _mean(group, "release_extension"),
             "zone_rate": float(group["is_in_zone"].eq(True).mean()),
             "swing_rate": swings / len(group),
             "whiff_rate": whiffs / swings if swings else float("nan"),
             "chase_rate": chases / len(out_of_zone) if len(out_of_zone) else float("nan"),
-            "xwoba": _mean(group, "estimated_woba_using_speedangle"),
+            "xwoba": float(xwoba.mean()) if len(xwoba) else float("nan"),
+            "xwoba_n": int(len(xwoba)),
+            "xwoba_se": (float(xwoba.std(ddof=1) / len(xwoba) ** 0.5)
+                         if len(xwoba) > 1 else float("nan")),
             "run_value": _mean(group, "delta_run_exp"),
         })
 
@@ -113,7 +132,7 @@ def scout_arsenal(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.Dat
       spin         float, average spin rate (rpm)
       whiff_rate   float, whiffs per swing
       chase_rate   float, swings per pitch outside the zone
-      xwoba        float, expected wOBA on contact
+      xwoba        float, xwOBA per plate appearance ending on this pitch
 
     Three choices here follow how scouts actually read a pitch, not how the
     data arrives.
@@ -149,9 +168,7 @@ def scout_arsenal(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.Dat
     total = len(subset)
     side_totals = subset["stand"].value_counts() if "stand" in subset else pd.Series()
 
-    hand = str(subset["p_throws"].mode().iloc[0]) if "p_throws" in subset else "R"
-    # A right-hander's arm side is negative pfx_x from the catcher's view.
-    arm_sign = -1.0 if hand == "R" else 1.0
+    arm_sign = _arm_sign(subset)
 
     records = []
     for pitch_type, group in subset.groupby("pitch_type"):
@@ -257,6 +274,23 @@ def release_consistency(
     ) ** 0.5
 
     return table[columns]
+
+
+def _arm_sign(frame: pd.DataFrame) -> float:
+    """Multiplier that turns catcher's-view `pfx_x` into arm-side run.
+
+    A right-hander's arm side is negative pfx_x from the catcher's view; a
+    left-hander's is positive. One place, so every table agrees.
+    """
+    if "p_throws" not in frame or not frame["p_throws"].notna().any():
+        return -1.0
+    return -1.0 if str(frame["p_throws"].mode().iloc[0]) == "R" else 1.0
+
+
+def _values(group: pd.DataFrame, column: str) -> pd.Series:
+    if column not in group.columns:
+        return pd.Series(dtype=float)
+    return pd.to_numeric(group[column], errors="coerce").dropna()
 
 
 def _mean(group: pd.DataFrame, column: str) -> float:

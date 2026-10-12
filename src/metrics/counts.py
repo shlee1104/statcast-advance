@@ -428,6 +428,9 @@ def count_lifts(
       share        float, P(pitch | count)
       own_rate     float, his overall rate for that pitch
       lift         float, share / own_rate
+      lift_z       float, standard errors between his rate for the pitch in
+                   this count and his rate in every other count (see
+                   events.lift_z)
       score        float, (lift - 1) * n
 
     This exists because predictability() reports only the most-used pitch in
@@ -442,7 +445,7 @@ def count_lifts(
     moderate one that can be trusted.
     """
     columns = ["count", "pitch_type", "n", "count_n", "share",
-               "own_rate", "lift", "score",
+               "own_rate", "lift", "lift_z", "score",
                "rv_when", "rv_base", "rv_delta", "runs_cost",
                "runs_lo", "runs_hi", "significant", "rv_p",
                "xwoba_when", "xwoba_delta"]
@@ -455,7 +458,7 @@ def count_lifts(
         return pd.DataFrame(columns=columns)
 
     overall = pitch_mix(working)
-    per_count = working["count"].value_counts()
+    pitch_totals = working["pitch_type"].value_counts()
 
     records = []
     for count_label, group in working.groupby("count"):
@@ -487,6 +490,9 @@ def count_lifts(
                 "share": share,
                 "own_rate": own_rate,
                 "lift": lift,
+                "lift_z": events.lift_z(
+                    int(n), count_n, int(pitch_totals[pitch_type]), len(working)
+                ),
                 "score": (lift - 1.0) * n,
                 "rv_when": outcome["rv_when"],
                 "rv_base": outcome["rv_base"],
@@ -503,12 +509,9 @@ def count_lifts(
     if not records:
         return pd.DataFrame(columns=columns)
 
-    table = pd.DataFrame(records)
-    order = [c for c in ALL_COUNTS if c in set(table["count"])]
-    table["_order"] = table["count"].map({c: i for i, c in enumerate(order)})
     return (
-        table.sort_values("score", ascending=False)
-        .drop(columns="_order")
+        pd.DataFrame(records)
+        .sort_values("score", ascending=False)
         .reset_index(drop=True)[columns]
     )
 
@@ -531,6 +534,20 @@ def predictability(
     H is maximized at log2(k) when every pitch is equally likely, so the
     normalized score falls in [0, 1]. A score of 1.0 means exactly one pitch is
     thrown in that count; 0.0 means the mix is perfectly uniform.
+
+    The score uses a bias-corrected entropy, not the raw one. Entropy computed
+    from observed shares is too LOW on a small sample — a handful of pitches
+    cannot show the whole arsenal even when he would use all of it — so the
+    raw score makes thin counts look predictable for no reason but their size.
+    Drawing 20 pitches at random from Yamamoto's season mix scores 0.20 where
+    his season mix scores 0.12; at 600 pitches the gap is gone. Since the
+    thinnest counts (3-0, 2-0, 3-1) are the ones this table exists to compare
+    against the big ones, the Miller-Madow correction is applied:
+
+        H_corrected = H + (m - 1) / (2 n ln 2)
+
+    for m pitch types seen in n pitches, capped at log2(k). The `entropy`
+    column stays the raw value, so it can be checked by hand.
 
     k is the size of the pitcher's overall arsenal, not the number of pitch
     types observed in the individual count. A count containing only fastballs
@@ -603,12 +620,16 @@ def predictability(
     for count_label, shares in mix.iterrows():
         nonzero = shares[shares > 0]
         entropy = -(nonzero * np.log2(nonzero)).sum()
-        pred = 1.0 if max_entropy is None else 1 - entropy / max_entropy
+        in_count = int(per_count[count_label])
+        if max_entropy is None:
+            pred = 1.0
+        else:
+            corrected = entropy + (len(nonzero) - 1) / (2 * in_count * np.log(2))
+            pred = 1 - min(corrected, max_entropy) / max_entropy
 
         top_pitch = shares.idxmax()
         top_share = float(shares.max())
         own_rate = float(overall.get(top_pitch, float("nan")))
-        in_count = int(per_count[count_label])
 
         rows.append({
             "n": in_count,
