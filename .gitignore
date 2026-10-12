@@ -21,6 +21,8 @@ reports/*.html
 reports/calibration/
 # Holdout runs: regenerable from the cache.
 reports/holdout/
+# Replication runs: regenerable from the cache.
+reports/replication/
 
 # --- macOS ---
 .DS_Store

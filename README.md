@@ -91,7 +91,11 @@ self-contained interactive HTML report comes out.
   it flipped to the opposite advice, and whether the pitcher's own numbers
   predict better than an average pitcher's would, each with an interval. Run on
   2026, a season no cutoff was set on
-- 481 unit tests, plus an end-to-end validation suite over live data
+- Replication check — `scripts/replication.py` re-measures every finding the
+  rules make in the first half of a season on the second half, and correlates
+  every table column between halves, so each section of the report can be
+  judged on whether it repeats
+- 517 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -329,6 +333,70 @@ The same check from regular season to postseason (2025, 19 pitchers) is
 directional only — October samples are a few dozen pitches per side — but
 points the same way, with one pattern worth following: some pitchers lean
 harder on their best put-away pitch in October.
+
+## Do the findings repeat?
+
+The holdout check tests the plan's lines. `scripts/replication.py` asks the same
+question of everything else in the report: each finding the rules make from the
+first half of a pitcher's season is re-measured in the second half, at the
+rule's own bar.
+
+| Finding | 2025: found | Held (95% CI) | Same direction | 2026: found | Held (95% CI) | Same direction |
+|---|---|---|---|---|---|---|
+| Count tendency | 56 | 82% (70–90%) | 98% | 47 | 51% (37–65%) | 96% |
+| Height tell | 19 | 74% (51–88%) | 100% | 11 | 82% (52–95%) | 100% |
+| Lefty/righty split | 15 | 67% (42–85%) | 100% | 17 | 71% (47–87%) | 100% |
+| Sequencing | 10 | 40% (17–69%) | 90% | 11 | 55% (28–79%) | 91% |
+| Velocity late in starts | 6 | 33% (10–70%) | 100% | 4 | 75% (30–95%) | 100% |
+| Third time through (verdict) | 2 | 0% (0–66%) | 0% | 5 | 20% (4–62%) | 40% |
+
+*Held* means the second half cleared the same bar on its own. *Same direction*
+means it at least still pointed the same way. A second half too thin to
+measure a finding in is left out, not counted as a miss. Thirty pitchers in
+2025, twenty-eight in 2026.
+
+The usage findings — counts, height, batter side — almost never reverse, and
+hold their full size half to four-fifths of the time. Sequencing keeps its
+direction but holds its size about half the time, on few cases. The verdict on
+the third trip through the order came back once in seven.
+
+The same script computes every table column in each half and correlates them
+across pitcher-pitches (86 in 2025, 77 in 2026):
+
+| Number | 2025 r | 2026 r |
+|---|---|---|
+| Velocity, horizontal and vertical break | 0.99–1.00 | 0.99–1.00 |
+| Usage | 0.96 | 0.92 |
+| Location: height | 0.96 | 0.97 |
+| Release: distance from his fastball slot | 0.84 | 0.88 |
+| Zone rate | 0.85 | 0.91 |
+| Whiff rate | 0.81 | 0.82 |
+| Chase rate | 0.77 | 0.73 |
+| xwOBA | 0.61 | 0.59 |
+| xwOBA against the league's for that pitch | 0.44 | — |
+| Run value per pitch | 0.28 | 0.37 |
+| Third trip: change in fastball velocity (per pitcher) | 0.86 | 0.76 |
+| Third trip: change in xwOBA (per pitcher) | 0.06 | 0.29 |
+
+What he throws, how it moves and where it goes are properties of the pitcher.
+What happened to it is mostly a property of the half: a pitch's run value in
+one half says little about the other, and the change in results on a third
+trip says close to nothing, while the change in velocity on that trip carries
+over. (No league sample is cached for 2026, so the league column is 2025
+only.)
+
+Across the 58 full-season reports the rules made 284 findings, and the run
+consequence of one of them survived correction. The hittable-pitch finding
+fired for 2 of 30 pitchers in 2025.
+
+```bash
+python scripts/replication.py --season 2025
+python scripts/replication.py --season 2026
+python scripts/replication.py --season 2026 --cached   # local cache only, no network
+```
+
+These correlations are across a list built to span very different pitchers,
+so they are higher than they would be across a random sample of the league.
 
 ## Design notes
 
