@@ -296,7 +296,7 @@ class TestRunConsequence:
         """The case that is almost always true. Run value per pitch has an SD
         near 0.19 against differences of 0.01-0.02, so one season of one
         pitcher cannot resolve them. The claim used to end with the point
-        estimate and a sentence calling it unresolved, on 283 of 284 findings;
+        estimate and a sentence calling it unresolved, on all but one of 287;
         the page now says it once, under the list."""
         exploitable, phrase = flags._consequence(
             3.4, 1.0, significant=False, runs_lo=-3.9, runs_hi=10.6
@@ -644,7 +644,7 @@ class TestLeagueRulesAreOptional:
 
 class TestRemovedRulesStayRemoved:
     """Two rules were cut after a split-half check: the hittable-pitch finding
-    fired for 2 of 30 pitchers, and the third-time-through verdict came back
+    fired in 5 of 58 pitcher-seasons, and the third-time-through verdict came back
     in 1 of 7 cases. Neither may come back through the engine unnoticed."""
 
     def test_no_finding_carries_a_removed_flag(self):

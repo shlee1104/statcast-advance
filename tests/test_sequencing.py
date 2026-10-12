@@ -363,3 +363,161 @@ class TestSetupPairs:
         assert len(table) == 0
         for column in ["setup_pitch", "setup_band", "next_pitch", "freq_lift"]:
             assert column in table.columns
+
+
+def sided(groups: list[tuple[str, int, list[str]]]) -> pd.DataFrame:
+    """Plate appearances by batter side: (side, how many, pitches in order)."""
+    rows = []
+    at_bat = 0
+    for stand, times, pitches in groups:
+        for _ in range(times):
+            at_bat += 1
+            for number, pitch_type in enumerate(pitches, start=1):
+                rows.append({
+                    "game_pk": 1,
+                    "at_bat_number": at_bat,
+                    "pitch_number": number,
+                    "pitch_type": pitch_type,
+                    "stand": stand,
+                    "description": "called_strike",
+                    "zone": 5,
+                    "balls": 0,
+                    "strikes": min(number - 1, 2),
+                    "is_swing": False,
+                    "is_whiff": False,
+                })
+    return pd.DataFrame(rows)
+
+
+def cell(table: pd.DataFrame, stand: str, pitch: str, next_pitch: str) -> pd.Series:
+    match = table[(table["stand"] == stand) & (table["pitch_type"] == pitch)
+                  & (table["next_pitch"] == next_pitch)]
+    assert len(match) == 1
+    return match.iloc[0]
+
+
+class TestTransitions:
+    def frame(self) -> pd.DataFrame:
+        """Six follow-ups to righties: FF>SL three times, FF>FF once, SL>FF twice."""
+        return sided([("R", 3, ["FF", "SL"]), ("R", 1, ["FF", "FF"]),
+                      ("R", 2, ["SL", "FF"])])
+
+    def test_carries_the_counts_a_share_is_made_of(self):
+        row = cell(sequencing.transitions(self.frame()), "R", "FF", "SL")
+        assert (row["n"], row["row_n"], row["next_n"], row["total"]) == (3, 4, 3, 6)
+        assert row["share"] == pytest.approx(0.75)
+
+    def test_lift_is_against_how_often_the_pitch_follows_anything(self):
+        """Sliders are 3 of the 6 follow-ups, so 50% is his usual and 75%
+        after a four-seam is 1.5 times it. Two would be expected at his
+        usual rate."""
+        row = cell(sequencing.transitions(self.frame()), "R", "FF", "SL")
+        assert row["usual"] == pytest.approx(0.50)
+        assert row["lift"] == pytest.approx(1.5)
+        assert row["expected_n"] == pytest.approx(2.0)
+
+    def test_a_follow_up_that_never_came_is_a_row_not_a_gap(self):
+        """He never doubled up on the slider. That is the finding, and a
+        missing row could not carry it."""
+        row = cell(sequencing.transitions(self.frame()), "R", "SL", "SL")
+        assert row["n"] == 0
+        assert row["share"] == 0.0
+        assert row["expected_n"] == pytest.approx(1.0)
+
+    def test_each_row_of_shares_sums_to_one(self):
+        table = sequencing.transitions(self.frame())
+        for _, row in table.groupby(["stand", "pitch_type"]):
+            assert row["share"].sum() == pytest.approx(1.0)
+
+    def test_each_batter_side_is_its_own_table(self):
+        """He does not throw the same pitches to both sides, so "his usual"
+        to a lefty is measured on lefties."""
+        frame = sided([("R", 8, ["FF", "SL"]), ("L", 6, ["FF", "CH"]),
+                       ("L", 2, ["FF", "FF"])])
+        table = sequencing.transitions(frame)
+        assert cell(table, "R", "FF", "SL")["share"] == pytest.approx(1.0)
+        assert cell(table, "L", "FF", "CH")["share"] == pytest.approx(0.75)
+        assert cell(table, "L", "FF", "CH")["total"] == 8
+        assert set(table[table["stand"] == "L"]["next_pitch"]) == {"CH", "FF"}
+
+    def test_usual_is_among_follow_ups_not_all_pitches(self):
+        """The first pitch of a plate appearance follows nothing. Twenty
+        one-pitch plate appearances of curveballs do not make the curveball a
+        common follow-up."""
+        frame = pd.concat([self.frame(),
+                           sided([("R", 20, ["CU"])]).assign(game_pk=2)])
+        table = sequencing.transitions(frame)
+        assert cell(table, "R", "FF", "SL")["usual"] == pytest.approx(0.50)
+        assert "CU" not in set(table["next_pitch"])
+
+    def test_does_not_pair_across_plate_appearances(self):
+        frame = sided([("R", 1, ["FF"]), ("R", 1, ["SL"])])
+        assert len(sequencing.transitions(frame)) == 0
+
+    def test_a_stray_pitch_does_not_join_its_neighbours(self):
+        """One knuckleball in four hundred pitches is a mislabel, not part of
+        his arsenal. Dropping it before pairing would close the gap and
+        invent a four-seam-to-slider follow-up that never happened."""
+        frame = pd.concat([
+            sided([("R", 100, ["FF", "FF"]), ("R", 100, ["SL", "SL"])]),
+            sided([("R", 1, ["FF", "KN", "SL"])]).assign(game_pk=2),
+        ])
+        table = sequencing.transitions(frame)
+        assert "KN" not in set(table["pitch_type"]) | set(table["next_pitch"])
+        assert cell(table, "R", "FF", "SL")["n"] == 0
+
+    def test_empty_frame(self):
+        frame = sided([("R", 1, ["FF"])]).iloc[0:0]
+        table = sequencing.transitions(frame)
+        assert len(table) == 0
+        assert list(table.columns) == sequencing.TRANSITION_COLUMNS
+
+
+class TestTransitionStandouts:
+    """Which follow-ups the sequence graph colours."""
+
+    def label(self, **values) -> str:
+        row = {"n": 30, "row_n": 100, "lift": 1.5, "lift_z": 4.0, "expected_n": 20.0}
+        row.update(values)
+        return sequencing.transition_standouts(pd.DataFrame([row])).iloc[0]
+
+    def test_more_often_than_usual_and_clear_of_chance(self):
+        assert self.label() == "more"
+
+    def test_a_lift_inside_chance_is_not_coloured(self):
+        """Thirty where twenty were expected, on a hundred: 1.5 times usual
+        and only two standard errors from nothing."""
+        assert self.label(lift_z=2.0) == ""
+
+    def test_a_small_lift_is_not_coloured_however_sure(self):
+        assert self.label(lift=1.1, lift_z=6.0) == ""
+
+    def test_more_needs_enough_occurrences(self):
+        assert self.label(n=12) == ""
+
+    def test_a_pitch_with_too_few_follow_ups_is_not_read(self):
+        assert self.label(row_n=30) == ""
+        assert self.label(row_n=30, n=4, lift=0.4, lift_z=-3.5, expected_n=25.0) == ""
+
+    def test_less_often_than_usual(self):
+        assert self.label(n=8, lift=0.4, lift_z=-3.5, expected_n=20.0) == "less"
+
+    def test_never_is_only_news_if_there_would_normally_be_some(self):
+        """No sweepers after a changeup, where eight would be expected, is
+        not a shortfall anyone could act on."""
+        assert self.label(n=0, lift=0.0, lift_z=-3.2, expected_n=8.0) == ""
+
+    def test_no_table_no_labels(self):
+        empty = pd.DataFrame(columns=sequencing.TRANSITION_COLUMNS)
+        assert len(sequencing.transition_standouts(empty)) == 0
+
+    def test_doubling_up_is_found_from_pitches(self):
+        """After a slider the next pitch is a slider 70 times in 100; after a
+        four-seam, 20 in 100."""
+        frame = sided([("R", 70, ["SL", "SL"]), ("R", 30, ["SL", "FF"]),
+                       ("R", 20, ["FF", "SL"]), ("R", 80, ["FF", "FF"])])
+        table = sequencing.transitions(frame)
+        table["standout"] = sequencing.transition_standouts(table)
+        assert cell(table, "R", "SL", "SL")["standout"] == "more"
+        assert cell(table, "R", "FF", "SL")["standout"] == "less"
+        assert cell(table, "R", "SL", "SL")["lift"] == pytest.approx(0.70 / 0.45)

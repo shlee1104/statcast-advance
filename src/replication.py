@@ -43,8 +43,8 @@ a wrong call. Those cases produce no row.
 A rule that fails this check comes out of the report, and then out of this
 module. Two went that way: the verdict on the third trip through the order,
 which came back in 1 of 7 cases, and the hittable-pitch finding, which fired
-for 2 of 30 pitchers. The run that measured them is reproducible at commit
-432abb0, where both rules still exist.
+in 5 of 58 pitcher-seasons. The run that measured them is reproducible at
+commit 432abb0, where both rules still exist.
 
 What this cannot tell you: a correlation across a deliberately varied list of
 pitchers is higher than it would be across a random sample of the league,
@@ -78,6 +78,8 @@ MIN_PAIRS = 6
 FINDING_LABELS: dict[str, str] = {
     "count_lift": "Count tendency",
     "sequencing": "Sequencing",
+    "follow_up_more": "Follow-up: more than usual",
+    "follow_up_less": "Follow-up: less than usual",
     "location": "Height tell",
     "handedness": "Lefty/righty split",
     "fatigue": "Velocity late in starts",
@@ -195,6 +197,47 @@ def _sequencing_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
                          f"{r.setup_pitch} {r.setup_band} > {r.next_pitch}",
                          r.freq_lift, lift, len(after),
                          lift >= min_lift, lift > 1.0))
+    return rows
+
+
+def _follow_up_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
+    """The follow-ups the sequence graph would colour: still off his usual?
+
+    Read through `sequencing.transition_standouts`, the rule the graph itself
+    uses. Re-measured on the same batter side, where the pitch needs the
+    rule's own number of follow-ups in the second half for its row to be
+    read at all.
+    """
+    row_gate = int(config.get("flags.min_n.sequence_follow_ups", 40))
+    more_lift = float(config.get("flags.thresholds.sequence_more_lift", 1.25))
+    less_lift = float(config.get("flags.thresholds.sequence_less_lift", 0.80))
+
+    found = sequencing.transitions(first)
+    if len(found) == 0:
+        return []
+    found = found.assign(standout=sequencing.transition_standouts(found))
+    found = found[found["standout"] != ""]
+    again = sequencing.transitions(second)
+    if len(found) == 0 or len(again) == 0:
+        return []
+    again = again.set_index(["stand", "pitch_type", "next_pitch"])
+
+    rows = []
+    for r in found.itertuples():
+        key = (r.stand, r.pitch_type, r.next_pitch)
+        if key not in again.index:
+            continue
+        cell = again.loc[key]
+        if int(cell["row_n"]) < row_gate or not cell["lift"] == cell["lift"]:
+            continue
+        lift = float(cell["lift"])
+        label = f"{r.pitch_type} > {r.next_pitch} to {r.stand}HH"
+        if r.standout == "more":
+            rows.append(_row("follow_up_more", label, r.lift, lift, int(cell["row_n"]),
+                             lift >= more_lift, lift > 1.0))
+        else:
+            rows.append(_row("follow_up_less", label, r.lift, lift, int(cell["row_n"]),
+                             lift <= less_lift, lift < 1.0))
     return rows
 
 
@@ -316,8 +359,9 @@ def finding_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     if len(first) < MIN_HALF_PITCHES or len(second) < MIN_HALF_PITCHES:
         return []
     rows: list[dict] = []
-    for measure in (_count_lift_rows, _sequencing_rows, _location_rows,
-                    _handedness_rows, _fatigue_rows, _first_pitch_rows):
+    for measure in (_count_lift_rows, _sequencing_rows, _follow_up_rows,
+                    _location_rows, _handedness_rows, _fatigue_rows,
+                    _first_pitch_rows):
         rows.extend(measure(first, second))
     return rows
 

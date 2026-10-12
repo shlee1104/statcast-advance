@@ -46,7 +46,7 @@ header.top .sub b{color:#d7e2ee;font-weight:600}
 .seasonline{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;padding:10px 12px;
             background:#f4f6f8;border-radius:6px;margin-bottom:16px}
 .seasonline b{font-variant-numeric:tabular-nums;font-size:14px}
-.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}
 .planside,.planboth{border:1px solid var(--line);border-radius:8px;padding:12px 14px}
 .planboth{margin-top:14px;background:#fbfbf7}
 .plan h3,.planboth h3{font-size:12px;font-weight:700;text-transform:uppercase;
@@ -85,13 +85,29 @@ section.card > .lede{font-size:13px;color:var(--muted);margin-bottom:16px;max-wi
 .chip.cost{background:#f7e4de;color:var(--warn)}
 .chip.works{background:#e3ecf6;color:#2f5f8f}
 
-.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:var(--gap)}
-.chartbox{background:var(--card);border-radius:var(--radius);padding:20px 24px;
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:var(--gap)}
+/* min-width:0 lets a table inside a chart box scroll sideways on a phone
+   instead of stretching the box, and the page, to the table's width. */
+.chartbox{min-width:0;background:var(--card);border-radius:var(--radius);padding:20px 24px;
           box-shadow:0 1px 2px rgba(16,24,40,.06);margin-bottom:var(--gap)}
 .chartbox h3{font-size:14px;font-weight:650;margin-bottom:2px}
 .chartbox .lede{font-size:12px;color:var(--muted);margin-bottom:14px}
 .chartbox .holder{position:relative;height:280px}
 .chartbox h3.sub3{font-size:13px;margin:18px 0 6px}
+/* Sequence graph: one panel per batter side, like the hitting plan. */
+.sec3{font-size:14px;font-weight:650;margin:26px 0 4px;max-width:80ch}
+.sec3.first{margin-top:10px}
+.sec3 + .lede{font-size:13px;color:var(--muted);margin-bottom:14px;max-width:80ch}
+.seqgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));gap:18px}
+.seqpanel{border:1px solid var(--line);border-radius:8px;padding:12px 14px 8px}
+.seqpanel h4{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+             color:var(--head);margin-bottom:4px}
+.seqpanel h4 .n{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;
+                color:var(--muted);margin-left:6px}
+.svgchart.seq{max-width:520px;margin:0 auto}
+.svgchart .seqlab{font-size:11px;font-weight:700;paint-order:stroke;stroke:#fff;
+                  stroke-width:3.5px;stroke-linejoin:round}
+.seqnone{font-size:12px;color:var(--muted);text-align:center;margin:2px 0 6px}
 .chartbox th,.chartbox td{padding:7px 7px}
 canvas{max-height:280px}
 
@@ -753,12 +769,86 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   <div class="scroll"><table id="predTable"><thead></thead><tbody></tbody></table></div>
 </section>
 
+{# Sequence graph, SVG from the template; layout from charts.sequence_layout.
+   Left to right is time: the pitch he just threw, then the pitch that
+   followed. Drawn without script so it prints with the rest. #}
+{% set sg = payload.sequence_graph %}
 <section class="card">
   <h2>Sequencing</h2>
+  <h3 class="sec3 first">{{ sg.headline }}</h3>
   <p class="lede">
-    Frequency and effectiveness are measured separately. A sequence that is predictable
-    <em>and</em> not working is the most exploitable pattern a report can carry, and any
-    metric that merges the two hides it.
+    Read each panel left to right: the pitch he just threw, then the pitch that
+    followed it in the same plate appearance. A line's thickness is how often that
+    follow-up came. <b style="color:{{ sg.colors.more }}">Orange</b> is a follow-up that
+    comes at least {{ "%.2f"|format(sg.more_lift) }} times as often as that pitch usually
+    follows anything; <b style="color:{{ sg.colors.less }}">blue, dashed,</b> is one that
+    comes at most {{ "%.1f"|format(sg.less_lift) }} times as often. Grey is within his usual.
+  </p>
+  <div class="seqgrid">
+  {% for p in sg.panels %}
+    <div class="seqpanel">
+      <h4>{{ p.label }} <span class="n">{{ "{:,}".format(p.total) }} follow-up pitches</span></h4>
+      {% if p.enough %}
+      <svg class="svgchart seq" viewBox="0 0 {{ p.width }} {{ p.height }}" role="img"
+           aria-label="What follows each pitch, {{ p.label|lower }}">
+        <defs>
+          {% for kind in ["more", "less"] %}
+          <marker id="seq-{{ kind }}-{{ p.side }}" markerUnits="userSpaceOnUse"
+                  markerWidth="11" markerHeight="10" refX="2" refY="5" orient="auto">
+            <path d="M0,0 L11,5 L0,10 z" fill="{{ sg.colors[kind] }}"/>
+          </marker>
+          {% endfor %}
+        </defs>
+        <text x="{{ p.x_left }}" y="{{ p.header_y }}" text-anchor="end" class="axis">He just threw</text>
+        <text x="{{ p.x_right }}" y="{{ p.header_y }}" text-anchor="start" class="axis">Next pitch</text>
+        {% for l in p.lines %}
+        <line x1="{{ l.x1 }}" y1="{{ l.y1 }}" x2="{{ l.x2 }}" y2="{{ l.y2 }}"
+              stroke="{{ l.stroke }}" stroke-width="{{ l.width }}"
+              {% if l.kind %}marker-end="url(#seq-{{ l.kind }}-{{ p.side }})"{% else %}stroke-linecap="round" opacity="0.55"{% endif %}
+              {% if l.kind == "less" %}stroke-dasharray="6 4"{% endif %}>
+          <title>After a {{ names.get(l.from, l.from) }}, a {{ names.get(l.to, l.to) }} followed {{ l.n }} of {{ l.row_n }} times ({{ "%.0f"|format(l.share * 100) }}%). His usual is {{ "%.0f"|format(l.usual * 100) }}%.</title>
+        </line>
+        {% endfor %}
+        {% for n in p.left %}
+        <circle cx="{{ p.x_left }}" cy="{{ n.y }}" r="{{ n.r }}" fill="{{ n.color }}"{% if not n.read %} opacity="0.35"{% endif %}/>
+        <text x="{{ p.x_left - n.r - 8 }}" y="{{ n.y - 1 }}" text-anchor="end" class="slab"{% if not n.read %} opacity="0.5"{% endif %}><tspan font-weight="700" fill="{{ n.color }}">{{ names.get(n.pitch, n.pitch) }}</tspan></text>
+        <text x="{{ p.x_left - n.r - 8 }}" y="{{ n.y + 12 }}" text-anchor="end" class="tick">{% if n.read %}n={{ n.row_n }}{% else %}n={{ n.row_n }}, too few{% endif %}</text>
+        {% endfor %}
+        {% for n in p.right %}
+        <circle cx="{{ p.x_right }}" cy="{{ n.y }}" r="{{ n.r }}" fill="{{ n.color }}"/>
+        <text x="{{ p.x_right + n.r + 8 }}" y="{{ n.y - 1 }}" text-anchor="start" class="slab"><tspan font-weight="700" fill="{{ n.color }}">{{ names.get(n.pitch, n.pitch) }}</tspan></text>
+        <text x="{{ p.x_right + n.r + 8 }}" y="{{ n.y + 12 }}" text-anchor="start" class="tick">usual {{ "%.0f"|format(n.usual * 100) }}%</text>
+        {% endfor %}
+        {% for l in p.lines if l.kind %}
+        <text x="{{ l.label_x }}" y="{{ l.label_y }}" text-anchor="middle" class="seqlab" fill="{{ l.stroke }}">{{ l.label }}</text>
+        {% endfor %}
+      </svg>
+      {% if not p.standouts %}
+      <p class="seqnone">Nothing stands out to this side: whatever he just threw, the
+        next pitch follows his usual mix.</p>
+      {% endif %}
+      {% else %}
+      <p class="nodata">Fewer than {{ sg.row_gate }} follow-up pitches to this side — too few to read.</p>
+      {% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  <p class="note">
+    "n" is how many times the pitch was followed by another in the same plate
+    appearance; "usual" is how often a pitch follows anything, to that side. A coloured
+    line also has to stand clear of chance, and a pitch with fewer than
+    {{ sg.row_gate }} follow-ups sends out no lines. Across 58 pitcher-seasons, 9 in 10
+    coloured lines pointed the same way in the other half of the season and about 6 in
+    10 were as strong. The count is not held fixed: what a pitch does decides the count
+    the next one is thrown in, so part of any line is ordinary count logic.
+  </p>
+
+  <h3 class="sec3">Setups by pitch and height</h3>
+  <p class="lede">
+    The same question one level down: the pitch and where it was thrown, then what
+    followed. Frequency and effectiveness are measured separately. A sequence that is
+    predictable <em>and</em> not working is the most exploitable pattern a report can
+    carry, and any metric that merges the two hides it.
   </p>
   {% if payload.setups %}
   <div class="scroll"><table id="setupTable"><thead></thead><tbody></tbody></table></div>

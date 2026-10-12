@@ -177,3 +177,163 @@ class TestChartHeadlines:
         ])
         text = gameplan.movement_headline(frame).lower()
         assert "tunnel" not in text and "out of the hand" not in text and "looks like" not in text
+
+
+def transition(pitch: str, next_pitch: str, n: int, row_n: int, usual: float,
+               standout: str = "", total: int = 400) -> dict:
+    share = n / row_n
+    return {"stand": "R", "pitch_type": pitch, "next_pitch": next_pitch, "n": n,
+            "row_n": row_n, "next_n": round(usual * total), "total": total,
+            "share": share, "usual": usual, "lift": share / usual,
+            "standout": standout}
+
+
+class TestSequenceLayout:
+    PITCHES = ["FF", "SL", "CU"]
+
+    def rows(self) -> list[dict]:
+        """He doubles up on the slider and goes away from it after a four-seam."""
+        return [
+            transition("FF", "FF", 120, 200, 0.45),
+            transition("FF", "SL", 40, 200, 0.40, "less"),
+            transition("FF", "CU", 40, 200, 0.15),
+            transition("SL", "FF", 45, 150, 0.45),
+            transition("SL", "SL", 96, 150, 0.40, "more"),
+            transition("SL", "CU", 9, 150, 0.15),
+            transition("CU", "FF", 15, 50, 0.45),
+            transition("CU", "SL", 24, 50, 0.40),
+            transition("CU", "CU", 11, 50, 0.15),
+        ]
+
+    def layout(self, rows=None, gate: int = 40) -> dict:
+        return charts.sequence_layout(self.PITCHES, self.rows() if rows is None else rows, gate)
+
+    def test_the_same_pitch_sits_at_the_same_height_in_both_columns(self):
+        """A flat line is the same pitch twice, so doubling up reads as flat."""
+        layout = self.layout()
+        assert [n["pitch"] for n in layout["left"]] == self.PITCHES
+        assert [n["y"] for n in layout["left"]] == [n["y"] for n in layout["right"]]
+        doubled = next(l for l in layout["lines"] if (l["from"], l["to"]) == ("SL", "SL"))
+        assert doubled["y1"] == doubled["y2"]
+
+    def test_time_runs_left_to_right(self):
+        for line in self.layout()["lines"]:
+            assert line["x1"] < line["x2"]
+
+    def test_thickness_is_the_share_of_follow_ups(self):
+        lines = {(l["from"], l["to"]): l for l in self.layout()["lines"]}
+        assert lines[("FF", "FF")]["width"] > lines[("FF", "CU")]["width"]
+        assert lines[("SL", "SL")]["width"] > lines[("FF", "SL")]["width"]
+
+    def test_coloured_lines_are_drawn_last_and_labelled(self):
+        """Drawn last so they sit on top of the grey ones; labelled with the
+        share and his usual, which is the comparison the colour is about."""
+        lines = self.layout()["lines"]
+        kinds = [l["kind"] for l in lines]
+        assert kinds == sorted(kinds)                      # "" before "less"/"more"
+        coloured = [l for l in lines if l["kind"]]
+        assert {l["label"] for l in coloured} == {"64% · usual 40%", "20% · usual 40%"}
+        assert all("label" not in l for l in lines if not l["kind"])
+        assert self.layout()["standouts"] == 2
+
+    def test_more_and_less_are_different_colours(self):
+        by_kind = {l["kind"]: l["stroke"] for l in self.layout()["lines"]}
+        assert by_kind["more"] == charts.SEQUENCE_MORE
+        assert by_kind["less"] == charts.SEQUENCE_LESS
+        assert by_kind[""] == charts.SEQUENCE_USUAL
+
+    def test_a_rare_follow_up_within_his_usual_is_not_drawn(self):
+        """Nine curveballs in 150 follow-ups is 6%: a hairline that says
+        nothing and sits on top of the lines that do."""
+        pairs = {(l["from"], l["to"]) for l in self.layout()["lines"]}
+        assert ("SL", "CU") not in pairs
+        assert ("FF", "CU") in pairs
+
+    def test_a_rare_follow_up_is_drawn_when_it_is_the_finding(self):
+        rows = self.rows()
+        rows[5] = transition("SL", "CU", 3, 150, 0.15, "less")
+        line = next(l for l in self.layout(rows)["lines"] if (l["from"], l["to"]) == ("SL", "CU"))
+        assert line["kind"] == "less"
+        assert line["width"] >= 2
+
+    def test_a_pitch_with_too_few_follow_ups_sends_out_no_lines(self):
+        layout = self.layout(gate=60)
+        curve = next(n for n in layout["left"] if n["pitch"] == "CU")
+        assert curve["row_n"] == 50 and not curve["read"]
+        assert all(l["from"] != "CU" for l in layout["lines"])
+        # It can still be what comes next.
+        assert any(l["to"] == "CU" for l in layout["lines"])
+
+    def test_labels_do_not_land_on_each_other(self):
+        """A two-pitch reliever with all four lines coloured is the tightest
+        case the graph has to draw."""
+        rows = [
+            transition("FF", "FF", 134, 200, 0.53, "more"),
+            transition("FF", "SL", 66, 200, 0.47, "less"),
+            transition("SL", "FF", 60, 180, 0.53, "less"),
+            transition("SL", "SL", 120, 180, 0.47, "more"),
+        ]
+        layout = charts.sequence_layout(["FF", "SL"], rows, 40)
+        boxes = layout["label_boxes"]
+        assert len(boxes) == 4
+        for i, a in enumerate(boxes):
+            for b in boxes[i + 1:]:
+                assert not charts._overlaps(a, b)
+
+    def test_few_pitches_get_taller_rows(self):
+        two = charts.sequence_layout(["FF", "SL"], [], 40)
+        six = charts.sequence_layout(["FF", "SL", "CU", "FS", "FC", "SI"], [], 40)
+        assert two["left"][1]["y"] - two["left"][0]["y"] > six["left"][1]["y"] - six["left"][0]["y"]
+
+    def test_no_rows_still_gives_a_canvas(self):
+        layout = charts.sequence_layout(self.PITCHES, [], 40)
+        assert layout["lines"] == [] and layout["standouts"] == 0
+        assert layout["height"] > 0
+
+
+class TestSequenceHeadline:
+    def table(self, *rows) -> pd.DataFrame:
+        frame = pd.DataFrame(list(rows))
+        frame["lift_z"] = [r.get("lift_z", 4.0) for r in rows]
+        return frame
+
+    def test_says_so_when_nothing_stands_out(self):
+        table = self.table(transition("FF", "SL", 80, 200, 0.40))
+        text = gameplan.sequence_headline(table)
+        assert text.startswith("No pitch-to-pitch sequence stands out")
+        assert gameplan.sequence_headline(table.iloc[0:0]) == text
+
+    def test_doubling_up(self):
+        text = gameplan.sequence_headline(self.table(
+            transition("SL", "SL", 96, 150, 0.40, "more")))
+        assert text == ("To righties he doubles up on the slider: another one follows "
+                        "64% of the time, against his usual 40% (96 of 150).")
+
+    def test_one_pitch_setting_up_another(self):
+        text = gameplan.sequence_headline(self.table(
+            transition("CU", "SI", 42, 104, 0.20, "more")))
+        assert text == ("To righties, the curveball sets up the sinker: it follows "
+                        "40% of the time, against his usual 20% (42 of 104).")
+
+    def test_rarely_the_same_pitch_twice(self):
+        text = gameplan.sequence_headline(self.table(
+            {**transition("FC", "FC", 17, 202, 0.16, "less"), "stand": "L"}))
+        assert text.startswith("To lefties he rarely throws the cutter twice in a row: 8%")
+        assert "(17 of 202)" in text
+
+    def test_going_away_from_a_pitch(self):
+        text = gameplan.sequence_headline(self.table(
+            transition("SI", "FF", 59, 232, 0.37, "less")))
+        assert text.startswith("To righties he goes away from the four-seam after the sinker: 25%")
+
+    def test_leads_with_the_departure_furthest_from_chance(self):
+        text = gameplan.sequence_headline(self.table(
+            {**transition("SL", "SL", 96, 150, 0.40, "more"), "lift_z": 3.5},
+            {**transition("FF", "SL", 40, 200, 0.40, "less"), "lift_z": -6.0},
+        ))
+        assert "goes away from the slider after the four-seam" in text
+
+    def test_carries_its_sample_size(self):
+        text = gameplan.sequence_headline(self.table(
+            transition("SL", "SL", 96, 150, 0.40, "more")))
+        assert "96 of 150" in text

@@ -21,7 +21,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.metrics import events
+from src import config
+from src.metrics import counts, events
 
 # events.outcome_delta reads the outcome columns by their ordinary names, so
 # the successor's prefixed copies are renamed back before it sees them.
@@ -219,6 +220,137 @@ def transition_after_outcome(
 
     counts = pd.crosstab(selected["pitch_type"], selected["next_pitch_type"])
     return _row_normalize(counts, min_transitions)
+
+
+# ---------------------------------------------------------------------------
+# Pitch-to-pitch transitions, with their counts
+# ---------------------------------------------------------------------------
+
+TRANSITION_COLUMNS: list[str] = [
+    "stand", "pitch_type", "next_pitch", "n", "row_n", "next_n", "total",
+    "share", "usual", "lift", "lift_z", "expected_n",
+]
+
+
+def transitions(frame: pd.DataFrame) -> pd.DataFrame:
+    """Pitch to next pitch within a plate appearance, by batter side.
+
+    One row for every ordered pair of arsenal pitches against each side,
+    including pairs that never happened:
+
+      stand        "L" or "R", the batter's side
+      pitch_type   the pitch he just threw
+      next_pitch   the pitch that followed it
+      n            times that follow-up came
+      row_n        follow-ups to `pitch_type` in all, to this side
+      next_n       times `next_pitch` was a follow-up to anything, to this side
+      total        follow-up pitches to this side in all
+      share        n / row_n: how often this is what comes next
+      usual        next_n / total: how often it is the next pitch after anything
+      lift         share / usual
+      lift_z       standard errors between this row's share and the share in
+                   every OTHER row (see events.lift_z)
+      expected_n   usual * row_n: how many there would be at his usual rate
+
+    This is `transition_matrix()` with the three things a chart needs that a
+    matrix of shares throws away. The counts, because a share of 40% means
+    something different on 104 follow-ups and on 12. His usual rate for the
+    follow-up, because most of what follows any pitch is simply his mix: the
+    most likely pitch after a curveball is usually his fastball, which says
+    he throws a lot of fastballs. And the batter's side, because he does not
+    throw the same pitches to both.
+
+    The zero rows are kept because "he never follows X with Y" is a finding
+    and an absent row cannot carry one.
+
+    `usual` is the rate among follow-up pitches, not among all pitches: the
+    first pitch of a plate appearance follows nothing, and he does not open
+    the way he continues.
+
+    Pitches are paired before anything is filtered. Dropping a stray pitch
+    type first would close the gap it left and pair the pitches either side of
+    it, which is the fabricated transition `_pair_pitches` exists to prevent.
+
+    Not held fixed: the count. What a pitch does decides the count the next
+    one is thrown in, so some of any lift here is ordinary count logic.
+    Adjusting for it (comparing within each count, pooled) was tried on 58
+    pitcher-seasons and left a weaker signal that repeated less often between
+    halves of a season — 38% against 61% — so the plain rate is what is
+    reported, and the reader is told what it does not control for.
+    """
+    if len(frame) == 0:
+        return pd.DataFrame(columns=TRANSITION_COLUMNS)
+
+    arsenal = counts.primary_arsenal(frame)
+    pairs = _pair_pitches(frame)
+    pairs = pairs[pairs["pitch_type"].isin(arsenal)
+                  & pairs["next_pitch_type"].isin(arsenal)]
+    if len(pairs) == 0:
+        return pd.DataFrame(columns=TRANSITION_COLUMNS)
+
+    records = []
+    for stand, side in pairs.groupby("stand"):
+        total = len(side)
+        table = pd.crosstab(side["pitch_type"], side["next_pitch_type"])
+        row_totals = table.sum(axis=1)
+        next_totals = table.sum(axis=0)
+        for pitch in table.index:
+            row_n = int(row_totals[pitch])
+            for next_pitch in table.columns:
+                n = int(table.at[pitch, next_pitch])
+                next_n = int(next_totals[next_pitch])
+                usual = next_n / total
+                share = n / row_n
+                records.append({
+                    "stand": stand,
+                    "pitch_type": pitch,
+                    "next_pitch": next_pitch,
+                    "n": n,
+                    "row_n": row_n,
+                    "next_n": next_n,
+                    "total": total,
+                    "share": share,
+                    "usual": usual,
+                    "lift": share / usual if usual else float("nan"),
+                    "lift_z": events.lift_z(n, row_n, next_n, total),
+                    "expected_n": usual * row_n,
+                })
+
+    return pd.DataFrame(records)[TRANSITION_COLUMNS]
+
+
+def transition_standouts(table: pd.DataFrame) -> pd.Series:
+    """Which transitions depart from his usual: "more", "less" or "".
+
+    The one rule for what the sequence graph colours, read by the graph, its
+    headline and the replication check, so none of them can disagree about
+    what was claimed.
+
+    Both directions need the pitch to have `sequence_follow_ups` follow-ups to
+    that side, and the gap to stand `frequency_min_z` standard errors clear of
+    the other rows. "More" then needs `sequence_transition` occurrences at
+    `sequence_more_lift` times his usual rate. "Less" needs that many EXPECTED
+    at his usual rate and no more than `sequence_less_lift` times it: zero
+    sweepers after a changeup is only news if there would normally be some.
+    """
+    row_gate = int(config.get("flags.min_n.sequence_follow_ups", 40))
+    cell_gate = int(config.get("flags.min_n.sequence_transition", 20))
+    more_lift = float(config.get("flags.thresholds.sequence_more_lift", 1.25))
+    less_lift = float(config.get("flags.thresholds.sequence_less_lift", 0.80))
+    min_z = float(config.get("flags.thresholds.frequency_min_z", 3.0))
+
+    labels = pd.Series("", index=table.index, dtype=object)
+    if len(table) == 0:
+        return labels
+
+    enough = table["row_n"] >= row_gate
+    more = (enough & (table["n"] >= cell_gate)
+            & (table["lift"] >= more_lift) & (table["lift_z"] >= min_z))
+    less = (enough & (table["expected_n"] >= cell_gate)
+            & (table["lift"] <= less_lift) & (table["lift_z"] <= -min_z))
+    labels[more] = "more"
+    labels[less] = "less"
+    return labels
 
 
 # ---------------------------------------------------------------------------

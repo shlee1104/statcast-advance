@@ -266,3 +266,158 @@ def movement_layout(rows: list[dict], league: list[dict] | None = None) -> dict:
             "whiff_lo": WHIFF_LO, "whiff_hi": WHIFF_HI,
             "whiff_ramp": [whiff_color(WHIFF_LO), whiff_color((WHIFF_LO + WHIFF_HI) / 2),
                            whiff_color(WHIFF_HI)]}
+
+
+# ---------------------------------------------------------------------------
+# Sequence graph
+# ---------------------------------------------------------------------------
+
+SEQUENCE = {"width": 520, "row": 46, "top": 46, "bottom": 20,
+            "x_left": 158, "x_right": 362, "header_y": 16}
+
+# Rows are spaced further apart when there are few of them. A two-pitch
+# reliever can have every one of his four lines coloured, and four labels
+# need more room than two rows 46 apart leave.
+_SEQUENCE_ROW_BY_PITCHES = {1: 78, 2: 78, 3: 66, 4: 54}
+
+# More than usual and less than usual, in the same two hues as the count grid
+# and the zone maps: orange more, blue less. A line's colour says which way it
+# departs from his usual, never which pitch it is, so the pitch colours stay
+# on the dots at either end.
+SEQUENCE_MORE, SEQUENCE_LESS, SEQUENCE_USUAL = "#bf5e27", "#2768a8", "#c3cad3"
+
+# A follow-up rarer than this is not drawn when it is within his usual: thirty
+# hairlines say nothing a reader can use and bury the ones that do.
+SEQUENCE_MIN_SHARE = 0.08
+
+# Where along its line a label may sit, in order of preference. Nearer the
+# pitch he just threw first: lines leave a pitch in different directions, so
+# labels there are apart from each other, and the label is read next to the
+# pitch it is about.
+_LABEL_STOPS = (0.30, 0.50, 0.70, 0.40, 0.60, 0.22, 0.78)
+
+
+def _node_radius(share: float) -> float:
+    """Area, not radius, proportional to the share, as on the movement plot."""
+    return round(3.5 + 12.0 * math.sqrt(max(share or 0.0, 0.0)), 1)
+
+
+def _crosses(line: dict, rect: tuple) -> bool:
+    """Whether a line passes through a rectangle, checked at points along it."""
+    for i in range(25):
+        t = i / 24
+        x = line["x1"] + (line["x2"] - line["x1"]) * t
+        y = line["y1"] + (line["y2"] - line["y1"]) * t
+        if rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
+            return True
+    return False
+
+
+def sequence_layout(pitches: list[str], rows: list[dict], row_gate: int) -> dict:
+    """Coordinates for one batter side of the sequence graph.
+
+    Two columns of the same pitches: the pitch he just threw on the left, the
+    pitch that followed on the right, so reading left to right is reading in
+    time. `pitches` is the order to list them in. `rows` are that side's rows
+    of `sequencing.transitions()`, each with a `standout` of "more", "less" or
+    "" (see `sequencing.transition_standouts`). A pitch with fewer than
+    `row_gate` follow-ups keeps its dot but sends out no lines.
+
+    Returns the canvas size, the dots in each column, and the lines: the ones
+    within his usual first, the coloured ones after so they are drawn on top.
+    Each coloured line carries a label position.
+
+    Line thickness is the share of follow-ups, on one scale for every line in
+    every panel, so a thick line means the same thing wherever it is.
+
+    A label sits just above or just below its line, at whichever of seven
+    points along it lands on the fewest labels already placed and the fewest
+    other coloured lines. Strongest departures are placed first, so they get
+    first choice.
+    """
+    s = SEQUENCE
+    row = _SEQUENCE_ROW_BY_PITCHES.get(len(pitches), s["row"])
+    y_of = {p: s["top"] + i * row for i, p in enumerate(pitches)}
+    height = s["top"] + max(len(pitches) - 1, 0) * row + s["bottom"]
+
+    by_source: dict[str, dict] = {}
+    by_target: dict[str, dict] = {}
+    for r in rows:
+        by_source.setdefault(r["pitch_type"], r)
+        by_target.setdefault(r["next_pitch"], r)
+    total = rows[0]["total"] if rows else 0
+
+    left, right = [], []
+    for p in pitches:
+        source, target = by_source.get(p), by_target.get(p)
+        row_n = int(source["row_n"]) if source else 0
+        left.append({
+            "pitch": p, "y": y_of[p], "color": color(p), "row_n": row_n,
+            "read": row_n >= row_gate,
+            "r": _node_radius(row_n / total if total else 0.0),
+        })
+        usual = float(target["usual"]) if target else 0.0
+        right.append({
+            "pitch": p, "y": y_of[p], "color": color(p), "usual": usual,
+            "r": _node_radius(usual),
+        })
+    radius_left = {n["pitch"]: n["r"] for n in left}
+    radius_right = {n["pitch"]: n["r"] for n in right}
+    read = {n["pitch"] for n in left if n["read"]}
+
+    usual_lines, standouts = [], []
+    for r in rows:
+        a, b = r["pitch_type"], r["next_pitch"]
+        if a not in read or a not in y_of or b not in y_of:
+            continue
+        kind = r.get("standout") or ""
+        if not kind and (r["share"] < SEQUENCE_MIN_SHARE or r["n"] <= 0):
+            continue
+        width = 0.8 + 12.0 * r["share"]
+        line = {
+            "from": a, "to": b, "kind": kind,
+            "x1": round(s["x_left"] + radius_left[a] + 2, 1), "y1": y_of[a],
+            # A coloured line stops short of the dot to leave room for its
+            # arrowhead.
+            "x2": round(s["x_right"] - radius_right[b] - (9 if kind else 2), 1),
+            "y2": y_of[b],
+            "width": round(max(width, 2.2) if kind else width, 1),
+            "stroke": {"more": SEQUENCE_MORE, "less": SEQUENCE_LESS}.get(kind, SEQUENCE_USUAL),
+            "n": int(r["n"]), "row_n": int(r["row_n"]),
+            "share": float(r["share"]), "usual": float(r["usual"]),
+            "lift": float(r["lift"]) if r["lift"] == r["lift"] else None,
+        }
+        (standouts if kind else usual_lines).append(line)
+
+    placed: list[tuple] = []
+    lane = (s["x_left"] + 14, s["x_right"] - 14)
+    for line in sorted(standouts, key=lambda l: -abs(math.log(max(l["lift"] or 1e-3, 1e-3)))):
+        text = f"{line['share']:.0%} · usual {line['usual']:.0%}"
+        box_w, box_h = 6.1 * len(text) + 8, 15.0
+        others = [o for o in standouts if o is not line]
+        best = None
+        spots = [(t, -9) for t in _LABEL_STOPS] + [(t, 12) for t in _LABEL_STOPS]
+        for rank, (t, offset) in enumerate(spots):
+            cx = line["x1"] + (line["x2"] - line["x1"]) * t
+            cy = line["y1"] + (line["y2"] - line["y1"]) * t + offset
+            cx = min(max(cx, lane[0] + box_w / 2), lane[1] - box_w / 2)
+            rect = (cx - box_w / 2, cy - box_h / 2, cx + box_w / 2, cy + box_h / 2)
+            cost = (100 * sum(_overlaps(rect, p) for p in placed)
+                    + 10 * sum(_crosses(o, rect) for o in others)
+                    + rank)
+            if best is None or cost < best[0]:
+                best = (cost, cx, cy, rect)
+        _, cx, cy, rect = best
+        placed.append(rect)
+        line["label"] = text
+        line["label_x"] = round(cx, 1)
+        line["label_y"] = round(cy + 4, 1)
+
+    return {
+        "width": s["width"], "height": height,
+        "x_left": s["x_left"], "x_right": s["x_right"], "header_y": s["header_y"],
+        "left": left, "right": right,
+        "lines": usual_lines + standouts,
+        "standouts": len(standouts),
+        "label_boxes": placed,
+    }

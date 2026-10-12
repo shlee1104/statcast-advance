@@ -125,12 +125,12 @@ def _consequence(
 
     An unresolved consequence adds nothing to the claim. Each finding used to
     end with "Run consequence is unresolved at this sample: the point estimate
-    is +1.3 runs [95% CI ...]", and across 58 pitcher-seasons that sentence
-    was printed on 283 of 284 findings (scripts/replication.py at commit
-    432abb0). A caveat attached to everything is
-    read by no one, and the point estimate inside it invited exactly the
-    reading it warned against. The report says it once, under the findings,
-    with the number of comparisons behind it.
+    is +1.3 runs [95% CI ...]", and across 58 pitcher-seasons one finding
+    in 287 had a consequence that survived (scripts/replication.py at commit
+    432abb0), so every other finding that carried an estimate ended that way.
+    A caveat attached to everything is read by no one, and the point estimate
+    inside it invited exactly the reading it warned against. The report says
+    it once, under the findings, with the number of comparisons behind it.
 
     A pattern is called costly or working only when it survives the
     correction, and then the figure is printed with its interval.

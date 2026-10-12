@@ -364,8 +364,8 @@ def compare_profile(pitcher: pd.DataFrame, league: pd.DataFrame) -> pd.DataFrame
     `xwoba_delta` is signed so that positive is bad for the pitcher: hitters
     are doing more damage against this offering than against the league's
     version of it. It is shown in the arsenal table and decides nothing. A
-    "hittable pitch" finding was once built on it, and fired for 2 of 30
-    pitchers (scripts/replication.py at commit 432abb0): xwOBA exists only on the pitch that ends a plate appearance, so
+    "hittable pitch" finding was once built on it, and fired in 5 of 58
+    pitcher-seasons (scripts/replication.py at commit 432abb0): xwOBA exists only on the pitch that ends a plate appearance, so
     one pitch type over one season rarely separates from the league's figure.
     """
     frame = pitcher.rename_axis("pitch_type").reset_index()

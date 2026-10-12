@@ -203,6 +203,7 @@ def build_payload(
         "movement": _build_movement(frame, league_outcomes),
         "predictability": predictability_rows,
         "putaway": putaway_rows,
+        "sequence_graph": _build_sequence_graph(frame),
         "setups": _records(_without_runs(
             sequencing.setup_pairs(frame, min_n=25).head(12))),
         "location_profile": _records(
@@ -241,7 +242,7 @@ def _without_runs(table: pd.DataFrame) -> pd.DataFrame:
     """A setup or location table without its uncorrected run estimates.
 
     Each row's run cost is one of about a hundred comparisons, and on the
-    calibration pitchers 1 finding in 284 had a cost that survived correction.
+    calibration pitchers 1 finding in 287 had a cost that survived correction.
     The findings stopped printing the estimate for that reason; a table that
     kept it, in colour, would be saying what the findings no longer say.
     """
@@ -376,6 +377,47 @@ def _build_platoon_slope(frame: pd.DataFrame) -> dict:
         **layout,
         "headline": gameplan.platoon_headline(frame),
         "side_n": {"L": int(side_n.get("L", 0)), "R": int(side_n.get("R", 0))},
+    }
+
+
+def _build_sequence_graph(frame: pd.DataFrame) -> dict:
+    """What follows each pitch, to each batter side, as two-column graphs.
+
+    One panel per side, because he does not throw the same pitches to both
+    and a pro advance report splits everything a hitter reads by side. Each
+    panel lists his pitches twice — just thrown, then next — and draws a line
+    for each follow-up, coloured when it departs from his usual by the rule in
+    `sequencing.transition_standouts`.
+
+    Pitches are listed in the same order in both panels, most used first, so a
+    pitch sits in the same place on each and the two can be compared at a
+    glance. A pitch he never throws to a side is left off that side's panel.
+    """
+    row_gate = int(config.get("flags.min_n.sequence_follow_ups", 40))
+    table = sequencing.transitions(frame)
+    table = table.assign(standout=sequencing.transition_standouts(table))
+    order = list(counts.pitch_mix(counts.restrict_to_arsenal(frame)).index)
+
+    panels = []
+    for side, label in (("L", "To lefties"), ("R", "To righties")):
+        rows = table[table["stand"] == side]
+        seen = set(rows["pitch_type"]) | set(rows["next_pitch"])
+        total = int(rows["total"].iloc[0]) if len(rows) else 0
+        panel = {"side": side, "label": label, "total": total,
+                 "enough": total >= row_gate}
+        if panel["enough"]:
+            panel.update(charts.sequence_layout(
+                [p for p in order if p in seen], _records(rows), row_gate))
+        panels.append(panel)
+
+    return {
+        "panels": panels,
+        "headline": gameplan.sequence_headline(table),
+        "row_gate": row_gate,
+        "more_lift": float(config.get("flags.thresholds.sequence_more_lift", 1.25)),
+        "less_lift": float(config.get("flags.thresholds.sequence_less_lift", 0.80)),
+        "colors": {"more": charts.SEQUENCE_MORE, "less": charts.SEQUENCE_LESS,
+                   "usual": charts.SEQUENCE_USUAL},
     }
 
 

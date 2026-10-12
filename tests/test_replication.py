@@ -158,6 +158,55 @@ class TestSequencing:
         assert not row["held"] and not row["direction"]
 
 
+class TestFollowUps:
+    """What the sequence graph colours, tested through the graph's own rule."""
+
+    def half(self, slider_after_slider: int, slider_after_fastball: int,
+             sliders: int = 100) -> pd.DataFrame:
+        """Two-pitch plate appearances to righties: `sliders` that start with
+        a slider and 100 that start with a four-seam."""
+        return make_frame([
+            {"pitch_type": "SL", "n": slider_after_slider, "then": {"pitch_type": "SL"}},
+            {"pitch_type": "SL", "n": sliders - slider_after_slider,
+             "then": {"pitch_type": "FF"}},
+            {"pitch_type": "FF", "n": slider_after_fastball, "then": {"pitch_type": "SL"}},
+            {"pitch_type": "FF", "n": 100 - slider_after_fastball,
+             "then": {"pitch_type": "FF"}},
+        ])
+
+    def test_doubling_up_that_continues_holds(self):
+        """Another slider 70% of the time after one, against 45% after anything."""
+        rows = replication.finding_rows(self.half(70, 20), self.half(70, 20))
+        (row,) = of_kind(rows, "follow_up_more", "SL > SL to RHH")
+        assert row["first"] == pytest.approx(0.70 / 0.45)
+        assert row["n_second"] == 100
+        assert row["held"] and row["direction"]
+
+    def test_the_other_side_of_the_same_habit_is_a_shortfall(self):
+        rows = replication.finding_rows(self.half(70, 20), self.half(70, 20))
+        (row,) = of_kind(rows, "follow_up_less", "FF > SL to RHH")
+        assert row["first"] == pytest.approx(0.20 / 0.45)
+        assert row["held"] and row["direction"]
+
+    def test_a_weaker_habit_keeps_its_direction_without_holding(self):
+        """50% after a slider against 45% overall: 1.11 times, under 1.25."""
+        rows = replication.finding_rows(self.half(70, 20), self.half(50, 40))
+        (row,) = of_kind(rows, "follow_up_more", "SL > SL to RHH")
+        assert row["second"] == pytest.approx(0.50 / 0.45)
+        assert not row["held"]
+        assert row["direction"]
+
+    def test_a_habit_that_reverses_loses_both(self):
+        rows = replication.finding_rows(self.half(70, 20), self.half(20, 70))
+        (row,) = of_kind(rows, "follow_up_more", "SL > SL to RHH")
+        assert not row["held"] and not row["direction"]
+
+    def test_too_few_follow_ups_in_the_second_half_is_not_a_miss(self):
+        rows = replication.finding_rows(self.half(70, 20),
+                                        self.half(21, 20, sliders=30))
+        assert of_kind(rows, "follow_up_more", "SL > SL to RHH") == []
+
+
 class TestHeightTells:
     def half(self, sliders_low: int) -> pd.DataFrame:
         return make_frame([

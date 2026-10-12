@@ -753,6 +753,48 @@ def movement_headline(frame: pd.DataFrame, min_usage: float = 0.05) -> str | Non
             f"{' and '.join(moves)} than his {name(fastball)}{speed}.")
 
 
+def sequence_headline(table: pd.DataFrame) -> str:
+    """One sentence stating what the sequence graph shows.
+
+    `table` is `sequencing.transitions()` with a `standout` column. The
+    sentence names the follow-up that departs furthest from his usual, by
+    standard errors, in the words a coach uses for it: doubling up on a pitch,
+    one pitch setting up another, or going away from a pitch. It carries the
+    count the share rests on, like every other claim in the report.
+
+    When nothing stands out the sentence says so. For about half of all
+    pitcher-sides nothing does, and "whatever he just threw, the next pitch
+    follows his usual mix" tells a hitter to read the count instead, which is
+    worth a sentence.
+    """
+    nothing = ("No pitch-to-pitch sequence stands out: whatever he just threw, "
+               "the next pitch follows his usual mix.")
+    if len(table) == 0 or "standout" not in table.columns:
+        return nothing
+    found = table[table["standout"] != ""]
+    if len(found) == 0:
+        return nothing
+
+    top = found.loc[found["lift_z"].abs().idxmax()]
+    side = SIDE_NAMES.get(top["stand"], "hitters")
+    setup, follow = name(top["pitch_type"]), name(top["next_pitch"])
+    figures = (f"against his usual {_pct(top['usual'])} "
+               f"({int(top['n'])} of {int(top['row_n'])})")
+    repeat = top["pitch_type"] == top["next_pitch"]
+
+    if top["standout"] == "more" and repeat:
+        return (f"To {side} he doubles up on the {setup}: another one follows "
+                f"{_pct(top['share'])} of the time, {figures}.")
+    if top["standout"] == "more":
+        return (f"To {side}, the {setup} sets up the {follow}: it follows "
+                f"{_pct(top['share'])} of the time, {figures}.")
+    if repeat:
+        return (f"To {side} he rarely throws the {setup} twice in a row: "
+                f"{_pct(top['share'])} of the time after one, {figures}.")
+    return (f"To {side} he goes away from the {follow} after the {setup}: "
+            f"{_pct(top['share'])} of the time, {figures}.")
+
+
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------

@@ -114,8 +114,9 @@ tunnels effectively regardless of its path.
 
 This is what makes the module worth building rather than a novelty.
 
-`sequencing.transition_matrix()` answers **which** pairs he throws.
-Tunneling answers **which of those pairs are deceptive**. Joined:
+`sequencing.transitions()` answers **which** pairs he throws, to each batter
+side, with the count behind each share — it is what the report's sequence
+graph draws. Tunneling answers **which of those pairs are deceptive**. Joined:
 
 > FF → FS is 34% of his sequences and tunnels at 14:1.
 > FF → CU is 11% and tunnels at 3:1 — that one is readable.

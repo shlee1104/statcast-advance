@@ -292,6 +292,97 @@ class TestCutSections:
         assert heading < html.index('id="bandNote"') < html.index('id="tellsTable"')
 
 
+def two_pitch_frame(groups: list[tuple[int, str, str]], stand: str = "R") -> pd.DataFrame:
+    """Two-pitch plate appearances: (how many, first pitch, second pitch)."""
+    first = make_frame([{"pitch_type": a, "n": n, "stand": stand} for n, a, _ in groups])
+    second = make_frame([{"pitch_type": b, "n": n, "stand": stand, "strikes": 1}
+                         for n, _, b in groups])
+    second["pitch_number"] = 2
+    return pd.concat([first, second], ignore_index=True)
+
+
+class TestSequenceGraph:
+    """The Sequencing section opens with a graph of what follows each pitch."""
+
+    def doubling_up(self) -> pd.DataFrame:
+        """To righties: another slider 70 times in 100 after one, 20 in 100
+        after a four-seam."""
+        return two_pitch_frame([(70, "SL", "SL"), (30, "SL", "FF"),
+                                (20, "FF", "SL"), (80, "FF", "FF")])
+
+    def build(self):
+        payload = report.build_payload(self.doubling_up(), "Test Pitcher", 2025)
+        return payload, report.render(payload)
+
+    def test_one_panel_per_batter_side(self):
+        payload, _ = self.build()
+        panels = payload["sequence_graph"]["panels"]
+        assert [(p["side"], p["label"]) for p in panels] == [
+            ("L", "To lefties"), ("R", "To righties")]
+        assert panels[1]["total"] == 200 and panels[1]["enough"]
+
+    def test_a_side_he_barely_faced_says_so_instead_of_drawing(self):
+        payload, html = self.build()
+        left = payload["sequence_graph"]["panels"][0]
+        assert not left["enough"] and "lines" not in left
+        assert "too few to read" in html
+
+    def test_colours_the_follow_ups_that_depart_from_his_usual(self):
+        payload, _ = self.build()
+        lines = payload["sequence_graph"]["panels"][1]["lines"]
+        kinds = {(l["from"], l["to"]): l["kind"] for l in lines}
+        assert kinds[("SL", "SL")] == "more"
+        assert kinds[("FF", "SL")] == "less"
+
+    def test_headline_states_the_pattern_with_its_count(self):
+        payload, html = self.build()
+        headline = payload["sequence_graph"]["headline"]
+        assert "doubles up" in headline or "goes away" in headline
+        assert " of 100)" in headline
+        assert headline in html
+
+    def test_drawn_by_the_template_so_it_prints_without_script(self):
+        _, html = self.build()
+        graph = html.index('class="svgchart seq"')
+        assert graph < html.index('<script id="payload"')
+        assert 'marker-end="url(#seq-more-R)"' in html
+        assert 'stroke-dasharray="6 4"' in html          # less than usual
+
+    def test_every_line_says_what_it_is_made_of(self):
+        """Hovering a line gives the count behind it; the label gives the
+        share and his usual."""
+        _, html = self.build()
+        assert "followed 70 of 100 times (70%). His usual is 45%." in html
+        assert "70% · usual 45%" in html
+
+    def test_sits_above_the_setup_table_and_release_consistency(self):
+        _, html = self.build()
+        order = [html.index(text) for text in (
+            "<h2>Sequencing</h2>", 'class="svgchart seq"',
+            "Setups by pitch and height", "Two-strike approach",
+            "<h2>Release consistency</h2>")]
+        assert order == sorted(order)
+
+    def test_says_so_when_nothing_stands_out(self):
+        frame = two_pitch_frame([(50, "SL", "SL"), (50, "SL", "FF"),
+                                 (50, "FF", "SL"), (50, "FF", "FF")])
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        html = report.render(payload)
+        assert payload["sequence_graph"]["panels"][1]["standouts"] == 0
+        assert payload["sequence_graph"]["headline"].startswith("No pitch-to-pitch")
+        assert "Nothing stands out to this side" in html
+
+    def test_payload_stays_json_safe(self):
+        payload, _ = self.build()
+        json.dumps(payload, allow_nan=False)
+
+    def test_a_frame_with_no_follow_ups_still_renders(self):
+        """Every plate appearance one pitch long: nothing follows anything."""
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        assert all(not p["enough"] for p in payload["sequence_graph"]["panels"])
+        assert "<h2>Sequencing</h2>" in report.render(payload)
+
+
 class TestDataGaps:
     def test_reports_a_missing_optional_column(self):
         frame = sample_frame().drop(columns=["n_thruorder_pitcher"])

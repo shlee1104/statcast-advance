@@ -34,8 +34,9 @@ self-contained interactive HTML report comes out.
   game-type filtering, count validation
 - Count metrics — usage by count, first-pitch tendencies, normalized-entropy
   predictability scoring
-- Sequencing metrics — transition matrices, outcome-conditioned transitions,
-  two-strike putaway, setup-pitch lift analysis
+- Sequencing metrics — pitch-to-pitch transitions by batter side with their
+  counts, outcome-conditioned transitions, two-strike putaway, setup-pitch lift
+  analysis
 - League baselines — stratified date sampling (~100k pitches), handedness-split
   reference rates computed in SQL, and z-tested comparisons of a pitcher's
   arsenal, count mix, predictability, and putaway rates against them
@@ -102,13 +103,17 @@ self-contained interactive HTML report comes out.
   the third trip through the order, a "hittable pitch" finding, and a run
   estimate printed on every finding (see "Does the plan hold up?" and "Do the
   findings repeat?")
-- 513 unit tests, plus an end-to-end validation suite over live data
+- Sequence graph — what follows each pitch, one panel per batter side, read
+  left to right: the pitch he just threw, then the next one. Lines are as thick
+  as the follow-up is common, and coloured only where it comes clearly more or
+  less often than usual; titled with an auto-written sentence ("he doubles up
+  on the slider", "the curveball sets up the sinker") or one saying nothing
+  stands out
+- 564 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
 - Hitter reports
-- Pitch sequence graph — the transition tables are built and tested; the report
-  shows setup pairs as a table and does not draw them yet
 - Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Swing-disruption metrics from the bat-tracking fields
 
@@ -258,9 +263,11 @@ dugout version first, and the detail behind it after.
   whiff rate against each side
 - **Count tendencies** — a normalized-entropy predictability score for each
   count, with the league's share of the same pitch as context
-- **Sequencing** — setup pairs keyed on pitch type and height, with how much
-  more likely the follow-up becomes and whether it then misses more bats; and
-  his two-strike mix and put-away rates
+- **Sequencing** — a graph of what follows each pitch to lefties and to
+  righties, coloured where a follow-up departs from his usual; then setup
+  pairs keyed on pitch type and height, with how much more likely the
+  follow-up becomes and whether it then misses more bats; and his two-strike
+  mix and put-away rates
 - **Release consistency** — where each pitch leaves his hand compared with his
   fastball, the first step of the tunneling design
 
@@ -375,7 +382,9 @@ rule's own bar.
 | Count tendency | 56 | 82% (70–90%) | 98% | 47 | 51% (37–65%) | 96% |
 | Height tell | 19 | 74% (51–88%) | 100% | 11 | 82% (52–95%) | 100% |
 | Lefty/righty split | 15 | 67% (42–85%) | 100% | 17 | 71% (47–87%) | 100% |
-| Sequencing | 10 | 40% (17–69%) | 90% | 11 | 55% (28–79%) | 91% |
+| Sequencing (setup by pitch and height) | 10 | 40% (17–69%) | 90% | 11 | 55% (28–79%) | 91% |
+| Sequence graph: follow-up more than usual | 17 | 53% (31–74%) | 88% | 19 | 68% (46–85%) | 95% |
+| Sequence graph: follow-up less than usual | 16 | 56% (33–77%) | 94% | 3 | 33% (6–79%) | 100% |
 | Velocity late in starts | 6 | 33% (10–70%) | 100% | 4 | 75% (30–95%) | 100% |
 | Third time through (verdict), since removed | 2 | 0% (0–66%) | 0% | 5 | 20% (4–62%) | 40% |
 
@@ -386,7 +395,13 @@ measure a finding in is left out, not counted as a miss. Thirty pitchers in
 
 The usage findings — counts, height, batter side — almost never reverse, and
 hold their full size half to four-fifths of the time. Sequencing keeps its
-direction but holds its size about half the time, on few cases. The verdict on
+direction but holds its size about half the time, on few cases. That is true
+of the lines the sequence graph colours as well: across both seasons 55 were
+found, 93% pointed the same way in the other half and 58% were as strong. Of
+those, doubling up on a pitch held 72% of the time (25 cases) and one pitch
+setting up a different one 36% (11 cases), which is why the graph's note tells
+the reader how far to trust a coloured line. Its bars were chosen after
+looking at these two seasons, so those rates describe the fit. The verdict on
 the third trip through the order came back once in seven, and was removed; the
 by-trip table it was read from is still in the report.
 
@@ -403,7 +418,7 @@ across pitcher-pitches (86 in 2025, 77 in 2026):
 | Whiff rate | 0.81 | 0.82 |
 | Chase rate | 0.77 | 0.73 |
 | xwOBA | 0.61 | 0.59 |
-| xwOBA against the league's for that pitch | 0.44 | — |
+| xwOBA against the league's for that pitch | 0.44 | 0.58 |
 | Run value per pitch | 0.28 | 0.37 |
 | Third trip: change in fastball velocity (per pitcher) | 0.86 | 0.76 |
 | Third trip: change in xwOBA (per pitcher) | 0.06 | 0.29 |
@@ -412,13 +427,12 @@ What he throws, how it moves and where it goes are properties of the pitcher.
 What happened to it is mostly a property of the half: a pitch's run value in
 one half says little about the other, and the change in results on a third
 trip says close to nothing, while the change in velocity on that trip carries
-over. (No league sample is cached for 2026, so the league column is 2025
-only.)
+over.
 
-Across the 58 full-season reports the rules made 284 findings, and the run
+Across the 58 full-season reports the rules made 287 findings, and the run
 consequence of one of them survived correction, so the run estimate came off
 every finding and is stated once. The hittable-pitch finding fired for 2 of 30
-pitchers in 2025 and was removed.
+pitchers in 2025 and 3 of 28 in 2026, and was removed.
 
 The script as it stands measures the rules that remain (260 findings across
 the same 58 reports). The figures for the removed rules are reproducible at
@@ -498,8 +512,8 @@ finding type is only worth its space if it comes back in games it was not
 found in. The first-pitch take-or-swing advice was calibrated, gated on
 sample size and unit-tested, and still predicted nothing on a new season, so
 it was deleted rather than hedged. A verdict on the third trip through the
-order (back in 1 of 7 cases) and a "hittable pitch" finding (fired for 2 of 30
-pitchers) were removed the same way after being re-measured on the other half
+order (back in 1 of 7 cases) and a "hittable pitch" finding (fired in 5 of 58
+pitcher-seasons) were removed the same way after being re-measured on the other half
 of the season; the tables they were read from are still in the report, without
 the conclusion.
 
