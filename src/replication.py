@@ -25,6 +25,14 @@ half by game (see `validation.split_halves`), and three things are measured.
                third-trip changes, count predictability, and how much a
                location band gives away.
 
+  tunneling    Each pair of pitch types he throws back to back to one batter
+               side: how far apart the two are at release, at the decision
+               point and at the plate, and how differently they move late,
+               in each half. Reported twice over: across all pairs, and
+               again after each pair type's average across pitchers is taken
+               out, because a fastball and a curveball are far apart for
+               everyone and that is not a fact about this pitcher.
+
   card         What the one-page dugout card draws: every slice of its
                situation pies and every cell of its zone maps, by batter
                side, in each half. Reported as how far a number moves between
@@ -62,7 +70,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src import config, flags, gameplan
-from src.metrics import arsenal, counts, location, sequencing, splits
+from src.metrics import arsenal, counts, location, sequencing, splits, tunneling
 from src.validation import wilson_interval
 
 # A half needs this many pitches before anything is measured in it.
@@ -90,6 +98,8 @@ FINDING_LABELS: dict[str, str] = {
     "handedness": "Lefty/righty split",
     "fatigue": "Velocity late in starts",
     "first_pitch": "Predictable first pitch",
+    "tunnel_same": "Tunneling: same window",
+    "tunnel_apart": "Tunneling: apart early",
 }
 
 # Per-pitch columns, in the order they are reported: what he throws, how it
@@ -128,6 +138,24 @@ PITCHER_METRICS: dict[str, str] = {
 CARD_METRICS: dict[str, str] = {
     "pie_share": "Card pie: a pitch's share of a situation, by side",
     "zone_share": "Card zone map: a pitch's share of a zone, by side",
+}
+
+# What the tunneling table holds for a pair of pitch types. Inches, except
+# d' (a ratio) and the flight time.
+TUNNEL_METRICS: dict[str, str] = {
+    # Mean distances between the two pitches, as published metrics define them.
+    "release": "Mean distance at release",
+    "tunnel": "Mean distance at the decision point",
+    "tunnel_vs_floor": "  the same, above his same-pitch floor",
+    "late": "Mean distance in late movement",
+    "plate": "Mean distance at the plate",
+    # Offsets: the length of the average difference, scatter cancelled.
+    "release_offset": "Offset at release",
+    "tunnel_offset": "Offset at the decision point",
+    "tunnel_d": "  the same, over his scatter (d')",
+    "late_offset": "Offset in late movement",
+    "plate_offset": "Offset at the plate",
+    "flight_ms": "Difference in flight time (ms)",
 }
 
 FLAG_TYPES: tuple[str, ...] = (
@@ -254,6 +282,45 @@ def _follow_up_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def _tunnel_reading_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
+    """Pairs the tunneling table would put a word on: the same word again?
+
+    Read through `tunneling.reading`, the rule the table itself uses, on the
+    pair's offset at the decision point over his scatter (d'). Re-measured
+    where the same pair to the same side clears the table's gate in the
+    second half. It held if the second half earns the same word; it kept its
+    direction if it stayed on the same side of the midpoint between the two
+    bars.
+    """
+    found = tunneling.pair_table(first)
+    again = tunneling.pair_table(second)
+    if len(found) == 0 or len(again) == 0:
+        return []
+    found = found[(found["reading"] != "") & (found["pitch_type"] != found["next_pitch"])]
+    again = again.set_index(["stand", "pitch_type", "next_pitch"])
+    same_bar = float(config.get("tunneling.same_window_d", 0.75))
+    apart_bar = float(config.get("tunneling.apart_d", 1.25))
+    middle = (same_bar + apart_bar) / 2.0
+
+    rows = []
+    for r in found.itertuples():
+        key = (r.stand, r.pitch_type, r.next_pitch)
+        if key not in again.index:
+            continue
+        cell = again.loc[key]
+        d = float(cell["tunnel_d"])
+        if d != d:
+            continue
+        label = f"{r.pitch_type} > {r.next_pitch} to {r.stand}HH"
+        if r.reading == tunneling.SAME_WINDOW:
+            rows.append(_row("tunnel_same", label, r.tunnel_d, d, int(cell["n"]),
+                             d <= same_bar, d < middle))
+        else:
+            rows.append(_row("tunnel_apart", label, r.tunnel_d, d, int(cell["n"]),
+                             d >= apart_bar, d > middle))
+    return rows
+
+
 def _location_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
     """Height bands at the location rule's bar: does the band still say the pitch?"""
     min_n = int(config.get("flags.min_n.location_tell", 40))
@@ -373,8 +440,8 @@ def finding_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
         return []
     rows: list[dict] = []
     for measure in (_count_lift_rows, _sequencing_rows, _follow_up_rows,
-                    _location_rows, _handedness_rows, _fatigue_rows,
-                    _first_pitch_rows):
+                    _tunnel_reading_rows, _location_rows, _handedness_rows,
+                    _fatigue_rows, _first_pitch_rows):
         rows.extend(measure(first, second))
     return rows
 
@@ -603,6 +670,87 @@ def card_summary(rows: list[dict]) -> list[dict]:
             "pictures": len(same),
             "same_top": sum(same) / len(same),
             "pitchers": int(sub["pitcher"].nunique()),
+        })
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Tunneling: pairs of pitch types, at the decision point and after it
+# ---------------------------------------------------------------------------
+
+
+def tunnel_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
+    """Every row of the tunneling table that both halves would print.
+
+    One dict per (side, pitch, follow-up) that clears the table's own gate,
+    `tunneling.min_pairs`, in each half: `key` ("L/FF/FS"), `pair` ("FF/FS",
+    the same for every pitcher and side), `n_first` and `n_second`, and each
+    of TUNNEL_METRICS as `<metric>_1` and `<metric>_2`. The same pitch thrown
+    twice is left out: it is the floor the others are read against, not a
+    pair anyone is told about.
+
+    Empty when either half has no trajectory, which is what a cache row
+    fetched before the fit columns were stored looks like.
+    """
+    if len(first) < MIN_HALF_PITCHES or len(second) < MIN_HALF_PITCHES:
+        return []
+    tables = tunneling.pair_table(first), tunneling.pair_table(second)
+    if any(len(t) == 0 for t in tables):
+        return []
+
+    keys = ["stand", "pitch_type", "next_pitch"]
+    both = tables[0].merge(tables[1], on=keys, suffixes=("_1", "_2"))
+    both = both[both["pitch_type"] != both["next_pitch"]]
+    rows = []
+    for r in both.to_dict("records"):
+        row = {"key": f"{r['stand']}/{r['pitch_type']}/{r['next_pitch']}",
+               "pair": f"{r['pitch_type']}/{r['next_pitch']}",
+               "n_first": int(r["n_1"]), "n_second": int(r["n_2"])}
+        for metric in TUNNEL_METRICS:
+            row[f"{metric}_1"] = float(r[f"{metric}_1"])
+            row[f"{metric}_2"] = float(r[f"{metric}_2"])
+        rows.append(row)
+    return rows
+
+
+def tunnel_summary(rows: list[dict]) -> list[dict]:
+    """Whether a pair's tunneling numbers are the pitcher's or the half's.
+
+    Per metric: `r`, the split-half correlation across every pitcher's pairs;
+    the median and 90th-percentile absolute change between halves; and
+    `r_within`, the same correlation after subtracting, from both halves,
+    that pair type's average over every pitcher who throws it (`within_n`
+    rows, from pair types at least three pitcher-sides share).
+
+    The first correlation is easy to pass. A four-seam and a curveball are a
+    foot apart late for every pitcher alive, so a table of pairs correlates
+    with itself across halves however little it says about anyone. The second
+    asks the question a scouting report needs answered: among pitchers who all
+    throw four-seam then slider, is this one's pair tighter than the others'
+    in both halves?
+    """
+    table = pd.DataFrame(rows)
+    out: list[dict] = []
+    if table.empty:
+        return out
+    shared = table.groupby("pair")["pair"].transform("size") >= 3
+    for metric, label in TUNNEL_METRICS.items():
+        a, b = f"{metric}_1", f"{metric}_2"
+        pairs = table[[a, b]].dropna()
+        r = _correlation(pairs.rename(columns={a: "first", b: "second"}))
+        if r != r:
+            continue
+        moved = (pairs[b] - pairs[a]).abs()
+
+        inside = table[shared].dropna(subset=[a, b])
+        centre = inside.groupby("pair")[[a, b]].transform("mean").mean(axis=1)
+        resid = pd.DataFrame({"first": inside[a] - centre, "second": inside[b] - centre})
+        out.append({
+            "metric": metric, "label": label, "r": r, "pairs": len(pairs),
+            "median_change": float(moved.median()),
+            "p90_change": float(moved.quantile(0.90)),
+            "r_within": _correlation(resid), "within_n": len(resid),
+            "pitchers": int(table["pitcher"].nunique()) if "pitcher" in table else 0,
         })
     return out
 

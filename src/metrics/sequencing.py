@@ -57,12 +57,13 @@ ZONE_BANDS: dict[str, frozenset[int]] = {
 # ---------------------------------------------------------------------------
 
 
-def _pair_pitches(frame: pd.DataFrame) -> pd.DataFrame:
+def _pair_pitches(frame: pd.DataFrame, extra: list[str] | None = None) -> pd.DataFrame:
     """Attach each pitch's successor within the same plate appearance.
 
     Returns one row per (pitch, next pitch) pair, with the successor's
     attributes prefixed `next_`. Rows whose pitch ends a plate appearance are
-    dropped, since they have no successor.
+    dropped, since they have no successor. `extra` names further columns to
+    carry across from the successor; tunneling passes each pitch's flight.
 
     The plate-appearance grouping is what enforces the boundary: `shift(-1)`
     inside a groupby yields NaN at the end of every group, so the final pitch
@@ -74,7 +75,7 @@ def _pair_pitches(frame: pd.DataFrame) -> pd.DataFrame:
     # before it, which is the successor's count, not this row's.
     columns = ["pitch_type", "description", "zone", "is_swing", "is_whiff",
                "delta_run_exp", "estimated_woba_using_speedangle",
-               "balls", "strikes"]
+               "balls", "strikes"] + list(extra or [])
 
     ordered = frame.sort_values(PA_KEYS + ["pitch_number"]).copy()
 

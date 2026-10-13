@@ -471,6 +471,131 @@ class TestCardRows:
         assert replication.card_summary([]) == []
 
 
+class TestTunnelRows:
+    """A pair's tunneling numbers, re-measured in the other half."""
+
+    def half(self, split_drop: float = -30.0, n: int = 60) -> pd.DataFrame:
+        from tests.test_tunneling import appearances
+        fastball = {"pitch_type": "FF"}
+        up = {"pitch_type": "FF", "z0": 5.9}
+        splitter = {"pitch_type": "FS", "vy0": -128.0, "az": split_drop}
+        return appearances((40, [fastball, up]), (40, [up, fastball]),
+                           (n, [fastball, splitter]), (40, [splitter, splitter]))
+
+    def test_a_pair_is_recorded_for_each_half(self):
+        rows = replication.tunnel_rows(self.half(-30.0), self.half(-36.0))
+        (row,) = rows
+        assert row["key"] == "R/FF/FS" and row["pair"] == "FF/FS"
+        assert (row["n_first"], row["n_second"]) == (60, 60)
+        # More drop in the second half: more late movement between the two.
+        assert row["late_2"] > row["late_1"] > 0
+        for metric in replication.TUNNEL_METRICS:
+            assert f"{metric}_1" in row and f"{metric}_2" in row
+
+    def test_the_same_pitch_twice_is_the_floor_not_a_pair(self):
+        rows = replication.tunnel_rows(self.half(), self.half())
+        assert all(r["pair"].split("/")[0] != r["pair"].split("/")[1] for r in rows)
+
+    def test_a_pair_too_rare_in_one_half_is_not_compared(self):
+        assert replication.tunnel_rows(self.half(n=60), self.half(n=10)) == []
+
+    def test_a_cache_without_the_fit_gives_no_rows(self):
+        """Rows fetched before the trajectory columns were stored."""
+        from src.metrics import tunneling
+        bare = self.half()
+        bare[tunneling.TRAJECTORY_COLUMNS] = float("nan")
+        assert replication.tunnel_rows(bare, self.half()) == []
+        assert replication.tunnel_rows(make_frame([{"pitch_type": "FF", "n": 300}]),
+                                       self.half()) == []
+
+
+class TestTunnelReadings:
+    """A word the tunneling table puts on a pair: the same word again?"""
+
+    def half(self, curve_x0: float) -> pd.DataFrame:
+        from tests.test_tunneling import appearances
+        fastball = {"pitch_type": "FF"}
+        up = {"pitch_type": "FF", "z0": 5.9}
+        cutter = {"pitch_type": "FC"}
+        curve = {"pitch_type": "CU", "x0": curve_x0}
+        frame = pd.concat([
+            appearances((40, [fastball, up]), (40, [up, fastball])),
+            appearances((60, [fastball, cutter])).assign(game_pk=2),
+            appearances((60, [fastball, curve])).assign(game_pk=3),
+        ], ignore_index=True)
+        return frame
+
+    def test_a_word_that_comes_back_held(self):
+        rows = replication._tunnel_reading_rows(self.half(-0.5), self.half(-0.5))
+        (same,) = of_kind(rows, "tunnel_same")
+        (apart,) = of_kind(rows, "tunnel_apart")
+        assert same["key"] == "FF > FC to RHH" and same["held"] and same["direction"]
+        assert apart["key"] == "FF > CU to RHH" and apart["held"] and apart["direction"]
+
+    def test_a_curveball_that_moved_onto_the_fastballs_line_lost_its_word(self):
+        """A foot from the fastball in one half, on its path in the other."""
+        rows = replication._tunnel_reading_rows(self.half(-0.5), self.half(-1.5))
+        (apart,) = of_kind(rows, "tunnel_apart")
+        assert not apart["held"] and not apart["direction"]
+        assert apart["second"] < apart["first"]
+
+    def test_a_pair_with_no_word_is_not_a_finding(self):
+        """About two inches out, with this scatter, is between the two bars."""
+        rows = replication._tunnel_reading_rows(self.half(-1.3), self.half(-1.3))
+        assert not of_kind(rows, "tunnel_apart")
+        assert [r["key"] for r in of_kind(rows, "tunnel_same")] == ["FF > FC to RHH"]
+
+    def test_readings_are_among_the_findings_checked(self):
+        assert "tunnel_same" in replication.FINDING_LABELS
+        assert "tunnel_apart" in replication.FINDING_LABELS
+
+
+class TestTunnelSummary:
+    def rows(self) -> list[dict]:
+        """Three pair types, four pitchers each. Between pair types the
+        numbers are far apart; within one, a pitcher's place is kept in
+        `late` and reversed in `tunnel`."""
+        out = []
+        for pair, late, tunnel in (("FF/FS", 3.0, 9.0), ("FF/CU", 10.0, 12.0),
+                                   ("FF/SL", 5.0, 10.0)):
+            for i, pitcher in enumerate("ABCD"):
+                offset = (i - 1.5) * 0.5
+                row = {"pitcher": pitcher, "key": f"R/{pair}", "pair": pair,
+                       "n_first": 50, "n_second": 50}
+                for metric in replication.TUNNEL_METRICS:
+                    row[f"{metric}_1"] = row[f"{metric}_2"] = 1.0 + 0.01 * len(out)
+                row["late_1"], row["late_2"] = late + offset, late + offset
+                row["tunnel_1"], row["tunnel_2"] = tunnel + offset, tunnel - offset
+                out.append(row)
+        return out
+
+    def by_metric(self) -> dict:
+        return {s["metric"]: s for s in replication.tunnel_summary(self.rows())}
+
+    def test_a_number_that_is_the_pitchers_survives_removing_the_pair_type(self):
+        late = self.by_metric()["late"]
+        assert late["r"] > 0.99 and late["r_within"] > 0.99
+        assert late["median_change"] == pytest.approx(0.0)
+
+    def test_a_number_that_is_only_the_pair_type_does_not(self):
+        """Fastball-curveball is wider than fastball-splitter in both halves,
+        so the plain correlation is high. Within a pair type, every pitcher's
+        place flips: the number says nothing about him."""
+        tunnel = self.by_metric()["tunnel"]
+        assert tunnel["r"] > 0.5
+        assert tunnel["r_within"] < -0.9
+        assert tunnel["within_n"] == 12 and tunnel["pitchers"] == 4
+
+    def test_a_pair_type_only_one_pitcher_throws_cannot_be_centred(self):
+        rows = self.rows() + [{**self.rows()[0], "pitcher": "E", "pair": "SI/KC",
+                               "key": "R/SI/KC"}]
+        summary = {s["metric"]: s for s in replication.tunnel_summary(rows)}
+        assert summary["late"]["pairs"] == 13 and summary["late"]["within_n"] == 12
+
+    def test_summary_of_nothing(self):
+        assert replication.tunnel_summary([]) == []
+
+
 class TestSummariseFindings:
     def rows(self) -> list[dict]:
         def r(pitcher, kind, held, direction, first=2.0, second=1.6):

@@ -756,6 +756,91 @@ class TestSequenceKey:
         assert gameplan.sequence_key(table.iloc[0:0], "R") is None
 
 
+class TestWhere:
+    """Which way one pitch sits from another, in a hitter's words."""
+
+    def test_up_and_down(self):
+        assert gameplan.where(0.0, -4.0, "L", "R") == "lower"
+        assert gameplan.where(0.5, 7.0, "L", "R") == "higher"
+
+    def test_arm_side_is_in_on_a_same_side_hitter_and_away_from_the_other(self):
+        """A right-hander's arm side is toward a righty's hands."""
+        assert gameplan.where(5.0, 0.0, "R", "R") == "in"
+        assert gameplan.where(5.0, 0.0, "L", "R") == "away"
+        assert gameplan.where(-5.0, 0.0, "L", "R") == "in"
+        assert gameplan.where(5.0, 0.0, "L", "L") == "in"
+
+    def test_both_axes_when_both_carry_the_distance(self):
+        assert gameplan.where(-4.0, -5.0, "L", "R") == "lower and in"
+
+    def test_a_small_component_is_not_named(self):
+        assert gameplan.where(1.0, -6.0, "L", "R") == "lower"
+
+    def test_no_distance_no_word(self):
+        assert gameplan.where(0.0, 0.0, "L", "R") == ""
+
+
+class TestTunnelHeadline:
+    def row(self, **over) -> dict:
+        base = {"stand": "L", "pitch_type": "FF", "next_pitch": "FC", "n": 72,
+                "tunnel_offset": 2.9, "tunnel_dx": -2.0, "tunnel_dz": 2.1,
+                "late_offset": 3.0, "tunnel_d": 0.6, "reading": "same window"}
+        return {**base, **over}
+
+    def test_leads_with_a_pair_that_shares_a_window_and_then_moves(self):
+        table = pd.DataFrame([
+            self.row(),
+            self.row(next_pitch="CU", n=119, tunnel_offset=7.7, tunnel_d=1.7,
+                     late_offset=10.5, reading="apart early"),
+        ])
+        assert gameplan.tunnel_headline(table, "R") == (
+            "To lefties, the cutter after a four-seam comes through the same "
+            "window, and from there the two move 3 inches apart (72 pairs).")
+
+    def test_sharing_a_window_and_going_nowhere_is_not_a_headline(self):
+        """Two pitches on one path that also finish together fool nobody."""
+        table = pd.DataFrame([
+            self.row(late_offset=0.8),
+            self.row(next_pitch="CU", n=68, stand="R", tunnel_offset=7.7,
+                     tunnel_dx=1.0, tunnel_dz=7.6, tunnel_d=1.7, late_offset=10.5,
+                     reading="apart early"),
+        ])
+        assert gameplan.tunnel_headline(table, "R") == (
+            "To righties, the curveball can be picked up early: at the decision "
+            "point it is 8 inches higher than the four-seam before it (68 pairs).")
+
+    def test_a_pitch_seen_early_to_one_side_is_so_many_inches_from_the_last(self):
+        table = pd.DataFrame([self.row(
+            next_pitch="ST", n=50, stand="R", tunnel_offset=6.2, tunnel_dx=-5.0,
+            tunnel_dz=-3.6, tunnel_d=1.4, late_offset=9.0, reading="apart early")])
+        assert ("it is 6 inches lower and away from the four-seam before it"
+                in gameplan.tunnel_headline(table, "R"))
+
+    def test_takes_the_most_common_of_several(self):
+        table = pd.DataFrame([self.row(n=40), self.row(next_pitch="FS", n=141)])
+        assert "the splitter after a four-seam" in gameplan.tunnel_headline(table, "R")
+
+    def test_a_rarer_pair_that_separates_far_more_can_lead(self):
+        """How often times how much: 60 pairs moving 9 inches apart outweigh
+        141 moving 3."""
+        table = pd.DataFrame([
+            self.row(next_pitch="FS", n=141, late_offset=3.0),
+            self.row(next_pitch="CU", n=60, late_offset=9.0),
+        ])
+        headline = gameplan.tunnel_headline(table, "R")
+        assert "the curveball after a four-seam" in headline and "9 inches apart" in headline
+
+    def test_says_so_when_nothing_stands_out(self):
+        table = pd.DataFrame([self.row(reading="", tunnel_d=1.0)])
+        assert gameplan.tunnel_headline(table, "R").startswith(
+            "No pair of pitches stands out at the decision point")
+
+    def test_the_same_pitch_twice_is_never_the_headline(self):
+        table = pd.DataFrame([self.row(next_pitch="FF", late_offset=5.0)])
+        assert gameplan.tunnel_headline(table, "R") is None
+        assert gameplan.tunnel_headline(table.iloc[0:0], "R") is None
+
+
 class TestHeightLine:
     """Sixteen of twenty-two calibration pitchers said "if it's up, it's the
     four-seam". That is true of nearly everyone, so it is left out."""

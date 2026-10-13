@@ -932,6 +932,81 @@ def card_keys(plan: dict, sequences: pd.DataFrame | None = None) -> dict:
     return keys
 
 
+def where(dx: float, dz: float, stand: str, hand: str) -> str:
+    """Which way one pitch sits from another, as a hitter would say it.
+
+    `dx` is inches toward the pitcher's arm side and `dz` inches up, as
+    `tunneling.pair_table` reports them. Arm side is in on a hitter who bats
+    from the pitcher's throwing side and away from one who does not, so the
+    word depends on who is hitting. An axis is named only when it carries at
+    least two fifths of the distance: "lower", "in", or "lower and away".
+    """
+    size = (dx ** 2 + dz ** 2) ** 0.5
+    if size != size or size == 0:
+        return ""
+    words = []
+    if abs(dz) >= 0.4 * size:
+        words.append("higher" if dz > 0 else "lower")
+    if abs(dx) >= 0.4 * size:
+        toward_batter = (dx > 0) == (stand == hand)
+        words.append("in" if toward_batter else "away")
+    return " and ".join(words)
+
+
+def tunnel_headline(table: pd.DataFrame, hand: str) -> str | None:
+    """One sentence stating what the tunneling table shows.
+
+    `table` is `tunneling.pair_table()`. Leads with a pair that shares a
+    window at the decision point and then separates: among follow-ups read as
+    "same window" whose late movement differs from the first pitch's by
+    `tunneling.headline_late_in` inches or more, the one with the most pairs
+    times late movement. Failing that, the most
+    common pair read as "apart early", which is the one a hitter can pick up.
+    Failing both, it says so. None when there is no table to read.
+    """
+    from src.metrics import tunneling
+
+    if len(table) == 0:
+        return None
+    rows = table[table["pitch_type"] != table["next_pitch"]]
+    if len(rows) == 0:
+        return None
+    late_min = float(config.get("tunneling.headline_late_in", 2.5))
+
+    def lead(found: pd.DataFrame) -> pd.Series:
+        return found.sort_values("n", ascending=False).iloc[0]
+
+    shared = rows[(rows["reading"] == tunneling.SAME_WINDOW)
+                  & (rows["late_offset"] >= late_min)]
+    if len(shared):
+        # How often times how much: a pair he throws all the time that
+        # separates a little, against one he throws rarely that separates a
+        # lot. Neither alone is the pair a hitter most needs named.
+        top = shared.loc[(shared["n"] * shared["late_offset"]).idxmax()]
+        side = SIDE_NAMES.get(top["stand"], "hitters")
+        return (f"To {side}, the {name(top['next_pitch'])} after a "
+                f"{name(top['pitch_type'])} comes through the same window, and "
+                f"from there the two move {top['late_offset']:.0f} inches apart "
+                f"({int(top['n'])} pairs).")
+
+    apart = rows[rows["reading"] == tunneling.APART]
+    if len(apart):
+        top = lead(apart)
+        side = SIDE_NAMES.get(top["stand"], "hitters")
+        direction = where(top["tunnel_dx"], top["tunnel_dz"], top["stand"], hand)
+        # "8 inches higher than", "5 inches away from", "7 inches lower and
+        # away from": the last word of the direction decides the joining word.
+        joined = (f"{direction} than" if direction in ("higher", "lower")
+                  else f"{direction} from".strip())
+        return (f"To {side}, the {name(top['next_pitch'])} can be picked up early: "
+                f"at the decision point it is {top['tunnel_offset']:.0f} inches "
+                f"{joined} the {name(top['pitch_type'])} before it "
+                f"({int(top['n'])} pairs).")
+
+    return ("No pair of pitches stands out at the decision point: none shares "
+            "the last pitch's window and then moves, and none is far from it.")
+
+
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------

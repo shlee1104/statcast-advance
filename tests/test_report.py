@@ -659,6 +659,62 @@ class TestCardKeepsWhatRepeats:
         assert 'class="dim"' in card_page(payload)
 
 
+@pytest.fixture(scope="module")
+def payload():
+    """A real season, because tunneling needs a real flight: Yamamoto 2025."""
+    from src import cli
+    frame = cli.prepare(cli.load_from_fixture("yamamoto", 2025))
+    return report.build_payload(frame, "Yoshinobu Yamamoto", 2025)
+
+
+class TestTunneling:
+    """Tunneling is in the evidence file, read from a real season's flight."""
+
+    def test_rows_are_pairs_to_each_side_most_common_first(self, payload):
+        rows = payload["tunneling"]["rows"]
+        assert payload["tunneling"]["available"] and rows
+        for side in ("L", "R"):
+            counts = [r["n"] for r in rows if r["stand"] == side]
+            assert counts and counts == sorted(counts, reverse=True)
+            assert len(counts) <= report.TUNNEL_ROWS_PER_SIDE
+            assert min(counts) >= payload["tunneling"]["min_pairs"]
+        assert all(r["pitch_type"] != r["next_pitch"] for r in rows)
+
+    def test_a_row_says_how_often_and_where(self, payload):
+        row = next(r for r in payload["tunneling"]["rows"]
+                   if (r["stand"], r["pitch_type"], r["next_pitch"]) == ("L", "FF", "FS"))
+        assert 0.2 < row["share"] < 0.4          # the sequence graph's own share
+        assert row["tunnel_where"] == "lower" and row["late_where"] == "lower"
+        assert row["flight_ms"] > 0              # the splitter is the slower pitch
+
+    def test_the_curveball_is_the_one_seen_early(self, payload):
+        """It leaves his hand somewhere else, humps above the fastball's line
+        and arrives a tenth of a second later."""
+        row = next(r for r in payload["tunneling"]["rows"]
+                   if (r["stand"], r["pitch_type"], r["next_pitch"]) == ("L", "FF", "CU"))
+        assert row["reading"] == "apart early"
+        assert row["tunnel_where"] == "higher" and row["late_where"] == "lower"
+        assert row["release_offset"] > 2.5 and row["flight_ms"] > 80
+
+    def test_it_is_in_the_evidence_and_not_on_the_card(self, payload):
+        detail, card = detail_page(payload), card_page(payload)
+        assert 'id="tunnelTable"' in detail
+        assert payload["tunneling"]["headline"] in detail
+        assert "How far to trust it" in detail
+        assert "tunnel" not in card.lower()
+        assert detail.index("<h2>Sequencing</h2>") < detail.index('id="tunnelTable"') \
+            < detail.index("Setups by pitch and height")
+
+    def test_a_season_cached_without_a_flight_says_how_to_get_one(self):
+        """An empty table would read as "he has no pairs"."""
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        assert payload["tunneling"]["available"] is False
+        assert payload["tunneling"]["rows"] == []
+        detail = detail_page(payload)
+        assert 'id="tunnelTable"' not in detail
+        assert "cached before the trajectory columns were stored" in detail
+
+
 class TestZoneMapLayout:
     """Two layout bugs that hid real numbers.
 

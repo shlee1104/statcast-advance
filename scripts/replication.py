@@ -13,6 +13,8 @@ reports/replication/<season>/:
   per_pitcher.csv   numbers that exist once per pitcher or once per count
   card.csv          every slice of the dugout card's pies and every cell of
                     its zone maps, by batter side, in each half
+  tunnel.csv        every pair of pitch types thrown back to back often enough
+                    in both halves: its separations and late movement in each
   full_season.csv   one row per pitcher: findings by type, comparisons run,
                     and how many survive correction
 
@@ -40,6 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src import cli, config, replication, store, validation  # noqa: E402
+from src.metrics import tunneling  # noqa: E402
 
 OUT_DIR = ROOT / "reports" / "replication"
 
@@ -128,7 +131,8 @@ def _span(lo: float, hi: float) -> str:
 
 def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
                   season_totals: dict, season: int, pitchers: int,
-                  card: list[dict] | None = None) -> None:
+                  card: list[dict] | None = None,
+                  tunnel: list[dict] | None = None) -> None:
     print(f"\nDo the findings repeat?  first half → second half, {season}, "
           f"{pitchers} pitchers")
     print("-" * 96)
@@ -172,6 +176,24 @@ def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
               f"{replication.MIN_HALF_PITCHES}+ pitches in each half; \"same top\" is")
         print("  how often a pie's largest slice, or a map's busiest zone, is the")
         print("  same one in both halves")
+
+    if tunnel:
+        print("\n  Tunneling, the same pair of pitch types in each half")
+        print(f"  {'':<46}{'r':>6}{'median move':>13}{'90% within':>12}"
+              f"{'pairs':>7}{'r within pair type':>20}{'of':>6}")
+        for s in tunnel:
+            unit = {"flight_ms": "ms", "tunnel_d": "  "}.get(s["metric"], "in")
+            print(f"  {s['label']:<46}{s['r']:>+6.2f}"
+                  f"{s['median_change']:>10.1f} {unit}"
+                  f"{s['p90_change']:>9.1f} {unit}{s['pairs']:>7}"
+                  f"{s['r_within']:>+20.2f}{s['within_n']:>6}")
+        print(f"  from {max(s['pitchers'] for s in tunnel)} pitchers; a pair is "
+              f"compared when it occurred {tunneling.min_pairs()}+ times to one")
+        print("  side in each half. \"r within pair type\" is the correlation left "
+              "after each")
+        print("  pair type's average across pitchers is removed: whether the "
+              "number says")
+        print("  something about this pitcher, not about fastballs and curveballs")
 
     if season_totals.get("pitchers"):
         t = season_totals
@@ -235,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     per_pitch: list[dict] = []
     per_pitcher: list[dict] = []
     card: list[dict] = []
+    tunnel: list[dict] = []
     full_season: list[dict] = []
     ran = 0
     for name, load in work:
@@ -256,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
                 (replication.per_pitch_rows(first, second, league), per_pitch),
                 (replication.per_pitcher_rows(first, second), per_pitcher),
                 (replication.card_rows(first, second), card),
+                (replication.tunnel_rows(first, second), tunnel),
             ):
                 table.extend({"pitcher": name, **r} for r in rows)
             ran += 1
@@ -267,6 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(out / "per_pitch.csv", per_pitch)
     write_csv(out / "per_pitcher.csv", per_pitcher)
     write_csv(out / "card.csv", card)
+    write_csv(out / "tunnel.csv", tunnel)
     write_csv(out / "full_season.csv", full_season)
     print_summary(
         replication.summarise_findings(findings),
@@ -275,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         replication.summarise_full_season(full_season),
         args.season, ran,
         card=replication.card_summary(card),
+        tunnel=replication.tunnel_summary(tunnel),
     )
     return 0
 

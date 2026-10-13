@@ -203,6 +203,45 @@ card:
   # fewer than this many pitches outside the zone, is printed in grey.
   min_rate_sample: 30
 
+# Pitch tunneling (src/metrics/tunneling.py): how far apart a pitch and the
+# one that followed it were when the hitter had to decide.
+tunneling:
+  # The decision point, in feet from the plate. Baseball Prospectus's
+  # convention: where an average fastball is about 175 ms from contact. It is
+  # a distance and a hitter's deadline is a time, so it is 172 ms out for a
+  # 96 mph four-seam and 215 ms for a 77 mph curveball. Comparing both pitches
+  # at one instant instead ranks pairs almost identically (Spearman 0.96 on
+  # the fixtures), so the published convention is kept.
+  tunnel_point_ft: 23.8
+
+  # A pair of pitch types is averaged once it has occurred this many times to
+  # one batter side. A single pair's separation is mostly where he happened
+  # to throw those two pitches; its spread is 4 to 5 inches, so 30 pairs put
+  # the mean within about an inch.
+  min_pairs: 30
+
+  # How a pair's offset at the decision point is put into words. The offset
+  # is divided by his own pitch-to-pitch scatter there (d'): at 1.0, where the
+  # ball is at that moment picks the right pitch of the two about 69% of the
+  # time, and at 0 it is a coin flip.
+  #
+  #   at or under same_window_d   "same window": position alone gets it right
+  #                               under 65% of the time
+  #   at or over apart_d          "apart early": over 73%
+  #   in between                  no word
+  #
+  # Both bars were set after looking at 2025 and 2026 together, so the hold
+  # rates the replication script prints for them describe the fit. Of 74
+  # "same window" pairs found in a first half, 91% stayed under 1.0 in the
+  # second and 69% earned the word again; of 54 "apart early", 78% and 57%.
+  same_window_d: 0.75
+  apart_d: 1.25
+
+  # The section's headline leads with a pair that shares a window only if the
+  # two then move at least this many inches differently. Two pitches on one
+  # path that also finish together deceive nobody.
+  headline_late_in: 2.5
+
 # Minimum sample sizes before a weakness flag is allowed to fire.
 # These are the guardrails against small-sample noise. Every flag must
 # clear its gate, and every claim in the report carries its own n.

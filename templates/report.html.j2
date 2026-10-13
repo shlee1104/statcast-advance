@@ -947,6 +947,49 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
     the next one is thrown in, so part of any line is ordinary count logic.
   </p>
 
+  {# Tunneling: the same follow-ups, read for what the hitter can see. In the
+     evidence file, not on the card: see report._build_tunneling. #}
+  {% set tn = payload.tunneling %}
+  <h3 class="sec3">{{ tn.headline or "Tunneling: where the next pitch is when the hitter has to decide" }}</h3>
+  {% if tn.available and tn.rows %}
+  <p class="lede">
+    The follow-ups above, read for what a hitter can see. He has to decide when the
+    ball is about {{ "%.0f"|format(tn.tunnel_ft) }} feet away. Each row is a pitch and the
+    one that followed it: how far apart the two leave his hand, where the second is
+    at the decision point relative to the first, and how differently it moves after
+    that, which the hitter does not get to see before he commits. All three are
+    averages of the difference, so where he happened to throw each pitch cancels out.
+  </p>
+  <div class="scroll"><table id="tunnelTable"><thead></thead><tbody></tbody></table></div>
+  <p class="note">
+    "Reads as" divides the offset at the decision point by how much his own pitches
+    scatter there{% if tn.scatter.L is not none and tn.scatter.R is not none %}
+    ({{ "%.1f"|format(tn.scatter.L) }} inches to lefties, {{ "%.1f"|format(tn.scatter.R) }}
+    to righties){% endif %}. <b>Same window</b> means where the ball is at that moment
+    would pick the right pitch of the two less than 65% of the time; <b>apart early</b>
+    means more than 73%. Between the two it gets no word. A pair is listed once it has
+    come {{ tn.min_pairs }} times to that side.
+  </p>
+  <p class="note">
+    How far to trust it: across 45 pitcher-seasons, 9 in 10 "same window" pairs stayed
+    on that side of the line in the other half of the season and 7 in 10 earned the
+    word again; for "apart early" it was 8 in 10 and under 6 in 10. The offset itself
+    moves by a median of about an inch and a quarter between halves, which is why it
+    is here and not on the card. Late movement and the gap out of the hand barely move
+    at all. {{ "%.1f"|format(tn.tunnel_ft) }} feet is a convention: it is where an
+    average fastball is about 175 ms from contact, and it is further from contact for
+    a slow pitch, so this understates how readable a slow curveball is.
+  </p>
+  {% elif tn.available %}
+  <p class="nodata">No pair of pitches came {{ tn.min_pairs }} times to one side.</p>
+  {% else %}
+  <p class="nodata">
+    This pitcher-season was cached before the trajectory columns were stored, so there
+    is nothing to reconstruct a flight from. Fetch it again with <code>--refresh</code>
+    to fill this in.
+  </p>
+  {% endif %}
+
   <h3 class="sec3">Setups by pitch and height</h3>
   <p class="lede">
     The same question one level down: the pitch and where it was thrown, then what
@@ -1078,6 +1121,25 @@ table('arsenalTable', D.arsenal, [
   { f: 'n_R', l: 'n to R', n: 1, fmt: int },
   { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
   { f: 'xwoba_delta', l: 'Δ xwOBA', n: 1, fmt: v => sign(v, 3), tone: 1 },
+]);
+
+/* The sentence-like cells keep their number as the raw value, so the column
+   still sorts by size, and put the direction after it. */
+const inches = (v, where) => v === null || v === undefined ? '—'
+  : `${num(v, 1)} in${where ? ' ' + where : ''}`;
+table('tunnelTable', (D.tunneling || {}).rows, [
+  { f: 'stand', l: 'To', fmt: v => v === 'L' ? 'Lefties' : 'Righties' },
+  { f: 'pitch_type', l: 'After a' },
+  { f: 'next_pitch', l: 'Then the' },
+  { f: 'share', l: 'How often', n: 1, fmt: pct0 },
+  { f: 'n', l: 'Pairs', n: 1, fmt: int },
+  { f: 'release_offset', l: 'Out of the hand', n: 1, fmt: v => inches(v) },
+  { f: 'tunnel_offset', l: 'At the decision point', n: 1, fmt: (v, r) => inches(v, r.tunnel_where) },
+  { f: 'reading', l: 'Reads as', fmt: v => v || '' },
+  { f: 'late_offset', l: 'Late movement', n: 1, fmt: (v, r) => inches(v, r.late_where) },
+  { f: 'flight_ms', l: 'Arrives', n: 1,
+    fmt: v => v === null || v === undefined ? '—'
+      : `${Math.abs(v).toFixed(0)} ms ${v >= 0 ? 'later' : 'sooner'}` },
 ]);
 
 table('setupTable', D.setups, [

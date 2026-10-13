@@ -94,6 +94,19 @@ PITCH_SCHEMA: dict[str, str] = {
     "bat_speed": "DOUBLE",
     "swing_length": "DOUBLE",
     "intercept_ball_minus_batter_pos_y_inches": "DOUBLE",
+    # Savant's constant-acceleration fit of the pitch's flight: velocity and
+    # acceleration on the plane 50 feet from the plate, and how far from the
+    # plate it was released. With the release point above, these give the
+    # ball's position at any distance, which is what tunneling needs (see
+    # metrics/tunneling.py). Rows cached before these were added hold nulls
+    # here until the player-season is fetched again.
+    "release_pos_y": "DOUBLE",
+    "vx0": "DOUBLE",
+    "vy0": "DOUBLE",
+    "vz0": "DOUBLE",
+    "ax": "DOUBLE",
+    "ay": "DOUBLE",
+    "az": "DOUBLE",
 }
 
 # A pitch is uniquely identified by game, plate appearance, and its number

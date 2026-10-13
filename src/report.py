@@ -48,7 +48,9 @@ from typing import Any
 import pandas as pd
 
 from src import baselines, charts, config, gameplan
-from src.metrics import arsenal, counts, events, location, seasons, sequencing, splits
+from src.metrics import (
+    arsenal, counts, events, location, seasons, sequencing, splits, tunneling,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = ROOT / "templates"
@@ -201,6 +203,7 @@ def build_payload(
         "movement": _build_movement(frame, league_outcomes),
         "putaway": putaway_rows,
         "sequence_graph": _build_sequence_graph(frame, sequences),
+        "tunneling": _build_tunneling(frame, sequences, hand),
         "setups": _records(_without_runs(
             sequencing.setup_pairs(frame, min_n=25).head(12))),
         "location_profile": _records(
@@ -423,6 +426,67 @@ def _build_sequence_graph(
         "colors": {"more": charts.SEQUENCE_MORE, "less": charts.SEQUENCE_LESS,
                    "usual": charts.SEQUENCE_USUAL},
     }
+
+
+TUNNEL_ROWS_PER_SIDE = 8
+
+
+def _build_tunneling(frame: pd.DataFrame, sequences: pd.DataFrame, hand: str) -> dict:
+    """The follow-ups the sequence graph draws, read for what a hitter can see.
+
+    One row per pair of pitch types thrown back to back often enough to one
+    side, the most common first and at most TUNNEL_ROWS_PER_SIDE a side: how
+    often the follow-up comes (from the same transition table the graph
+    uses), then where it is relative to the pitch before it — out of the
+    hand, at the decision point, and in how it moves after that. Offsets, not
+    mean distances: see `tunneling.pair_table` for why.
+
+    `available` is false when the frame has no trajectory, which is what a
+    pitcher-season cached before those columns were stored looks like. The
+    page then says how to fill it in, where an empty table would read as "he
+    has no pairs".
+
+    It is in the evidence file and not on the card. The offset at the
+    decision point comes back in the other half of a season at r of about
+    0.65, where the card's own numbers are 0.73 and up.
+    """
+    base = {
+        "available": tunneling.has_trajectory(frame),
+        "tunnel_ft": tunneling.tunnel_point_ft(),
+        "min_pairs": tunneling.min_pairs(),
+        "same_bar": float(config.get("tunneling.same_window_d", 0.75)),
+        "apart_bar": float(config.get("tunneling.apart_d", 1.25)),
+        "rows": [], "scatter": {}, "headline": None,
+    }
+    if not base["available"]:
+        return base
+
+    table = tunneling.pair_table(frame)
+    pairs = table[table["pitch_type"] != table["next_pitch"]]
+    shares = sequences.set_index(["stand", "pitch_type", "next_pitch"])["share"] \
+        if len(sequences) else pd.Series(dtype=float)
+
+    rows = []
+    for side in ("L", "R"):
+        for r in pairs[pairs["stand"] == side].head(TUNNEL_ROWS_PER_SIDE).itertuples():
+            key = (r.stand, r.pitch_type, r.next_pitch)
+            rows.append({
+                "stand": r.stand, "pitch_type": r.pitch_type, "next_pitch": r.next_pitch,
+                "n": int(r.n),
+                "share": _clean(shares.get(key, float("nan"))),
+                "release_offset": _clean(r.release_offset),
+                "tunnel_offset": _clean(r.tunnel_offset),
+                "tunnel_where": gameplan.where(r.tunnel_dx, r.tunnel_dz, r.stand, hand),
+                "tunnel_d": _clean(r.tunnel_d),
+                "reading": r.reading,
+                "late_offset": _clean(r.late_offset),
+                "late_where": gameplan.where(r.late_dx, r.late_dz, r.stand, hand),
+                "flight_ms": _clean(r.flight_ms),
+            })
+    scatter = {side: _clean(float(group["spread"].iloc[0]))
+               for side, group in table.groupby("stand")}
+    return {**base, "rows": rows, "scatter": scatter,
+            "headline": gameplan.tunnel_headline(table, hand)}
 
 
 def _build_movement(frame: pd.DataFrame, league_outcomes: pd.DataFrame | None) -> dict:

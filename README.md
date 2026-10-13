@@ -34,7 +34,7 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
 **Complete**
 
 - Baseball Savant API client — retry, rate limiting, name-to-MLBAM resolution
-- DuckDB cache — typed 40-column schema, primary-key upserts, freshness checks
+- DuckDB cache — typed 52-column schema, primary-key upserts, freshness checks
 - Cleaning layer — pitch-type consolidation, non-competitive pitch removal,
   game-type filtering, count validation
 - Count metrics — usage by count, first-pitch tendencies, normalized-entropy
@@ -122,12 +122,21 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   less often than usual; titled with an auto-written sentence ("he doubles up
   on the slider", "the curveball sets up the sinker") or one saying nothing
   stands out
-- 632 unit tests, plus an end-to-end validation suite over live data
+- Pitch tunneling — Savant's trajectory fit rebuilt for every pitch (run to
+  the plate it lands on Savant's own location within 0.07 inch), then each
+  pitch compared with the one that followed it: out of the hand, at the
+  23.8-foot decision point, and in how the two move after it. Read as offsets
+  against the pitcher's own scatter, which says whether a hitter could tell
+  the two apart from where the ball is. In the evidence file, under the
+  sequence graph, and not on the card: its central number repeats between
+  halves at r of 0.5 to 0.7, below the card's bar
+- 698 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
 - Hitter reports
-- Pitch tunneling (see [docs/tunneling_design.md](docs/tunneling_design.md))
+- League context for tunneling: where a pair sits among every pitcher's
+  version of that pair (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Swing-disruption metrics from the bat-tracking fields
 
 ## Setup
@@ -297,10 +306,14 @@ card first, which made a one-page report twelve pages long.
   and xwOBA for each pitch next to the league's version of it, zone rate, and
   whiff rate against each side
 - **Sequencing** — a graph of what follows each pitch to lefties and to
-  righties, coloured where a follow-up departs from his usual; then setup
-  pairs keyed on pitch type and height, with how much more likely the
-  follow-up becomes and whether it then misses more bats; and his two-strike
-  mix and put-away rates
+  righties, coloured where a follow-up departs from his usual; then
+  tunneling for the same follow-ups: how far apart the two pitches leave his
+  hand, where the second is at the decision point relative to the first
+  ("4 inches lower"), whether that reads as the same window or apart early,
+  how differently they move after it, and how much later the second arrives;
+  then setup pairs keyed on pitch type and height, with how much more likely
+  the follow-up becomes and whether it then misses more bats; and his
+  two-strike mix and put-away rates
 - **Release consistency** — where each pitch leaves his hand compared with his
   fastball, the first step of the tunneling design
 
@@ -418,6 +431,8 @@ rule's own bar.
 | Sequencing (setup by pitch and height) | 10 | 40% (17–69%) | 90% | 11 | 55% (28–79%) | 91% |
 | Sequence graph: follow-up more than usual | 17 | 53% (31–74%) | 88% | 19 | 68% (46–85%) | 95% |
 | Sequence graph: follow-up less than usual | 16 | 56% (33–77%) | 94% | 3 | 33% (6–79%) | 100% |
+| Tunneling: read as "same window" | 40 | 72% (57–84%) | 90% | 34 | 65% (48–79%) | 91% |
+| Tunneling: read as "apart early" | 32 | 66% (48–80%) | 81% | 22 | 45% (27–65%) | 73% |
 | Velocity late in starts | 6 | 33% (10–70%) | 100% | 4 | 75% (30–95%) | 100% |
 | Third time through (verdict), since removed | 2 | 0% (0–66%) | 0% | 5 | 20% (4–62%) | 40% |
 
@@ -492,6 +507,34 @@ to read: a pie slice is good to about four points and a zone cell to about
 two, and one slice in ten moves twelve points or more. The card says so in
 its footnote. Each half is half the sample the full-season card is drawn
 from, so this is the harder version of the test.
+
+Tunneling gets the same treatment, for every pair of pitch types thrown back
+to back 30 times to one side in each half (116 pairs from 27 pitchers in
+2025, 91 from 18 in 2026):
+
+| A pair's | 2025 r | within pair type | Median move | 2026 r | within pair type | Median move |
+|---|---|---|---|---|---|---|
+| Offset out of the hand | 0.83 | 0.78 | 0.3 in | 0.93 | 0.93 | 0.3 in |
+| Offset at the decision point | 0.72 | 0.57 | 1.3 in | 0.52 | 0.42 | 1.2 in |
+| The same, over his scatter (d′) | 0.71 | 0.58 | 0.2 | 0.53 | 0.45 | 0.2 |
+| Difference in late movement | 0.99 | 0.94 | 0.2 in | 0.98 | 0.94 | 0.2 in |
+| Difference in flight time | 1.00 | 0.97 | 2.2 ms | 0.99 | 0.93 | 2.3 ms |
+| Published form: mean distance at the decision point, above his floor | 0.57 | 0.43 | 0.9 in | 0.42 | 0.35 | 1.0 in |
+
+*Within pair type* is the correlation left after each pair type's average
+across pitchers is subtracted from both halves. A four-seam and a curveball
+are far apart late for every pitcher alive, so a table of pairs correlates
+with itself however little it says about anyone; the second column asks
+whether this pitcher's four-seam and slider are tighter than other pitchers'
+in both halves.
+
+What that says: the parts of tunneling that repeat are the parts that were
+already known. Where he lets each pitch go, how it moves and how fast it is
+are his, and barely change. The part that is tunneling's own — how close two
+pitches are when the hitter has to decide — repeats about as well as a
+pitch's xwOBA does, because it depends on where he happens to throw them. It
+is good to about an inch and a quarter. So it is in the evidence file with
+its hold rates beside it, and not on the card.
 
 ```bash
 python scripts/replication.py --season 2025
