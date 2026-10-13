@@ -66,10 +66,14 @@ self-contained interactive HTML report comes out.
 - Multiple-comparison correction — Benjamini-Hochberg across every run-value
   comparison the report makes (not just the ones that became findings), with
   the number of comparisons printed next to the number of findings
-- Dugout card — page one is laid out like a pro advance report: a short season
-  line, a plain-language hitting plan split by batter side, the arsenal with
-  velocity ranges and usage against each side, count tendencies by side, and
-  the pitcher's last five outings against the rest of his season
+- Dugout card — page one is a one-page advance sheet, laid out the way clubs
+  lay theirs out: season line, arsenal with velocity ranges, his last five
+  outings, pitch-mix pies for five situations and a zone map for every pitch,
+  both split by batter side, and the keys. It prints on exactly one letter
+  page, for a two-pitch closer and a seven-pitch starter alike
+- One page means choosing — the card prints what repeats between halves of a
+  season and the plan lines a hitter can act on, in a scout's clipped wording;
+  "he mixes", per-pitch xwOBA and anything in runs stay in the pages behind it
 - Count grid — one balls-by-strikes lattice per pitch, coloured by how far each
   count moves him from his own habit, with an auto-written headline stating
   what it shows; it replaced a stacked bar chart that hid the count's structure
@@ -109,7 +113,7 @@ self-contained interactive HTML report comes out.
   less often than usual; titled with an auto-written sentence ("he doubles up
   on the slider", "the curveball sets up the sinker") or one saying nothing
   stands out
-- 564 unit tests, plus an end-to-end validation suite over live data
+- 624 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -233,15 +237,31 @@ control and those are small samples, so this is support, not proof.
 The structure follows how teams describe their own advance reports: a short
 dugout version first, and the detail behind it after.
 
-- **Dugout card** — one printable page. Season line (K%, BB%, whiff, chase,
-  zone, xwOBA). A hitting plan for lefties and for righties: what he starts
-  hitters with, what to sit on when ahead in the count, his two-strike pitch
-  and where it finishes, and which pitches he essentially never shows that
-  side. Every line carries its sample size. Below that, the arsenal as a scout
-  writes it ("sits 94–97, touches 98", ride, arm-side run, usage vs each
-  side), count tendencies by side, and his last five outings. The running
-  game — time to the plate, pickoff move, tipping — is named as not covered,
-  because it needs video rather than pitch data.
+- **Dugout card** — one printed page, top to bottom:
+  - *Season line* — K%, BB%, whiff, chase, zone, first-pitch strike, xwOBA.
+  - *Arsenal* — each pitch as a scout writes it: where the velocity sits and
+    its max, usage against lefties and against righties, inches of break,
+    whiff and chase rates. A rate on too few swings is greyed.
+  - *Last five outings* — pitches, fastball velocity, whiff rate, strikeouts,
+    walks.
+  - *Pitch mix by situation* — ten pies: first pitch, pitcher's count, even,
+    hitter's count and two strikes, to each side. A pie on fewer than 30
+    pitches is faded.
+  - *Location by pitch* — a thirteen-zone map for every pitch to each side, in
+    that pitch's own colour. A pitch thrown fewer than 40 times to a side is
+    not mapped.
+  - *Keys* — to lefties, to righties and to either side: what to sit on in a
+    hitter's count, his two-strike pitch and whether to lay off it low, what a
+    side will not see, the follow-up that stands out most, a count or height
+    tell, and what has changed lately. Each line carries its sample size.
+  - *Running game and scout notes* — blank, for a pen. Time to the plate,
+    pickoff move and tipping come from video and a stopwatch, not from pitch
+    tracking.
+
+  The card prints a plan line only when it tells the hitter something to do.
+  The full plan — including the first-pitch mix, "he mixes" and "look
+  fastball" — is still built and still in the report's data, and the lines on
+  the card are the same sentences cut down (`gameplan.card_keys`).
 - **Findings** — the rule-based findings behind the plan, the strongest in each
   category, each carrying its sample size, with one note on how many
   comparisons produced them and how many run-cost estimates survived
@@ -438,6 +458,28 @@ The script as it stands measures the rules that remain (260 findings across
 the same 58 reports). The figures for the removed rules are reproducible at
 commit `432abb0`, where those rules still exist.
 
+The dugout card's two pictures are split by batter side, which none of the
+columns above are, so the script checks them directly: every pie slice and
+every zone-map cell the card would draw in both halves.
+
+| On the card | Season | r | Median move | 90% within | Same top |
+|---|---|---|---|---|---|
+| Pie slice: a pitch's share of a situation, by side | 2025 | 0.93 | 3.7 pts | 12.0 pts | 76% of 282 pies |
+| | 2026 | 0.90 | 3.8 pts | 12.2 pts | 78% of 228 pies |
+| Zone-map cell: a pitch's share of a zone, by side | 2025 | 0.88 | 1.8 pts | 6.4 pts | 74% of 164 maps |
+| | 2026 | 0.89 | 1.9 pts | 6.4 pts | 75% of 146 maps |
+
+*Move* is the change in that number from the first half to the second, in
+percentage points, over 1,199 slices and 2,132 cells in 2025 and 1,075 and
+1,898 in 2026, from the pitchers with 200 pitches in each half (30 and 25).
+*Same top* is how often a pie's largest slice, or a map's busiest zone, is
+the same one in both halves. The correlation flatters both pictures — a 40%
+pitch and a 4% pitch are far apart in either half — so the move is the figure
+to read: a pie slice is good to about four points and a zone cell to about
+two, and one slice in ten moves twelve points or more. The card says so in
+its footnote. Each half is half the sample the full-season card is drawn
+from, so this is the harder version of the test.
+
 ```bash
 python scripts/replication.py --season 2025
 python scripts/replication.py --season 2026
@@ -516,6 +558,19 @@ order (back in 1 of 7 cases) and a "hittable pitch" finding (fired in 5 of 58
 pitcher-seasons) were removed the same way after being re-measured on the other half
 of the season; the tables they were read from are still in the report, without
 the conclusion.
+
+**One page means choosing, and the choice has a rule.** Clubs pare a phone
+book down to a page, and the page is short because someone decided what a
+hitter needs. Here the decision is the two checks above. Usage, velocity,
+movement and location are nearly the same pitcher in both halves of a season
+(r of 0.92 and up), whiff and chase rates mostly (0.73 to 0.82), so they are
+on the card. A pitch's xwOBA (0.6) and anything in runs are not. Of the plan's
+lines, the card takes the ones the holdout check scores as advice and leaves
+"he mixes" and "look fastball", which that check calls what a hitter would
+have had without a report. Across the 58 calibration reports that put 367
+lines on cards and left 171 off, 113 of them first-pitch mixes the pies now
+draw. Nothing was deleted to do it: the full plan is still built, and the
+card's lines are the same sentences in a scout's clipped form.
 
 **The cache is a real data layer.** Pitch data is fetched on demand per player,
 then persisted to a local DuckDB store. Repeat requests skip the network, and the

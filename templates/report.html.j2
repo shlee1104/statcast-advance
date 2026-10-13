@@ -28,40 +28,139 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Ar
 
 header.top{background:var(--head);color:#fff;padding:22px 26px;border-radius:var(--radius);
            margin-bottom:var(--gap)}
-header.top h1{font-size:22px;font-weight:650;letter-spacing:-.01em}
+header.top h2{font-size:22px;font-weight:650;letter-spacing:-.01em}
 header.top .sub{color:#9fb0c4;font-size:13px;margin-top:4px}
 header.top .sub b{color:#d7e2ee;font-weight:600}
 
 /* Dugout card. The page a coach takes out, so it is set like a printed
-   sheet: dense, ruled, readable at arm's length, and nothing on it that
-   needs JavaScript. */
-.dugout{background:var(--card);border-radius:var(--radius);padding:20px 24px 14px;
-        margin-bottom:var(--gap);box-shadow:0 1px 2px rgba(16,24,40,.06);
-        border-top:4px solid var(--head)}
-.dg-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
-.dg-head h2{font-size:17px;font-weight:700;letter-spacing:-.01em}
-.dg-sub{font-size:12px;color:var(--muted)}
-.dg-h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
-       color:#3a4654;margin:20px 0 6px}
-.seasonline{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;padding:10px 12px;
-            background:#f4f6f8;border-radius:6px;margin-bottom:16px}
-.seasonline b{font-variant-numeric:tabular-nums;font-size:14px}
-.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}
-.planside,.planboth{border:1px solid var(--line);border-radius:8px;padding:12px 14px}
-.planboth{margin-top:14px;background:#fbfbf7}
-.plan h3,.planboth h3{font-size:12px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:.06em;color:var(--head);margin-bottom:6px}
-.plan ul,.planboth ul{list-style:none;padding:0;margin:0}
-.plan li,.planboth li{font-size:13.5px;line-height:1.45;padding:6px 0;
-                      border-bottom:1px dashed #e8eaed}
-.plan li:last-child,.planboth li:last-child{border-bottom:none}
-.plan .n,.planboth .n,.tend .n{font-size:11px;color:var(--muted);white-space:nowrap}
-table.static th{cursor:default}
-/* Stat tables scroll sideways on a phone instead of wrapping; a velocity
-   range broken across three lines is harder to read than a scroll. Only
-   the tendency table wraps, because its cells are short sentences. */
-.tend td{font-size:13px;white-space:normal}
-.gapnote{border-left:3px solid #e1c79a;padding-left:10px}
+   sheet: one page, dense, ruled, and nothing on it that needs JavaScript.
+
+   Every size inside it is in em, and the sheet's own font size is a share of
+   the card's width (cqw). So the card is the same picture at any width — on
+   a monitor, and on a letter page, where that width is 7.8 inches — and a
+   card that fits one page on screen fits it on paper. A narrow screen gets a
+   reflowed single column in place of a page too small to read. */
+.dugout{container-type:inline-size;background:var(--card);border-radius:var(--radius);
+        margin-bottom:var(--gap);box-shadow:0 1px 2px rgba(16,24,40,.06);overflow:hidden}
+.sheet{font-size:12px;font-size:1.14cqw;line-height:1.3;color:#15181c;
+       padding:1.8em 2em 1.4em;
+       -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.sheet .band{display:flex;justify-content:space-between;align-items:flex-end;gap:1em;
+             background:#11161c;color:#fff;padding:.85em 1.2em}
+.sheet .kind{font-size:.82em;letter-spacing:.18em;color:#aab4c0;text-transform:uppercase}
+.sheet h1{font-size:2.3em;font-weight:800;letter-spacing:.02em;line-height:1.05;
+          text-transform:uppercase}
+.sheet .who{text-align:right;font-size:.95em;color:#cdd5de;line-height:1.5}
+.sheet .who b{font-size:1.8em;color:#fff;letter-spacing:.04em;line-height:1.1}
+.sheet .strip{display:flex;border:1px solid #11161c;border-top:none}
+.sheet .strip div{flex:1;text-align:center;padding:.45em .2em;border-right:1px solid #cfd5dc}
+.sheet .strip div:last-child{border-right:none}
+.sheet .strip b{display:block;font-size:1.3em;font-variant-numeric:tabular-nums}
+.sheet .strip span{font-size:.74em;letter-spacing:.08em;color:#5a6470;text-transform:uppercase}
+.sheet h3{font-size:.9em;letter-spacing:.16em;font-weight:800;text-transform:uppercase;
+          border-top:.22em solid #11161c;padding-top:.35em;margin:1.15em 0 .45em;
+          display:flex;justify-content:space-between;align-items:baseline;gap:1.5em}
+.sheet h3 span{font-weight:400;letter-spacing:.02em;color:#6a7480;font-size:.95em;
+               text-transform:none;text-align:right}
+.sheet .two{display:grid;grid-template-columns:1.72fr 1fr;gap:0 2em}
+.sheet .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 1.6em}
+/* Without this a table sets its column's minimum width, and on a phone the
+   column, not the table's scroll box, runs off the side of the card. */
+.sheet .two > div,.sheet .three > div{min-width:0}
+.sheet table{font-size:1em;font-variant-numeric:tabular-nums}
+.sheet th{font-size:.74em;letter-spacing:.08em;color:#5a6470;text-align:right;
+          padding:.3em .5em;border-bottom:1.5px solid #11161c;font-weight:700;cursor:default}
+.sheet th:hover{color:#5a6470;background:none}
+.sheet td{text-align:right;padding:.34em .5em;border-bottom:1px solid #e3e7ec}
+.sheet tbody tr:hover{background:none}
+.sheet th.l,.sheet td.l{text-align:left}
+.sheet .sw{display:inline-block;width:.8em;height:.8em;border-radius:.15em;margin-right:.5em;
+           vertical-align:-.05em}
+.sheet td.l b{display:inline-block;min-width:2.9em}
+.sheet .n{color:#7a8490;font-size:.82em;white-space:nowrap}
+.sheet .dim{color:#9aa3ad}
+/* Situation pies: one row per batter side, the same five situations across. */
+.pies{display:grid;grid-template-columns:4.4em repeat(5,1fr);gap:.2em .7em;align-items:center}
+.piehead,.piecap{text-align:center;font-size:.8em;letter-spacing:.1em;font-weight:800;
+                 color:#39424d;text-transform:uppercase}
+.piecap{display:none}
+.rowlab{font-size:.92em;font-weight:800;letter-spacing:.06em}
+.pie{text-align:center}
+.pie svg{display:block;width:100%;max-width:9.4em;height:auto;aspect-ratio:1;margin:0 auto}
+.pie.thin svg{opacity:.4}
+.pie text{text-anchor:middle;fill:#fff;font-weight:800}
+.pie .pl{font-size:9.5px}
+.pie .pv{font-size:11px}
+.pie .sm.pl{font-size:8px}
+.pie .sm.pv{font-size:9px}
+.pie .pnone{fill:#8a94a0;font-weight:400;font-size:10px}
+.pien{font-size:.78em;color:#6a7480;margin-top:.1em}
+/* Zone maps: Savant's thirteen zones from the catcher's view, one map per
+   pitch per side, each in its pitch's own colour. */
+/* Columns are capped at their six-pitch width, so a two-pitch closer's maps
+   sit together at the left, not one at each end of the page. */
+.zones{display:grid;grid-template-columns:4.4em repeat(var(--pitches),minmax(0,12.5em));
+       gap:.6em .9em;align-items:start}
+.zones .rowlab{align-self:center}
+.zm{text-align:center;min-width:0}
+.zt{font-size:.92em;font-weight:800;margin-bottom:.25em;white-space:nowrap}
+.zt span{font-weight:400;color:#6a7480;font-size:.85em}
+.zbox{position:relative;width:100%;max-width:10em;aspect-ratio:1/1.06;margin:0 auto;
+      border:1px solid #9aa3ad}
+.zbox.thin{display:flex;align-items:center;justify-content:center;text-align:center;
+           color:#8a94a0;line-height:1.25;
+           background:repeating-linear-gradient(45deg,#fafbfc,#fafbfc .45em,#eef1f4 .45em,#eef1f4 .9em)}
+.zbox.thin span{font-size:.82em}
+.zouter{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
+        grid-template-rows:1fr 1fr}
+.zo{position:relative;border:1px solid rgba(255,255,255,.7)}
+.zo b{position:absolute;font-size:.8em;font-weight:700;line-height:1}
+.zo11 b{top:.25em;left:.35em}.zo12 b{top:.25em;right:.35em}
+.zo13 b{bottom:.25em;left:.35em}.zo14 b{bottom:.25em;right:.35em}
+.zinner{position:absolute;left:21%;top:19%;width:58%;height:62%;display:grid;
+        grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
+        border:.16em solid #11161c}
+.zinner div{display:flex;align-items:center;justify-content:center;font-size:.84em;
+            font-weight:700;border:1px solid rgba(255,255,255,.75)}
+.zdark{color:#fff}
+.keys ul{list-style:none}
+.keys li{padding:.36em 0;border-bottom:1px dashed #d9dee4;line-height:1.36}
+.keys li:last-child{border-bottom:none}
+/* What pitch tracking cannot see, left for a pen: the two boxes a club's
+   advance scout fills in from video and a stopwatch. */
+.byhand .blanks div{display:flex;justify-content:space-between;border-bottom:1px solid #9aa3ad;
+                    padding:.6em 0 .2em;color:#39424d}
+.byhand .blanks span{color:#a3acb6;font-style:italic;font-size:.9em}
+.sheet .byhand{grid-template-columns:1fr 1.72fr}
+/* Real rules, not a striped background: a gradient drops lines when it is
+   printed. More are in the page than a screen shows; print shows as many as
+   the page has room for. */
+.byhand .ruled{height:6.8em;overflow:hidden}
+.byhand .ruled i{display:block;height:1.7em;border-bottom:1px solid #c5ccd4}
+.sheet .foot{margin-top:.9em;border-top:1px solid #11161c;padding-top:.4em;font-size:.8em;
+             color:#5a6470;display:flex;justify-content:space-between;gap:2.5em}
+.sheet .foot span:last-child{white-space:nowrap;text-align:right}
+@media screen{
+  @container (max-width:900px){
+    .sheet{font-size:12.5px;padding:14px 14px 12px}
+    .sheet .band{flex-direction:column;align-items:flex-start}
+    .sheet .who{text-align:left}
+    .sheet .strip{flex-wrap:wrap}
+    .sheet .strip div{flex:1 0 24%;border-bottom:1px solid #cfd5dc}
+    .sheet .two,.sheet .three{grid-template-columns:1fr}
+    .sheet h3{flex-direction:column;gap:.1em}
+    .sheet h3 span{text-align:left}
+    .pies,.zones{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+    .pies{align-items:start}
+    .pies .piehead,.pies .corner{display:none}
+    /* Two lines high, so a pie under "Pitcher's count" lines up with one
+       under "Even". */
+    .piecap{display:flex;align-items:flex-end;justify-content:center;min-height:2.6em}
+    .rowlab{grid-column:1/-1;margin-top:.5em}
+    .sheet .foot{flex-direction:column;gap:.4em}
+    .sheet .foot span:last-child{text-align:left;white-space:normal}
+  }
+}
 
 section.card{background:var(--card);border-radius:var(--radius);padding:20px 24px;
              margin-bottom:var(--gap);box-shadow:0 1px 2px rgba(16,24,40,.06)}
@@ -223,11 +322,21 @@ button.more:hover{background:#f3f6fa}
 @media (max-width:720px){
   .charts{grid-template-columns:1fr}
 }
+/* Letter, because the card is cut to it: 7.8 by 10.3 inches inside the
+   margins. On that page the card is exactly one sheet. The two write-in boxes
+   take whatever height the rest leaves, so a pitcher with two pitches and one
+   with seven both fill the page and neither runs onto a second. */
+@page{size:letter;margin:.35in}
 @media print{
   body{background:#fff}
-  .chartbox,section.card,.dugout{box-shadow:none;border:1px solid var(--line)}
-  /* The card is its own printed page. */
-  .dugout{break-after:page}
+  .wrap{max-width:none;padding:0}
+  .chartbox,section.card{box-shadow:none;border:1px solid var(--line)}
+  .dugout{box-shadow:none;border-radius:0;margin:0;break-after:page}
+  .sheet{padding:0;height:10.2in;display:flex;flex-direction:column}
+  .sheet > *{flex:none}
+  .sheet > .byhand{flex:1 1 auto;min-height:0;overflow:hidden;grid-template-rows:minmax(0,1fr)}
+  .byhand > div{display:flex;flex-direction:column;min-height:0}
+  .byhand .ruled{flex:1 1 auto;height:auto;min-height:0}
   .controls,button.more{display:none}
   section.card,.chartbox{break-inside:avoid}
 }
@@ -236,8 +345,219 @@ button.more:hover{background:#f3f6fa}
 <body>
 <div class="wrap">
 
+{# ------------------------------------------------------------ dugout card
+   Page one, and one page. Rendered here in the template rather than in
+   JavaScript so it prints, and so it still works if scripts are blocked: this
+   is the page that gets folded into a back pocket.
+
+   It prints what repeats and what a hitter can act on, and nothing else: see
+   report._build_card for the rule, and gameplan.card_keys for which lines of
+   the hitting plan are on it. The payload carries the rest. #}
+{% set c = payload.card %}
+{% set names = payload.display_names %}
+{% macro pct(v, d=0) %}{% if v is none %}—{% else %}{{ ("%." ~ d ~ "f")|format(v * 100) }}%{% endif %}{% endmacro %}
+{% macro num(v, d=1) %}{% if v is none %}—{% else %}{{ ("%." ~ d ~ "f")|format(v) }}{% endif %}{% endmacro %}
+{# Inches of break as a scout writes them: whole numbers, and no "-0". #}
+{% macro whole(v, signed=false) %}{% if v is none %}—{% elif v|round|int == 0 %}0{% else %}{{ (("%+d" if signed else "%d")|format(v|round|int)).replace("-", "−") }}{% endif %}{% endmacro %}
+{# wOBA-scale numbers print the way scouts write them: .262, not 0.262. #}
+{% macro woba(v) %}{% if v is none %}—{% else %}{{ ("%.3f"|format(v)).replace("0.", ".", 1) if v >= 0 else "%.3f"|format(v) }}{% endif %}{% endmacro %}
+{% macro coach(p) %}{{ c.coach_names.get(p, names.get(p, p))|capitalize }}{% endmacro %}
+
+<section class="dugout" aria-label="Dugout card">
+<div class="sheet">
+  <div class="band">
+    <div>
+      <div class="kind">Advance report · dugout card</div>
+      <h1>{{ payload.meta.pitcher }}</h1>
+    </div>
+    <div class="who">
+      <b>{{ payload.meta.hand }}HP</b><br>
+      {{ payload.meta.season }}{% if c.through %} · through {{ c.through }}{% endif %} ·
+      {{ "{:,}".format(c.season.pitches) }} pitches · {{ c.season.games }} games ·
+      {{ "{:,}".format(c.season.batters) }} batters
+    </div>
+  </div>
+  <div class="strip">
+    <div><b>{{ pct(c.season.k_rate, 1) }}</b><span>K</span></div>
+    <div><b>{{ pct(c.season.bb_rate, 1) }}</b><span>BB</span></div>
+    <div><b>{{ pct(c.season.whiff_rate, 1) }}</b><span>Whiff / swing</span></div>
+    <div><b>{{ pct(c.season.chase_rate, 1) }}</b><span>Chase</span></div>
+    <div><b>{{ pct(c.season.zone_rate, 1) }}</b><span>In zone</span></div>
+    <div><b>{{ pct(c.season.first_strike_rate, 1) }}</b><span>1st-pitch strike</span></div>
+    <div><b>{{ woba(c.season.xwoba) }}</b><span>xwOBA</span></div>
+  </div>
+
+  <div class="two">
+    <div>
+      <h3>Arsenal <span>velo = where he sits · IVB / HB = inches of break, HB + to his arm side</span></h3>
+      <div class="scroll">
+      <table>
+        <thead><tr>
+          <th class="l">Pitch</th><th>Velo</th><th>Max</th><th>vs L</th><th>vs R</th>
+          <th>IVB</th><th>HB</th><th>Whiff</th><th>Chase</th>
+        </tr></thead>
+        <tbody>
+        {% for a in c.arsenal %}
+          <tr>
+            <td class="l"><i class="sw" style="background:{{ c.colors[a.pitch_type] }}"></i><b>{{ c.short_names[a.pitch_type] }}</b>{{ coach(a.pitch_type) }}</td>
+            <td>{{ num(a.sits_lo, 0) }}–{{ num(a.sits_hi, 0) }}</td>
+            <td>{{ num(a.touches, 0) }}</td>
+            <td{% if a.usage_L is not none and a.usage_L < c.rare_share %} class="dim"{% endif %}>{{ pct(a.usage_L) }}</td>
+            <td{% if a.usage_R is not none and a.usage_R < c.rare_share %} class="dim"{% endif %}>{{ pct(a.usage_R) }}</td>
+            <td>{{ whole(a.ivb) }}</td>
+            <td>{{ whole(a.arm_run, true) }}</td>
+            <td{% if a.swings < c.rate_min %} class="dim"{% endif %}>{{ pct(a.whiff_rate) }}</td>
+            <td{% if a.chances < c.rate_min %} class="dim"{% endif %}>{{ pct(a.chase_rate) }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div>
+      {% if c.recent.last_n %}
+      <h3>Last {{ c.recent.last_n }} outings
+        {% if c.recent.fastball %}<span>{{ c.short_names.get(c.recent.fastball, c.recent.fastball) }} velo{% if c.recent.velo_earlier is not none %} · {{ num(c.recent.velo_earlier) }} before that{% endif %}</span>{% endif %}</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr>
+          <th class="l">Date</th><th>Pit</th><th>Velo</th><th>Whiff</th><th>K</th><th>BB</th>
+        </tr></thead>
+        <tbody>
+        {% for g in c.recent.starts %}
+          <tr>
+            <td class="l">{{ g.day }}</td><td>{{ g.pitches }}</td>
+            <td>{{ num(g.fb_velo) }}</td><td>{{ pct(g.whiff_rate) }}</td>
+            <td>{{ g.strikeouts }}</td><td>{{ g.walks }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <h3>Pitch mix by situation <span>share of his pitches to that side in that situation · faded = fewer than 30 pitches</span></h3>
+  <div class="pies">
+    <div class="corner"></div>
+    {% for p in c.pies[0].pies %}<div class="piehead">{{ p.label }}</div>{% endfor %}
+    {% for row in c.pies %}
+    <div class="rowlab">{{ row.label }}</div>
+    {% for p in row.pies %}
+    <div class="pie{% if not p.reliable %} thin{% endif %}">
+      <div class="piecap">{{ p.label }}</div>
+      <svg viewBox="0 0 {{ p.size }} {{ p.size }}" role="img"
+           aria-label="{{ p.label }}, {{ row.label }}: {% for sl in p.slices %}{{ coach(sl.pitch) }} {{ pct(sl.share) }}{% if not loop.last %}, {% endif %}{% endfor %}">
+        {% for sl in p.slices %}
+        <g>
+          <title>{{ coach(sl.pitch) }}: {{ sl.n }} of {{ p.n }} ({{ pct(sl.share) }})</title>
+          {% if sl.full %}
+          <circle cx="{{ p.cx }}" cy="{{ p.cy }}" r="{{ p.r }}" fill="{{ sl.color }}"/>
+          {% else %}
+          <path d="{{ sl.d }}" fill="{{ sl.color }}" stroke="#fff" stroke-width="1.2"/>
+          {% endif %}
+        </g>
+        {% endfor %}
+        {% for sl in p.slices if sl.labelled %}
+        <text x="{{ sl.label_x }}" y="{{ sl.label_y - 1 }}" class="pl{% if sl.small %} sm{% endif %}">{{ sl.short }}</text>
+        <text x="{{ sl.label_x }}" y="{{ sl.label_y + (8 if sl.small else 10) }}" class="pv{% if sl.small %} sm{% endif %}">{{ pct(sl.share) }}</text>
+        {% endfor %}
+        {% if not p.slices %}
+        <text x="{{ p.cx }}" y="{{ p.cy + 4 }}" class="pnone">no pitches</text>
+        {% endif %}
+      </svg>
+      <div class="pien">n={{ "{:,}".format(p.n) }}</div>
+    </div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+
+  <h3>Location by pitch <span>catcher's view · % of that pitch to each zone · box = strike zone</span></h3>
+  <div class="zones" style="--pitches:{{ c.order|length }}">
+    {% for row in c.zones.sides %}
+    <div class="rowlab">{{ row.label }}</div>
+    {% for m in row.maps %}
+    <div class="zm">
+      <div class="zt"><i class="sw" style="background:{{ c.colors[m.pitch] }}"></i>{{ m.short }} <span>n={{ "{:,}".format(m.n) }}</span></div>
+      {% if m.enough %}
+      <div class="zbox" role="img" aria-label="Where his {{ coach(m.pitch)|lower }} goes, {{ row.label }}">
+        <div class="zouter">
+          {% for z in m.outer %}
+          <div class="zo zo{{ z.zone }}{% if z.dark %} zdark{% endif %}" style="background:{{ z.bg }}" title="{{ z.n }} of {{ m.n }}"><b>{{ z.pct if z.pct is not none else "" }}</b></div>
+          {% endfor %}
+        </div>
+        <div class="zinner">
+          {% for z in m.inner %}
+          <div{% if z.dark %} class="zdark"{% endif %} style="background:{{ z.bg }}" title="{{ z.n }} of {{ m.n }}">{{ z.pct if z.pct is not none else "" }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="zbox thin"><span>{% if m.n %}too few<br>to map{% else %}not<br>thrown{% endif %}</span></div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+
+  <div class="three keys">
+    {% for side, title in [("L", "Keys vs LHH"), ("R", "Keys vs RHH"), ("both", "Either side")] %}
+    <div>
+      <h3>{{ title }}</h3>
+      <ul>
+      {% for k in c.key_lines[side] %}
+        <li><b>{{ k.label }}.</b> {{ k.card_text }} <span class="n">n={{ "{:,}".format(k.n) }}</span></li>
+      {% else %}
+        {% if side == "both" %}
+        <li class="dim">No count tell, height tell or recent change clears its bar.</li>
+        {% elif c.plan[side] %}
+        <li class="dim">Nothing to this side clears its bar: he stays with his usual mix. Read the pies.</li>
+        {% else %}
+        <li class="dim">Too few pitches to this side to write a key.</li>
+        {% endif %}
+      {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="two byhand">
+    <div>
+      <h3>Running game <span>video and stopwatch</span></h3>
+      <div class="blanks">
+        <div>Time to the plate, stretch<span>sec</span></div>
+        <div>Slide step, quick pitch<span>notes</span></div>
+        <div>Pickoff move, looks<span>notes</span></div>
+      </div>
+    </div>
+    <div>
+      <h3>Scout notes <span>video: tipping, tempo, with runners on</span></h3>
+      <div class="ruled">{% for _ in range(24) %}<i></i>{% endfor %}</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    {# The last sentence is the split-half check on the pies and maps
+       themselves (scripts/replication.py, 55 pitcher-seasons): how far to
+       trust a number on this page, said once, on the page. #}
+    <span>Whiff = misses per swing. Chase = swings at pitches outside the zone. Max = 99th
+      percentile. Pitcher's count = more strikes than balls; hitter's count = more balls
+      than strikes. Grey = a thin sample, or a pitch that side barely sees. n = pitches
+      behind the line. A key is printed only when it clears its sample and strength bars.
+      From one half of a season to the next, a pie slice moves about 4 points and a zone
+      cell about 2.</span>
+    <span>statcast-advance · Baseball Savant data<br>{{ payload.meta.generated }}</span>
+  </div>
+</div>
+</section>
+
 <header class="top">
-  <h1>{{ payload.meta.pitcher }} — {{ payload.meta.season }} advance report</h1>
+  <h2>Behind the card — {{ payload.meta.pitcher }}, {{ payload.meta.season }}</h2>
+  <div class="sub">
+    The card is the page to print. What follows is the evidence for it, and what was
+    left off it.
+  </div>
   <div class="sub">
     Throws <b>{{ payload.meta.hand }}</b> ·
     <b>{{ "{:,}".format(payload.meta.pitches) }}</b> pitches ·
@@ -265,160 +585,6 @@ button.more:hover{background:#f3f6fa}
   player-season to populate it.
 </div>
 {% endif %}
-
-{# ------------------------------------------------------------ dugout card
-   Page one. Rendered here in the template rather than in JavaScript so it
-   prints, and so it still works if scripts are blocked: this is the page that
-   gets folded into a back pocket. #}
-{% set c = payload.card %}
-{% set names = payload.display_names %}
-{% macro pct(v, d=0) %}{% if v is none %}—{% else %}{{ ("%." ~ d ~ "f")|format(v * 100) }}%{% endif %}{% endmacro %}
-{% macro num(v, d=1) %}{% if v is none %}—{% else %}{{ ("%." ~ d ~ "f")|format(v) }}{% endif %}{% endmacro %}
-{# wOBA-scale numbers print the way scouts write them: .262, not 0.262. #}
-{% macro woba(v) %}{% if v is none %}—{% else %}{{ ("%.3f"|format(v)).replace("0.", ".", 1) if v >= 0 else "%.3f"|format(v) }}{% endif %}{% endmacro %}
-
-<section class="dugout">
-  <div class="dg-head">
-    <h2>Dugout card</h2>
-    <span class="dg-sub">{{ payload.meta.pitcher }} · {{ payload.meta.hand }}HP · {{ payload.meta.season }}</span>
-  </div>
-
-  <div class="seasonline">
-    <span><b>{{ pct(c.season.k_rate, 1) }}</b> K</span>
-    <span><b>{{ pct(c.season.bb_rate, 1) }}</b> BB</span>
-    <span><b>{{ pct(c.season.k_minus_bb, 1) }}</b> K−BB</span>
-    <span><b>{{ pct(c.season.whiff_rate, 1) }}</b> whiff / swing</span>
-    <span><b>{{ pct(c.season.chase_rate, 1) }}</b> chase</span>
-    <span><b>{{ pct(c.season.zone_rate, 1) }}</b> in zone</span>
-    <span><b>{{ pct(c.season.first_strike_rate, 1) }}</b> 1st-pitch strike</span>
-    <span><b>{{ woba(c.season.xwoba) }}</b> xwOBA</span>
-    <span class="dim">{{ c.season.batters }} batters · {{ c.season.games }} games</span>
-  </div>
-
-  <div class="plan">
-    {% for side, title in [("L", "Lefty"), ("R", "Righty")] %}
-    <div class="planside">
-      <h3>{{ title }} hitting plan</h3>
-      <ul>
-      {% for k in c.plan[side] %}
-        <li><b>{{ k.label }}.</b> {{ k.text }} <span class="n">n={{ "{:,}".format(k.n) }}</span></li>
-      {% else %}
-        <li class="dim">Not enough pitches to this side to write a plan.</li>
-      {% endfor %}
-      </ul>
-    </div>
-    {% endfor %}
-  </div>
-  {% if c.plan.both %}
-  <div class="planboth">
-    <h3>Either side</h3>
-    <ul>
-    {% for k in c.plan.both %}
-      <li><b>{{ k.label }}.</b> {{ k.text }} <span class="n">n={{ "{:,}".format(k.n) }}</span></li>
-    {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-  <p class="note">{{ c.plan.basis }}</p>
-
-  <h3 class="dg-h3">Arsenal</h3>
-  <div class="scroll">
-  <table class="static">
-    <thead><tr>
-      <th>Pitch</th><th class="num">Velo</th><th class="num">Usage</th>
-      <th class="num">To L</th><th class="num">To R</th>
-      <th class="num">Ride (in)</th><th class="num">Arm-side (in)</th>
-      <th class="num">Spin</th><th class="num">Whiff</th><th class="num">Chase</th>
-      <th class="num">xwOBA</th>
-    </tr></thead>
-    <tbody>
-    {% for a in c.arsenal %}
-      <tr>
-        <td><b>{{ names.get(a.pitch_type, a.pitch_type) }}</b></td>
-        <td class="num">{{ "%.0f"|format(a.sits_lo) }}–{{ "%.0f"|format(a.sits_hi) }}
-          <span class="dim">· T{{ "%.0f"|format(a.touches) }}</span></td>
-        <td class="num">{{ pct(a.usage) }}</td>
-        <td class="num{% if a.usage_L is not none and a.usage_L < 0.03 %} dim{% endif %}">{{ pct(a.usage_L) }}</td>
-        <td class="num{% if a.usage_R is not none and a.usage_R < 0.03 %} dim{% endif %}">{{ pct(a.usage_R) }}</td>
-        <td class="num">{{ num(a.ivb) }}</td>
-        <td class="num">{{ num(a.arm_run) }}</td>
-        <td class="num">{{ "{:,.0f}".format(a.spin) if a.spin is not none else "—" }}</td>
-        <td class="num">{{ pct(a.whiff_rate) }}</td>
-        <td class="num">{{ pct(a.chase_rate) }}</td>
-        <td class="num">{{ woba(a.xwoba) }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">
-    Velo is where he sits (10th–90th percentile) and T is what he touches. Ride is
-    induced vertical break; arm-side is horizontal break toward his throwing arm,
-    with glove-side negative. Greyed usage means he essentially never shows that side
-    the pitch.
-  </p>
-
-  <h3 class="dg-h3">What he throws, by count</h3>
-  <div class="scroll">
-  <table class="static tend">
-    <thead><tr><th>Situation</th><th>To lefties</th><th>To righties</th></tr></thead>
-    <tbody>
-    {% for t in c.tendencies %}
-      <tr>
-        <td><b>{{ t.label }}</b></td>
-        {% for side in ["L", "R"] %}
-        <td class="{% if not t[side].reliable %}dim{% endif %}">
-          {% for p in t[side].top %}{{ names.get(p.pitch, p.pitch) }} <b>{{ pct(p.share) }}</b>{% if not loop.last %} · {% endif %}{% endfor %}
-          <span class="n">n={{ t[side].n }}</span>
-        </td>
-        {% endfor %}
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">
-    A pitcher's count is one where he is ahead (more strikes than balls); a
-    hitter's count is one where he is behind (more balls than strikes) — the same
-    counts as "Hitter's count" in the plan. Two strikes overlaps the other rows on
-    purpose — it's the put-away question. Greyed cells rest on fewer than 30 pitches.
-  </p>
-
-  {% if c.recent.last_n %}
-  <h3 class="dg-h3">Lately — last {{ c.recent.last_n }} outings</h3>
-  <div class="scroll">
-  <table class="static">
-    <thead><tr>
-      <th>Date</th><th class="num">Pitches</th>
-      <th class="num">{{ names.get(c.recent.fastball, c.recent.fastball) }} velo</th>
-      <th class="num">Whiff / swing</th><th class="num">K</th><th class="num">BB</th>
-    </tr></thead>
-    <tbody>
-    {% for s in c.recent.starts %}
-      <tr>
-        <td>{{ s.date }}</td><td class="num">{{ s.pitches }}</td>
-        <td class="num">{{ num(s.fb_velo) }}</td><td class="num">{{ pct(s.whiff_rate) }}</td>
-        <td class="num">{{ s.strikeouts }}</td><td class="num">{{ s.walks }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">
-    Velocity {{ num(c.recent.velo_recent) }} mph lately against
-    {{ num(c.recent.velo_earlier) }} over {{ c.recent.earlier_label }}
-    ({{ "%+.1f"|format(c.recent.velo_delta) if c.recent.velo_delta is not none else "—" }}).
-    Usage changes are only called out in the plan when they clear a strict test,
-    because every pitch is compared at once.
-  </p>
-  {% endif %}
-
-  <p class="note gapnote">
-    <b>Not covered:</b> time to the plate, pickoff move, slide step and pitch tipping.
-    Those are standard in an advance report but are not in pitch-tracking data — they
-    need video or a stopwatch.
-  </p>
-</section>
 
 <section class="card">
   <h2>Findings, with their evidence</h2>
@@ -745,13 +911,16 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
 <section class="card">
   <h2>Arsenal{% if payload.meta.has_league %} against the league{% endif %}, by batter side</h2>
   <p class="lede">
-    What the card's arsenal table leaves out.
+    What the card's arsenal table leaves out: overall usage, spin, zone rate, whiff
+    rate by batter side, and results.
     {% if payload.meta.has_league %}Each "vs Lg" and &Delta; column is his pitch against
     the league's version of the same pitch from the same hand: a pitch thrown well
     above league rate is the defining fact about a pitcher.{% endif %}
     Whiff rate is per swing, not per pitch, and is blank against a side that saw too
-    few of the pitch for a rate to mean anything. Movement and velocity range are on
-    the card.
+    few of the pitch for a rate to mean anything. xwOBA is here and not on the card
+    because a pitch's xwOBA in one half of a season says only so much about the other
+    (r about 0.6, against 0.9 and up for usage, velocity and movement). Movement and
+    velocity range are on the card.
   </p>
   <div class="scroll"><table id="arsenalTable"><thead></thead><tbody></tbody></table></div>
 </section>
@@ -952,9 +1121,9 @@ function table(id, rows, cols) {
   draw(rows);
 }
 
-/* What the card's arsenal table does not carry: the league comparisons, zone
-   rate, and whiff rate by batter side. Movement, spin and chase are on the
-   card and are not repeated here. */
+/* What the card's arsenal table does not carry: overall usage, the league
+   comparisons, spin, zone rate, whiff rate by batter side and xwOBA. Movement
+   and chase are on the card and are not repeated here. */
 table('arsenalTable', D.arsenal, [
   { f: 'pitch_type', l: 'Pitch' },
   { f: 'n', l: 'n', n: 1, fmt: int },
@@ -963,6 +1132,7 @@ table('arsenalTable', D.arsenal, [
   { f: 'usage_ratio', l: 'vs Lg', n: 1, fmt: v => num(v, 2) + 'x' },
   { f: 'velo', l: 'Velo', n: 1, fmt: v => num(v, 1) },
   { f: 'velo_delta', l: 'Δ velo', n: 1, fmt: v => sign(v, 1) },
+  { f: 'spin', l: 'Spin', n: 1, fmt: int },
   { f: 'zone_rate', l: 'Zone%', n: 1, fmt: pct0 },
   { f: 'whiff_rate', l: 'Whiff', n: 1, fmt: pct },
   { f: 'whiff_delta', l: 'Δ whiff', n: 1, fmt: v => sign(v, 3) },

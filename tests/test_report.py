@@ -436,11 +436,31 @@ class TestFatigueReliability:
         assert len(f["buckets"]) == len(f["reliable"]) == len(f["velo"])
 
 
+def card_html(html: str) -> str:
+    """The dugout card's own markup, without the pages behind it or the
+    embedded payload, which still carries everything the card leaves off."""
+    return html[html.index('<section class="dugout"'):html.index('<header class="top">')]
+
+
+def thin_side_frame() -> pd.DataFrame:
+    """Plenty to righties, a handful of sliders to lefties, and a hitter's
+    count to righties in which he mixes."""
+    return make_frame([
+        {"pitch_type": "FF", "n": 120, "stand": "L"},
+        {"pitch_type": "SL", "n": 10, "stand": "L", "zone": 13},
+        {"pitch_type": "FF", "n": 100, "stand": "R"},
+        {"pitch_type": "SL", "n": 100, "stand": "R", "zone": 13},
+        {"pitch_type": "FF", "n": 45, "stand": "R", "balls": 2},
+        {"pitch_type": "SL", "n": 55, "stand": "R", "balls": 2, "zone": 13},
+    ])
+
+
 class TestDugoutCard:
     def test_payload_carries_the_card(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         card = payload["card"]
-        assert {"season", "arsenal", "tendencies", "recent", "plan"} <= set(card)
+        assert {"season", "arsenal", "recent", "pies", "zones", "plan",
+                "key_lines", "order"} <= set(card)
 
     def test_headline_strip_is_gone(self):
         """It led with "most predictable count: 3-0, four-seam 82%" — 32
@@ -453,18 +473,165 @@ class TestDugoutCard:
         the template, not by scripts."""
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         html = report.render(payload)
-        card_at = html.find("Dugout card")
+        card_at = html.find('<section class="dugout"')
+        behind_at = html.find("Behind the card")
         findings_at = html.find("Findings, with their evidence")
-        assert 0 < card_at < findings_at
-        assert "Lefty hitting plan" in html
-        assert "Righty hitting plan" in html
-        assert "Not covered:" in html
+        assert 0 < card_at < behind_at < findings_at
+
+        card = card_html(html)
+        assert "<script" not in card
+        for heading in ("Arsenal", "Pitch mix by situation", "Location by pitch",
+                        "Keys vs LHH", "Keys vs RHH", "Either side",
+                        "Running game", "Scout notes"):
+            assert heading in card
+
+    def test_card_is_one_printed_page(self):
+        """Sized to a letter page, and the next section starts on a new one.
+        That the content fits is checked on real pitchers, not here: every
+        size on the card is relative to its width, so it is the same picture
+        on paper as on screen."""
+        html = report.render(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        assert "@page{size:letter;margin:.35in}" in html
+        assert "break-after:page" in html
+        assert "font-size:1.14cqw" in html
 
     def test_tendency_rows_cover_every_situation(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         situations = [t["situation"] for t in payload["card"]["tendencies"]]
         from src.metrics import counts
         assert situations == counts.SITUATIONS
+
+
+class TestCardPies:
+    def pies(self, frame=None):
+        payload = report.build_payload(
+            sample_frame() if frame is None else frame, "Test Pitcher", 2025)
+        return payload["card"]
+
+    def test_five_situations_for_each_side(self):
+        from src.metrics import counts
+        card = self.pies()
+        assert [row["side"] for row in card["pies"]] == ["L", "R"]
+        for row in card["pies"]:
+            assert [p["situation"] for p in row["pies"]] == counts.SITUATIONS
+
+    def test_each_pie_is_the_whole_mix(self):
+        for row in self.pies()["pies"]:
+            for pie in row["pies"]:
+                if pie["n"]:
+                    assert sum(s["share"] for s in pie["slices"]) == pytest.approx(1.0)
+                    assert sum(s["n"] for s in pie["slices"]) == pie["n"]
+
+    def test_pitches_go_round_every_pie_in_the_same_order(self):
+        card = self.pies()
+        rank = {p: i for i, p in enumerate(card["order"])}
+        for row in card["pies"]:
+            for pie in row["pies"]:
+                ranks = [rank[s["pitch"]] for s in pie["slices"]]
+                assert ranks == sorted(ranks)
+
+    def test_a_situation_never_seen_is_an_empty_pie(self):
+        """Every pitch in the sample frame is a first pitch."""
+        card = self.pies()
+        two_strikes = card["pies"][0]["pies"][-1]
+        assert two_strikes["n"] == 0 and two_strikes["slices"] == []
+        html = report.render(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        assert "no pitches" in card_html(html)
+
+    def test_a_thin_situation_is_marked_for_fading(self):
+        card = self.pies(thin_side_frame())
+        first_to_lefties = card["pies"][0]["pies"][0]
+        assert first_to_lefties["n"] == 130 and first_to_lefties["reliable"] is True
+        thin = make_frame([
+            {"pitch_type": "FF", "n": 15, "stand": "L"},
+            {"pitch_type": "SL", "n": 5, "stand": "L"},
+            {"pitch_type": "FF", "n": 200, "stand": "R"},
+        ])
+        assert self.pies(thin)["pies"][0]["pies"][0]["reliable"] is False
+
+
+class TestCardZones:
+    def zones(self, frame) -> dict:
+        return report.build_payload(frame, "Test Pitcher", 2025)["card"]["zones"]
+
+    def test_one_map_per_pitch_per_side_in_arsenal_order(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        zones = payload["card"]["zones"]
+        for row in zones["sides"]:
+            assert [m["pitch"] for m in row["maps"]] == payload["card"]["order"]
+
+    def test_a_map_is_the_whole_of_that_pitch_to_that_side(self):
+        for row in self.zones(sample_frame())["sides"]:
+            for m in row["maps"]:
+                cells = m["inner"] + m["outer"]
+                assert len(cells) == 13
+                assert sum(c["n"] for c in cells) == m["n"]
+                assert sum(c["share"] for c in cells) == pytest.approx(1.0)
+
+    def test_too_few_pitches_to_a_side_is_not_mapped(self):
+        """Ten sliders over thirteen zones is a picture of noise. The pitch
+        keeps its place in the row and says how many there were."""
+        lefties = self.zones(thin_side_frame())["sides"][0]
+        slider = next(m for m in lefties["maps"] if m["pitch"] == "SL")
+        assert slider["n"] == 10 and slider["enough"] is False
+        assert "inner" not in slider
+        html = report.render(report.build_payload(thin_side_frame(), "Test Pitcher", 2025))
+        assert "too few" in card_html(html)
+
+    def test_an_empty_zone_prints_no_number(self):
+        lefties = self.zones(sample_frame())["sides"][0]
+        fastball = next(m for m in lefties["maps"] if m["pitch"] == "FF")
+        by_zone = {c["zone"]: c for c in fastball["inner"] + fastball["outer"]}
+        assert by_zone[5]["pct"] == 100
+        assert by_zone[1]["pct"] is None
+
+
+class TestCardKeepsWhatRepeats:
+    """The card prints what a hitter can act on. Everything it used to print
+    is still computed and still in the payload."""
+
+    def test_he_mixes_is_in_the_plan_and_not_on_the_card(self):
+        payload = report.build_payload(thin_side_frame(), "Test Pitcher", 2025)
+        plan = [k["text"] for k in payload["card"]["plan"]["R"]]
+        assert any(text.startswith("He still mixes") for text in plan)
+        assert "He still mixes" not in card_html(report.render(payload))
+
+    def test_card_lines_are_all_advice(self):
+        payload = report.build_payload(thin_side_frame(), "Test Pitcher", 2025)
+        for side in ("L", "R", "both"):
+            assert all(k["card"] for k in payload["card"]["key_lines"][side])
+
+    def test_a_side_with_nothing_to_say_says_so(self):
+        payload = report.build_payload(thin_side_frame(), "Test Pitcher", 2025)
+        payload["card"]["key_lines"]["R"] = []
+        assert "Nothing to this side clears its bar" in card_html(report.render(payload))
+
+    def test_results_and_runs_stay_off_the_card(self):
+        """A pitch's xwOBA in one half of a season says little about the
+        other, so the card's arsenal table does not carry it."""
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        card = card_html(report.render(payload))
+        arsenal_table = card[card.index("<table"):card.index("</table>")]
+        assert "xwOBA" not in arsenal_table and "Spin" not in arsenal_table
+        assert "K−BB" not in card
+
+    def test_what_left_the_card_is_still_in_the_payload(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        card = payload["card"]
+        assert "k_minus_bb" in card["season"]
+        assert {"spin", "xwoba", "usage"} <= set(card["arsenal"][0])
+        assert card["tendencies"] and card["plan"]["basis"]
+
+    def test_spin_moved_to_the_detail_table(self):
+        html = report.render(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        assert "{ f: 'spin', l: 'Spin'" in html
+
+    def test_a_thin_rate_is_flagged_by_its_sample(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        card = payload["card"]
+        assert card["rate_min"] == 30
+        assert all(row["swings"] < card["rate_min"] for row in card["arsenal"])
+        assert 'class="dim"' in card_html(report.render(payload))
 
 
 class TestZoneMapLayout:

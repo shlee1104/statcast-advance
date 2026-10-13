@@ -337,3 +337,81 @@ class TestSequenceHeadline:
         text = gameplan.sequence_headline(self.table(
             transition("SL", "SL", 96, 150, 0.40, "more")))
         assert "96 of 150" in text
+
+
+
+class TestPieLayout:
+    def rows(self) -> list[dict]:
+        return [
+            {"pitch": "FF", "share": 0.55, "n": 55},
+            {"pitch": "SL", "share": 0.33, "n": 33},
+            {"pitch": "CU", "share": 0.12, "n": 12},
+        ]
+
+    def test_goes_round_clockwise_from_twelve_in_the_order_given(self):
+        """The card gives every pie the same order, so a pitch starts from
+        the same place in each and the pies compare by eye."""
+        pie = charts.pie_layout(self.rows())
+        assert [s["pitch"] for s in pie["slices"]] == ["FF", "SL", "CU"]
+        assert pie["slices"][0]["d"].startswith("M60.0,60.0 L60.0,4.0 ")
+        assert pie["slices"][-1]["d"].endswith(" 60.0,4.0 Z")
+
+    def test_a_majority_slice_takes_the_long_way_round(self):
+        pie = charts.pie_layout(self.rows())
+        assert " 0 1 1 " in pie["slices"][0]["d"]
+        assert " 0 0 1 " in pie["slices"][1]["d"]
+
+    def test_a_pitch_not_thrown_gets_no_slice(self):
+        pie = charts.pie_layout(self.rows() + [{"pitch": "CH", "share": 0.0}])
+        assert "CH" not in [s["pitch"] for s in pie["slices"]]
+
+    def test_one_pitch_is_a_full_circle(self):
+        """An arc from a point back to itself draws nothing."""
+        pie = charts.pie_layout([{"pitch": "FF", "share": 1.0}])
+        only = pie["slices"][0]
+        assert only["full"] and only["d"] is None
+        assert (only["label_x"], only["label_y"]) == (60.0, 60.0)
+
+    def test_a_thin_slice_is_drawn_but_not_labelled(self):
+        pie = charts.pie_layout([
+            {"pitch": "FF", "share": 0.93}, {"pitch": "CU", "share": 0.07}])
+        thin = pie["slices"][1]
+        assert thin["d"] and thin["labelled"] is False
+
+    def test_a_small_slice_is_labelled_nearer_the_rim(self):
+        """Two neighbouring 13% slices printed their labels on each other."""
+        pie = charts.pie_layout(self.rows())
+        big, _, small = pie["slices"]
+        def radius(s):
+            return ((s["label_x"] - 60) ** 2 + (s["label_y"] - 60) ** 2) ** 0.5
+        assert small["small"] and not big["small"]
+        assert radius(small) > radius(big)
+
+    def test_each_slice_keeps_its_pitch_colour_and_its_count(self):
+        pie = charts.pie_layout(self.rows())
+        assert pie["slices"][0]["color"] == charts.color("FF")
+        assert pie["slices"][0]["n"] == 55
+
+    def test_no_pitches_is_an_empty_pie(self):
+        assert charts.pie_layout([])["slices"] == []
+
+
+class TestZoneCell:
+    def test_tint_runs_from_white_to_the_colour(self):
+        assert charts.tint("#2f6fb2", 0) == "rgb(255,255,255)"
+        assert charts.tint("#2f6fb2", 1) == "rgb(47,111,178)"
+        assert charts.tint("#2f6fb2", 5) == "rgb(47,111,178)"
+
+    def test_a_cell_is_its_pitchs_colour(self):
+        """So a map is the colour its pitch has in the pies beside it."""
+        full = charts.zone_cell("FS", charts.ZONE_FULL_SHARE)
+        assert full["bg"] == charts.tint(charts.color("FS"), 1)
+
+    def test_the_same_share_is_the_same_depth_in_every_map(self):
+        """The scale is fixed, not fitted to each map."""
+        assert charts.zone_cell("FF", 0.15)["bg"] == charts.tint(charts.color("FF"), 0.5)
+        assert charts.zone_cell("FF", 0.90)["bg"] == charts.zone_cell("FF", 0.30)["bg"]
+
+    def test_a_deep_cell_prints_its_number_in_white(self):
+        assert charts.zone_cell("FF", 0.25)["dark"] is True
+        assert charts.zone_cell("FF", 0.05)["dark"] is False

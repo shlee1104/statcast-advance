@@ -25,7 +25,13 @@ half by game (see `validation.split_halves`), and three things are measured.
                third-trip changes, count predictability, and how much a
                location band gives away.
 
-A fourth table describes the full season rather than the split: how many
+  card         What the one-page dugout card draws: every slice of its
+               situation pies and every cell of its zone maps, by batter
+               side, in each half. Reported as how far a number moves between
+               halves, in points, as well as a correlation, because a hitter
+               reads the number.
+
+Another table describes the full season rather than the split: how many
 findings of each type the report makes, how many run-value comparisons it
 runs, and how many of those survive correction.
 
@@ -115,6 +121,13 @@ PITCHER_METRICS: dict[str, str] = {
     "count_predictability": "Count predictability (per count)",
     "info_gain_v_band": "What a pitch's height gives away",
     "info_gain_h_band": "What a pitch's side gives away",
+}
+
+# What the dugout card draws that no other table here covers: the per-pitch
+# columns above are season-wide, and the card splits by batter side.
+CARD_METRICS: dict[str, str] = {
+    "pie_share": "Card pie: a pitch's share of a situation, by side",
+    "zone_share": "Card zone map: a pitch's share of a zone, by side",
 }
 
 FLAG_TYPES: tuple[str, ...] = (
@@ -486,6 +499,112 @@ def per_pitcher_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
         if info[0]["n"] and info[1]["n"]:
             add(f"info_gain_{band}", info[0]["info_gain_pct"], info[1]["info_gain_pct"])
     return rows
+
+
+# ---------------------------------------------------------------------------
+# The dugout card: its pies and its zone maps
+# ---------------------------------------------------------------------------
+
+
+def card_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
+    """Every number the card's pies and zone maps print, in each half.
+
+    One dict per number: `metric` (a key of CARD_METRICS), `key`, `first` and
+    `second` (shares), and `n_first` / `n_second`, the pitches each share is
+    a share of.
+
+    A pie is compared only where the card would draw it unfaded in both
+    halves, and a zone map only where the card would draw it at all in both
+    (`card.zone_map_min_pitches`): those are the pictures a reader is asked
+    to trust, so those are the ones tested. A pitch in one half's mix and not
+    the other's is compared at a share of zero, not left out — a slice that
+    disappears is the largest change a pie can make.
+    """
+    if len(first) < MIN_HALF_PITCHES or len(second) < MIN_HALF_PITCHES:
+        return []
+    rows: list[dict] = []
+
+    usage = counts.situational_usage(first), counts.situational_usage(second)
+    for side in ("L", "R"):
+        for situation in counts.SITUATIONS:
+            cells = [u[(u["stand"] == side) & (u["situation"] == situation)]
+                     for u in usage]
+            if any(len(c) == 0 or not bool(c["reliable"].iloc[0]) for c in cells):
+                continue
+            shares = [c.set_index("pitch_type")["share"] for c in cells]
+            totals = [int(c["situation_n"].iloc[0]) for c in cells]
+            for pitch in sorted(set(shares[0].index) | set(shares[1].index)):
+                rows.append({
+                    "metric": "pie_share", "key": f"{side}/{situation}/{pitch}",
+                    "first": float(shares[0].get(pitch, 0.0)),
+                    "second": float(shares[1].get(pitch, 0.0)),
+                    "n_first": totals[0], "n_second": totals[1],
+                })
+
+    min_pitches = int(config.get("card.zone_map_min_pitches", 40))
+    slices = location.zone_slices(first), location.zone_slices(second)
+    if any(len(t) == 0 for t in slices):
+        return rows
+    tallies = [t.groupby(["stand", "pitch_type", "zone"])["n"].sum() for t in slices]
+    totals = [t.groupby(level=["stand", "pitch_type"]).sum() for t in tallies]
+    for side, pitch in totals[0].index.intersection(totals[1].index):
+        n1, n2 = (int(t[(side, pitch)]) for t in totals)
+        if n1 < min_pitches or n2 < min_pitches:
+            continue
+        for zone in location.ALL_ZONES:
+            rows.append({
+                "metric": "zone_share", "key": f"{side}/{pitch}/{zone}",
+                "first": float(tallies[0].get((side, pitch, zone), 0)) / n1,
+                "second": float(tallies[1].get((side, pitch, zone), 0)) / n2,
+                "n_first": n1, "n_second": n2,
+            })
+    return rows
+
+
+def card_summary(rows: list[dict]) -> list[dict]:
+    """How far each kind of card number moves from one half to the other.
+
+    Per metric: the split-half correlation, the median and 90th-percentile
+    absolute change in share, and the share of numbers that moved less than
+    five points. The correlation alone would flatter both: a pitch he throws
+    40% of the time and one he throws 4% are far apart in either half, which
+    is most of what it measures. The change in points is what a reader of the
+    number is exposed to.
+
+    `same_top` is the reading a hitter actually takes from the picture: of
+    the `pictures` compared (pies, or zone maps), the share whose largest
+    slice or busiest zone was the same one in both halves.
+    """
+    table = pd.DataFrame(rows)
+    out: list[dict] = []
+    if table.empty:
+        return out
+    if "pitcher" not in table.columns:
+        table["pitcher"] = ""
+    # A key is side/situation/pitch or side/pitch/zone: all but the last part
+    # names the picture the number belongs to.
+    table["picture"] = table["pitcher"] + "/" + table["key"].str.rsplit("/", n=1).str[0]
+    for metric, label in CARD_METRICS.items():
+        sub = table[table["metric"] == metric].dropna(subset=["first", "second"])
+        r = _correlation(sub[["first", "second"]])
+        if r != r:
+            continue
+        moved = (sub["second"] - sub["first"]).abs()
+        same = [
+            group.loc[group["first"].idxmax(), "key"]
+            == group.loc[group["second"].idxmax(), "key"]
+            for _, group in sub.groupby("picture")
+        ]
+        out.append({
+            "metric": metric, "label": label, "r": r, "pairs": len(sub),
+            "median_change": float(moved.median()),
+            "p90_change": float(moved.quantile(0.90)),
+            "within_five": float((moved < 0.05).mean()),
+            "pictures": len(same),
+            "same_top": sum(same) / len(same),
+            "pitchers": int(sub["pitcher"].nunique()),
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------

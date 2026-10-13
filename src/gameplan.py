@@ -67,6 +67,25 @@ PITCH_FAMILY: dict[str, str] = {
 
 SIDE_NAMES: dict[str, str] = {"L": "lefties", "R": "righties"}
 
+# What goes inside a pie slice or over a zone map on the dugout card, where a
+# full name does not fit. Scouts' shorthand rather than the feed's codes: "FF"
+# and "ST" mean nothing in a dugout.
+SHORT_NAMES: dict[str, str] = {
+    "FF": "4S",
+    "SI": "SNK",
+    "FC": "CUT",
+    "FS": "SPL",
+    "CH": "CH",
+    "SC": "SCR",
+    "FO": "FRK",
+    "CU": "CB",
+    "KC": "KC",
+    "SL": "SL",
+    "ST": "SWP",
+    "SV": "SLV",
+    "KN": "KN",
+}
+
 
 def name(pitch_type: str) -> str:
     """A pitch code as a coach would say it."""
@@ -77,8 +96,27 @@ def _pct(value: float) -> str:
     return f"{value:.0%}"
 
 
-def _key(label: str, text: str, n: int) -> dict:
-    return {"label": label, "text": text, "n": int(n)}
+def short(pitch_type: str) -> str:
+    """A pitch code in the two or three letters a scout would write."""
+    return SHORT_NAMES.get(pitch_type, pitch_type)
+
+
+def _key(label: str, text: str, n: int, card: bool = True,
+         card_text: str | None = None) -> dict:
+    """One line of the plan.
+
+    `card` says whether the line tells a hitter something to act on. The plan
+    writes a line for every situation it can measure, including the ones where
+    the answer is "he mixes"; the one-page card prints only the others (see
+    `card_keys`).
+
+    `card_text` is the same line cut to what fits a one-page card, in the
+    clipped way a scout writes a key: "Sit hard: fastball 71%", not "Sit hard
+    — he goes to a fastball 71% of the time". It carries the same numbers as
+    `text` and no others. Without one, the card prints `text`.
+    """
+    return {"label": label, "text": text, "n": int(n), "card": bool(card),
+            "card_text": card_text or text}
 
 
 def _top(usage: pd.DataFrame, situation: str, side: str) -> pd.DataFrame:
@@ -307,7 +345,9 @@ def first_pitch_key(usage: pd.DataFrame, side: str) -> dict | None:
         text += f", then {name(m['second'])} {_pct(m['second_share'])}"
     text += "."
 
-    return _key("First pitch", text, m["n"])
+    # A statement of his mix, not advice: on the card the first-pitch pie
+    # shows the same numbers.
+    return _key("First pitch", text, m["n"], card=False)
 
 
 def hitters_count_key(usage: pd.DataFrame, side: str) -> dict | None:
@@ -323,6 +363,7 @@ def hitters_count_key(usage: pd.DataFrame, side: str) -> dict | None:
     rows = m["rows"]
     rule = hitters_count_rule(m)
 
+    short_text = None
     if rule == "hard":
         # A pitch he throws 0% of the time in this count is not part of the
         # instruction, even if it belongs to the family.
@@ -330,13 +371,17 @@ def hitters_count_key(usage: pd.DataFrame, side: str) -> dict | None:
                          & (rows["share"] >= 0.03)]
         text = (f"Sit hard — he goes to a fastball {_pct(m['hard_share'])} of the "
                 f"time ({_list_pitches(hard_rows)}).")
+        short_text = (f"Sit hard: fastball {_pct(m['hard_share'])} "
+                      f"({_list_pitches(hard_rows)}).")
     elif rule == "pitch":
         text = f"Sit {name(m['top'])} — {_pct(m['top_share'])} of the time."
+        short_text = f"Sit {name(m['top'])}: {_pct(m['top_share'])}."
     else:
         text = (f"He still mixes ({_list_pitches(rows)}), so look for a zone, "
                 f"not a pitch.")
 
-    return _key("Hitter's count", text, m["n"])
+    return _key("Hitter's count", text, m["n"], card=rule != "mixes",
+                card_text=short_text)
 
 
 def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict | None:
@@ -366,24 +411,38 @@ def two_strike_key(frame: pd.DataFrame, usage: pd.DataFrame, side: str) -> dict 
                 text += " All of it is hard — be on time for the fastball."
         else:
             text += " Mostly off-speed — no fastball to sit on."
+        # "Look fastball and adjust" is the default two-strike approach, so
+        # this line is one for the card only when it adds something to it: a
+        # pitch to lay off, or that he throws nothing but fastballs.
+        lay_off = rule == "look_fastball" and not slower
+        short_text = (f"All hard ({_list_pitches(rows)}): be on time for the "
+                      f"fastball.") if lay_off else None
         for r in slower:
             below, located = _finishes_low(frame, side, r.pitch_type)
             if lay_off_low_call(below, located):
                 text += (f" {_pct(below)} of his {name(r.pitch_type)}s finish below "
                          f"the zone — lay off it low.")
+                short_text = (f"No one put-away pitch. {_pct(below)} of his "
+                              f"{name(r.pitch_type)}s finish below the zone — "
+                              f"lay off it low.")
+                lay_off = True
                 break
-        return _key("Two strikes", text, m["n"])
+        return _key("Two strikes", text, m["n"], card=lay_off, card_text=short_text)
 
     low = lay_off_low_call(m["below"], m["below_n"])
     text = f"Expect the {name(m['top'])} ({_pct(m['top_share'])})."
+    short_text = f"{name(m['top']).capitalize()} {_pct(m['top_share'])}."
     if m["whiff"] == m["whiff"] and m["swings"] >= _cut("min_two_strike_swings", 20):
         text += f" It misses bats on {_pct(m['whiff'])} of swings"
         text += (f", and {_pct(m['below'])} of them finish below the zone — "
                  f"lay off it low.") if low else "."
+        short_text += f" Misses bats on {_pct(m['whiff'])} of swings."
     elif low:
         text += f" {_pct(m['below'])} of them finish below the zone — lay off it low."
+    if low:
+        short_text += f" {_pct(m['below'])} finish below the zone — lay off it low."
 
-    return _key("Two strikes", text, m["n"])
+    return _key("Two strikes", text, m["n"], card_text=short_text)
 
 
 def wont_show_key(frame: pd.DataFrame, side: str, max_share: float | None = None) -> dict | None:
@@ -403,7 +462,10 @@ def wont_show_key(frame: pd.DataFrame, side: str, max_share: float | None = None
     words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
     text = (f"He basically won't show you the {rare_text} ({detail}). "
             f"Treat him as a {words.get(remaining, remaining)}-pitch pitcher.")
-    return _key("Won't see", text, m["n"])
+    count = str(words.get(remaining, remaining)).capitalize()
+    short_text = (f"{detail[0].upper()}{detail[1:]}. {count}-pitch pitcher to "
+                  f"this side.")
+    return _key("Won't see", text, m["n"], card_text=short_text)
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +554,7 @@ def season_change_key(changes: dict | None) -> dict | None:
                 f"mix and speed, so the combined sample reads as one pitcher.")
     else:
         text = f"{changes['latest']} vs {earlier}: " + "; ".join(parts) + "."
-    return _key("Since last season", text, changes["n_latest"])
+    return _key("Since last season", text, changes["n_latest"], card=bool(parts))
 
 
 def count_tells(frame: pd.DataFrame, min_lift: float | None = None) -> pd.DataFrame:
@@ -535,7 +597,12 @@ def count_tell_key(frame: pd.DataFrame, min_lift: float | None = None) -> dict |
 
     text = (f"In {which} the {name(pitch)} jumps to about {_pct(peak)} — more "
             f"than double his normal {_pct(own)}. Expect it there.")
-    return _key("Count tell", text, n)
+    listed = list(rows["count"])
+    counts_text = (", ".join(listed[:-1]) + " and " + listed[-1]
+                   if len(listed) > 1 else listed[0])
+    short_text = (f"{counts_text}: {name(pitch)} about {_pct(peak)}, more than "
+                  f"double his usual {_pct(own)}.")
+    return _key("Count tell", text, n, card_text=short_text)
 
 
 def height_tells(frame: pd.DataFrame) -> pd.DataFrame:
@@ -777,22 +844,92 @@ def sequence_headline(table: pd.DataFrame) -> str:
 
     top = found.loc[found["lift_z"].abs().idxmax()]
     side = SIDE_NAMES.get(top["stand"], "hitters")
+    claim, tail = _sequence_claim(top)
+    # "To lefties, the four-seam sets up..." but "To lefties he doubles up...".
+    lead = f"To {side}, {claim}" if claim.startswith("the ") else f"To {side} {claim}"
+    return (f"{lead}: {tail}, against his usual {_pct(top['usual'])} "
+            f"({int(top['n'])} of {int(top['row_n'])}).")
+
+
+def _sequence_claim(top: pd.Series) -> tuple[str, str]:
+    """One standout follow-up in a coach's words: what he does, and how often.
+
+    Shared by the sequence graph's headline and the card's sequence line, so
+    the two cannot describe the same follow-up differently.
+    """
     setup, follow = name(top["pitch_type"]), name(top["next_pitch"])
-    figures = (f"against his usual {_pct(top['usual'])} "
-               f"({int(top['n'])} of {int(top['row_n'])})")
+    share = _pct(top["share"])
     repeat = top["pitch_type"] == top["next_pitch"]
 
     if top["standout"] == "more" and repeat:
-        return (f"To {side} he doubles up on the {setup}: another one follows "
-                f"{_pct(top['share'])} of the time, {figures}.")
+        return (f"he doubles up on the {setup}",
+                f"another one follows {share} of the time")
     if top["standout"] == "more":
-        return (f"To {side}, the {setup} sets up the {follow}: it follows "
-                f"{_pct(top['share'])} of the time, {figures}.")
+        return f"the {setup} sets up the {follow}", f"it follows {share} of the time"
     if repeat:
-        return (f"To {side} he rarely throws the {setup} twice in a row: "
-                f"{_pct(top['share'])} of the time after one, {figures}.")
-    return (f"To {side} he goes away from the {follow} after the {setup}: "
-            f"{_pct(top['share'])} of the time, {figures}.")
+        return (f"he rarely throws the {setup} twice in a row",
+                f"{share} of the time after one")
+    return f"he goes away from the {follow} after the {setup}", f"{share} of the time"
+
+
+def sequence_key(table: pd.DataFrame, side: str) -> dict | None:
+    """The follow-up to this side that departs furthest from his usual.
+
+    `table` is `sequencing.transitions()` with a `standout` column, as for
+    `sequence_headline`. One line per side at most, the same one the sequence
+    graph would lead with for that side, and nothing when no follow-up to
+    this side stands out. Its n is how many times the first pitch was
+    followed by another to this side.
+    """
+    if len(table) == 0 or "standout" not in table.columns:
+        return None
+    found = table[(table["stand"] == side) & (table["standout"] != "")]
+    if len(found) == 0:
+        return None
+
+    top = found.loc[found["lift_z"].abs().idxmax()]
+    claim, tail = _sequence_claim(top)
+    text = (f"{claim[0].upper()}{claim[1:]}: {tail}, against his usual "
+            f"{_pct(top['usual'])}.")
+    # "He doubles up on the slider" -> "Doubles up on the slider".
+    clipped = claim.removeprefix("he ").removeprefix("the ")
+    short_text = (f"{clipped[0].upper()}{clipped[1:]}: {_pct(top['share'])} after a "
+                  f"{name(top['pitch_type'])}, usual {_pct(top['usual'])}.")
+    return _key("Sequence", text, int(top["row_n"]), card_text=short_text)
+
+
+def card_keys(plan: dict, sequences: pd.DataFrame | None = None) -> dict:
+    """The lines of the plan that go on the one-page dugout card.
+
+    The full plan says something about every situation it can measure. A
+    one-page card has room for the lines a hitter can act on, so it takes:
+
+      - "sit hard" and "sit <pitch>" in hitter's counts, not "he mixes";
+      - a named two-strike pitch, or one to lay off low, not "no single
+        put-away pitch, look fastball" — the default approach to any pitcher;
+      - pitches a side will not see;
+      - what changed since last season or in his last outings, when something
+        did;
+      - a count tell and a height tell, which are only written when they clear
+        their bars;
+      - the one follow-up to each side that stands out most, if any does.
+
+    These are the lines the holdout check counts as advice. "He mixes" and
+    "look fastball" are what it calls weaker: what a hitter would have had
+    without a report. The first-pitch line states a mix and the card draws
+    that mix as a pie, so it is left to the pie.
+
+    Returns {"L": [...], "R": [...], "both": [...]}. Nothing is removed from
+    `plan`; the lines left off the card are still in it.
+    """
+    keys = {side: [k for k in plan.get(side, []) if k.get("card", True)]
+            for side in ("L", "R", "both")}
+    if sequences is not None:
+        for side in ("L", "R"):
+            key = sequence_key(sequences, side)
+            if key:
+                keys[side].append(key)
+    return keys
 
 
 # ---------------------------------------------------------------------------

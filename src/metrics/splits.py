@@ -479,7 +479,10 @@ def recent_form(
 
     recent = working[working["game_pk"].isin(recent_games)]
     earlier = working[~working["game_pk"].isin(recent_games)]
-    fastball = primary_fastball(working)
+    # A pitcher with no four-seam or sinker is read off his cutter. Without
+    # this the table printed no velocity at all for a cutter-and-slider
+    # closer, under a heading that read "None velo".
+    fastball = primary_fastball(working) or velocity_pitch(working)
 
     # With seasons combined, "lately" is measured against the rest of the
     # current season, not against both. Otherwise it repeats what the "Since

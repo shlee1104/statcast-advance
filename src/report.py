@@ -168,6 +168,10 @@ def build_payload(
     all_findings = flags.evaluate(frame, league_mix)
     takeaways = flags.takeaways(frame, findings=all_findings)
 
+    # Read once: the card's sequence line and the sequence graph are the same
+    # follow-ups, and must come from the same table.
+    sequences = _sequence_table(frame)
+
     return {
         "meta": {
             "pitcher": pitcher,
@@ -190,7 +194,8 @@ def build_payload(
             ),
         },
         "data_gaps": _data_gaps(frame),
-        "card": _build_card(frame, changes=changes, season_frame=full_frame),
+        "card": _build_card(frame, changes=changes, season_frame=full_frame,
+                            sequences=sequences),
         "takeaways": _records(takeaways),
         "finding_count": int(len(all_findings)),
         "resolved_count": int(all_findings["resolved"].sum()) if len(all_findings) else 0,
@@ -203,7 +208,7 @@ def build_payload(
         "movement": _build_movement(frame, league_outcomes),
         "predictability": predictability_rows,
         "putaway": putaway_rows,
-        "sequence_graph": _build_sequence_graph(frame),
+        "sequence_graph": _build_sequence_graph(frame, sequences),
         "setups": _records(_without_runs(
             sequencing.setup_pairs(frame, min_n=25).head(12))),
         "location_profile": _records(
@@ -380,7 +385,16 @@ def _build_platoon_slope(frame: pd.DataFrame) -> dict:
     }
 
 
-def _build_sequence_graph(frame: pd.DataFrame) -> dict:
+def _sequence_table(frame: pd.DataFrame) -> pd.DataFrame:
+    """Every pitch-to-next-pitch follow-up by batter side, standouts marked."""
+    table = sequencing.transitions(frame)
+    return table.assign(standout=sequencing.transition_standouts(table))
+
+
+def _build_sequence_graph(
+    frame: pd.DataFrame,
+    table: pd.DataFrame | None = None,
+) -> dict:
     """What follows each pitch, to each batter side, as two-column graphs.
 
     One panel per side, because he does not throw the same pitches to both
@@ -394,8 +408,8 @@ def _build_sequence_graph(frame: pd.DataFrame) -> dict:
     glance. A pitch he never throws to a side is left off that side's panel.
     """
     row_gate = int(config.get("flags.min_n.sequence_follow_ups", 40))
-    table = sequencing.transitions(frame)
-    table = table.assign(standout=sequencing.transition_standouts(table))
+    if table is None:
+        table = _sequence_table(frame)
     order = list(counts.pitch_mix(counts.restrict_to_arsenal(frame)).index)
 
     panels = []
@@ -551,19 +565,37 @@ def _build_fatigue(fatigue: pd.DataFrame, pitch: str | None = None) -> dict:
     }
 
 
+CARD_SIDES: list[tuple[str, str]] = [("L", "vs LHH"), ("R", "vs RHH")]
+
+
 def _build_card(
     frame: pd.DataFrame,
     last_n: int = 5,
     changes: dict | None = None,
     season_frame: pd.DataFrame | None = None,
+    sequences: pd.DataFrame | None = None,
 ) -> dict:
     """The dugout card: page one of the report, the part a coach takes out.
 
     Front offices describe paring "a phone book's amount of information" down
     to a few pages, with one-sentence notes for use mid-game. This is that
-    page. It carries five things, in the order a hitter reads them: the season
-    line, the hitting plan split by side, the arsenal as a scout writes it,
-    the count tendencies split by side, and what he has done lately.
+    page, and it is one printed page. In reading order: the season line, the
+    arsenal as a scout writes it, his last outings, his mix in five
+    situations as pies and where each pitch goes as zone maps, both split by
+    batter side, and the keys — the lines of the hitting plan a hitter can
+    act on.
+
+    What earns a place is what repeats. Usage, velocity, movement and
+    location are nearly the same pitcher in both halves of a season (r of
+    0.92 and up, see scripts/replication.py), whiff and chase rates mostly
+    (0.73 to 0.82), and the keys are the lines the holdout check scores as
+    advice. A pitch's xwOBA (0.6) and anything in runs are not on the card.
+
+    The payload still carries everything the page used to print: `plan` is
+    the whole hitting plan, `key_lines` the lines of it chosen for the card (see
+    `gameplan.card_keys`), `tendencies` the top pitches by situation that the
+    pies replaced. Nothing was removed to make the page shorter; the template
+    prints less.
 
     It replaced a strip of headline numbers whose most prominent cell was
     "most predictable count: 3-0, four-seam 82%". That is 32 pitches, a count
@@ -590,12 +622,28 @@ def _build_card(
         tendencies.append(row)
 
     form = splits.recent_form(frame, last_n=last_n)
+    starts = _records(form["starts"])
+    for start in starts:
+        day = pd.Timestamp(start["date"])
+        start["day"] = f"{day.strftime('%b')} {day.day}"
+
+    scout = arsenal.scout_arsenal(frame)
+    order = list(scout.index)
+    plan = gameplan.build(frame, last_n=last_n, changes=changes)
+    dated = frame if season_frame is None else season_frame
 
     return {
-        "season": {k: _clean(v) for k, v in events.season_line(
-            frame if season_frame is None else season_frame).items()},
-        "arsenal": _records(arsenal.scout_arsenal(frame), index_name="pitch_type"),
+        "season": {k: _clean(v) for k, v in events.season_line(dated).items()},
+        "through": _last_date(dated),
+        "arsenal": _records(scout, index_name="pitch_type"),
+        "order": order,
+        "colors": {p: charts.color(p) for p in order},
+        "short_names": {p: gameplan.short(p) for p in order},
+        "rate_min": int(config.get("card.min_rate_sample", 30)),
+        "rare_share": float(config.get("plan.rare_share", 0.03)),
         "tendencies": tendencies,
+        "pies": _build_card_pies(usage, order),
+        "zones": _build_card_zones(frame, order),
         "recent": {
             "last_n": form["last_n"],
             "dates": form["dates"],
@@ -605,12 +653,110 @@ def _build_card(
             "velo_delta": _clean(form["velo_delta"]),
             "earlier_label": form["earlier_label"],
             "n_recent": form["n_recent"],
-            "starts": _records(form["starts"]),
+            "starts": starts,
             "shifts": _records(form["shifts"]),
         },
-        "plan": gameplan.build(frame, last_n=last_n, changes=changes),
+        "plan": plan,
+        # Not "keys": in the template `card.keys` is the dict's own method.
+        "key_lines": gameplan.card_keys(plan, sequences),
         "coach_names": gameplan.COACH_NAMES,
     }
+
+
+def _last_date(frame: pd.DataFrame) -> str | None:
+    """The date of his last outing in the sample, as "Sep 24".
+
+    No year: it is printed next to the season, and the last outing is in it.
+    """
+    if "game_date" not in frame.columns or len(frame) == 0:
+        return None
+    last = pd.to_datetime(frame["game_date"]).max()
+    if pd.isna(last):
+        return None
+    return f"{last.strftime('%b')} {last.day}"
+
+
+def _build_card_pies(usage: pd.DataFrame, order: list[str]) -> list[dict]:
+    """His mix in each of five situations, to each batter side, as pies.
+
+    The tendency chart every advance report carries, drawn the way they draw
+    it. It took the place of a table of the top three pitches per situation:
+    the same shares, but every pitch rather than three, and a hitter sees
+    that two strikes is mostly one colour before he reads a number.
+
+    One row of pies per side. Pitches go round each pie in the same order,
+    most used first (see `charts.pie_layout`). A situation with fewer pitches
+    than `situational_usage` calls reliable is still drawn, marked so the
+    page can fade it; one with no pitches at all gets an empty pie.
+    """
+    sides = []
+    for side, label in CARD_SIDES:
+        pies = []
+        for situation in counts.SITUATIONS:
+            cell = usage[(usage["situation"] == situation) & (usage["stand"] == side)]
+            by_pitch = cell.set_index("pitch_type") if len(cell) else cell
+            rows = [
+                {"pitch": p, "short": gameplan.short(p),
+                 "share": float(by_pitch.at[p, "share"]),
+                 "n": int(by_pitch.at[p, "n"])}
+                for p in order if len(cell) and p in by_pitch.index
+            ]
+            pies.append({
+                "situation": situation,
+                "label": counts.SITUATION_LABELS[situation],
+                "n": int(cell["situation_n"].iloc[0]) if len(cell) else 0,
+                "reliable": bool(cell["reliable"].iloc[0]) if len(cell) else False,
+                **charts.pie_layout(rows),
+            })
+        sides.append({"side": side, "label": label, "pies": pies})
+    return sides
+
+
+def _build_card_zones(frame: pd.DataFrame, order: list[str]) -> dict:
+    """Where each pitch goes, to each batter side, on Savant's thirteen zones.
+
+    One small map per pitch per side, all counts together: the count-by-count
+    slices are on the Location page, where there is room to say how thin each
+    one is. A map is drawn only for a pitch thrown `card.zone_map_min_pitches`
+    times to that side; below that it carries the pitch count instead, so the
+    same pitch keeps the same column in both rows.
+
+    Each cell is the share of that pitch, to that side, finishing there, with
+    its fill from `charts.zone_cell`. A cell no pitch reached has no number.
+    """
+    min_pitches = int(config.get("card.zone_map_min_pitches", 40))
+    table = location.zone_slices(frame)
+    if len(table):
+        tallies = table.groupby(["stand", "pitch_type", "zone"])["n"].sum()
+    else:
+        tallies = pd.Series(dtype=float)
+
+    def cell(pitch: str, n: int, total: int, zone: int) -> dict:
+        share = n / total if total else 0.0
+        # A share that rounds to nothing prints as nothing, not as "0".
+        return {"zone": zone, "n": n, "share": _clean(share),
+                "pct": int(round(share * 100)) or None,
+                **charts.zone_cell(pitch, share)}
+
+    sides = []
+    for side, label in CARD_SIDES:
+        maps = []
+        for pitch in order:
+            by_zone = {
+                zone: int(tallies.get((side, pitch, zone), 0))
+                for zone in location.ALL_ZONES
+            }
+            total = sum(by_zone.values())
+            entry = {"pitch": pitch, "short": gameplan.short(pitch),
+                     "n": total, "enough": total >= min_pitches}
+            if entry["enough"]:
+                entry["inner"] = [cell(pitch, by_zone[z], total, z)
+                                  for z in location.INNER_ZONES]
+                entry["outer"] = [cell(pitch, by_zone[z], total, z)
+                                  for z in location.OUTER_ZONES]
+            maps.append(entry)
+        sides.append({"side": side, "label": label, "maps": maps})
+    return {"sides": sides, "min_pitches": min_pitches}
 
 
 def render(payload: dict, template_dir: Path | None = None) -> str:

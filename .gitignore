@@ -17,6 +17,7 @@ pybaseball_cache/
 
 # Generated reports. One curated sample lives in docs/ instead.
 reports/*.html
+reports/*.pdf
 # Calibration runs: thirty reports and their summaries, all regenerable.
 reports/calibration/
 # Holdout runs: regenerable from the cache.

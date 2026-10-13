@@ -133,6 +133,19 @@ class TestScoutArsenal:
         frame = make_frame([{"pitch_type": "FF", "n": 1}]).iloc[0:0]
         assert len(arsenal.scout_arsenal(frame)) == 0
 
+    def test_carries_the_counts_behind_its_two_rates(self):
+        """The card greys a whiff or chase rate that rests on too few of
+        these, so they travel with the rate."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 30, "is_swing": True, "is_whiff": True,
+             "description": "swinging_strike"},
+            {"pitch_type": "FF", "n": 50},
+            {"pitch_type": "FF", "n": 20, "zone": 13, "type": "B", "description": "ball"},
+        ])
+        row = arsenal.scout_arsenal(frame).loc["FF"]
+        assert row["swings"] == 30
+        assert row["chances"] == 20
+
 
 # ---------------------------------------------------------------------------
 # Situational usage
@@ -237,6 +250,22 @@ class TestRecentForm:
         form = splits.recent_form(self.build(), last_n=5)
         assert form["fastball"] == "FF"
         assert form["velo_delta"] == pytest.approx(1.5)
+
+    def test_a_cutter_first_pitcher_is_read_off_his_cutter(self):
+        """A closer with a cutter and a slider has no four-seam or sinker.
+        His card printed no velocity, under a heading that read "None velo"."""
+        specs = []
+        for game in range(1, 9):
+            day = f"2025-06-{game:02d}"
+            specs += [
+                {"pitch_type": "FC", "n": 12, "game_pk": game, "game_date": day,
+                 "velo": 99.0},
+                {"pitch_type": "SL", "n": 6, "game_pk": game, "game_date": day,
+                 "velo": 90.0},
+            ]
+        form = splits.recent_form(make_frame(specs), last_n=5)
+        assert form["fastball"] == "FC"
+        assert form["starts"]["fb_velo"].tolist() == [99.0] * 5
 
     def test_primary_fastball_prefers_the_more_used(self):
         frame = make_frame([
@@ -501,6 +530,230 @@ class TestPlanKeys:
             {"pitch_type": "CU", "n": 200, "balls": 0, "strikes": 0},
         ])
         assert gameplan.count_tell_key(frame) is None
+
+
+class TestCardKeys:
+    """Which lines of the plan reach the one-page card, and how they read there.
+
+    The plan says something about every situation it can measure. The card
+    prints the lines a hitter can act on, cut short, and the rest stay in the
+    plan.
+    """
+
+    def usage_key(self, specs, key):
+        frame = make_frame(specs)
+        return key(counts.situational_usage(frame), "R")
+
+    def test_he_mixes_is_not_a_card_line(self):
+        key = self.usage_key([
+            {"pitch_type": "FF", "n": 45, "balls": 2, "strikes": 0},
+            {"pitch_type": "SL", "n": 30, "balls": 2, "strikes": 0},
+            {"pitch_type": "CH", "n": 25, "balls": 2, "strikes": 0},
+        ], gameplan.hitters_count_key)
+        assert key["text"].startswith("He still mixes")
+        assert key["card"] is False
+
+    def test_sit_hard_is_a_card_line_and_reads_short(self):
+        key = self.usage_key([
+            {"pitch_type": "FF", "n": 40, "balls": 2, "strikes": 0},
+            {"pitch_type": "SI", "n": 30, "balls": 2, "strikes": 0},
+            {"pitch_type": "CU", "n": 20, "balls": 2, "strikes": 0},
+        ], gameplan.hitters_count_key)
+        assert key["card"] is True
+        assert key["card_text"] == "Sit hard: fastball 78% (four-seam 44%, sinker 33%)."
+
+    def test_sit_a_pitch_reads_short(self):
+        key = self.usage_key([
+            {"pitch_type": "FF", "n": 64, "balls": 2, "strikes": 0},
+            {"pitch_type": "SL", "n": 36, "balls": 2, "strikes": 0},
+        ], gameplan.hitters_count_key)
+        assert key["card"] is True
+        assert key["card_text"] == "Sit four-seam: 64%."
+
+    def test_first_pitch_mix_is_left_to_the_pie(self):
+        """It states a mix, and the card draws that mix."""
+        key = self.usage_key([
+            {"pitch_type": "FF", "n": 60},
+            {"pitch_type": "SL", "n": 40},
+        ], gameplan.first_pitch_key)
+        assert key["card"] is False
+
+    def test_look_fastball_alone_is_not_a_card_line(self):
+        """The default approach to any pitcher is not something this pitcher
+        told the hitter."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 28, "strikes": 2},
+            {"pitch_type": "ST", "n": 26, "strikes": 2},
+            {"pitch_type": "SI", "n": 24, "strikes": 2},
+            {"pitch_type": "CH", "n": 22, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert "Look fastball" in key["text"]
+        assert key["card"] is False
+
+    def test_a_pitch_to_lay_off_puts_the_line_on_the_card(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 35, "strikes": 2},
+            {"pitch_type": "CU", "n": 31, "strikes": 2, "plate_z": 1.0},
+            {"pitch_type": "SL", "n": 28, "strikes": 2},
+            {"pitch_type": "CH", "n": 6, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert key["card"] is True
+        assert key["card_text"] == ("No one put-away pitch. 100% of his curveballs "
+                                    "finish below the zone — lay off it low.")
+
+    def test_nothing_but_fastballs_with_two_strikes_is_a_card_line(self):
+        """Most pitchers go soft with two strikes. One who does not has told
+        the hitter something."""
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 40, "strikes": 2},
+            {"pitch_type": "SI", "n": 35, "strikes": 2},
+            {"pitch_type": "FC", "n": 25, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert "All of it is hard" in key["text"]
+        assert key["card"] is True
+        assert key["card_text"] == ("All hard (four-seam 40%, sinker 35%, cutter 25%): "
+                                    "be on time for the fastball.")
+
+    def test_a_named_two_strike_pitch_reads_short(self):
+        frame = make_frame([
+            {"pitch_type": "FS", "n": 60, "strikes": 2, "plate_z": 1.0,
+             "is_swing": True, "is_whiff": True, "description": "swinging_strike"},
+            {"pitch_type": "FF", "n": 20, "strikes": 2},
+        ])
+        key = gameplan.two_strike_key(frame, counts.situational_usage(frame), "R")
+        assert key["card"] is True
+        assert key["card_text"] == ("Splitter 75%. Misses bats on 100% of swings. "
+                                    "100% finish below the zone — lay off it low.")
+
+    def test_wont_see_reads_short(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 100, "stand": "L"},
+            {"pitch_type": "CU", "n": 60, "stand": "L"},
+            {"pitch_type": "SL", "n": 1, "stand": "L"},
+            {"pitch_type": "SL", "n": 80, "stand": "R"},
+        ])
+        key = gameplan.wont_show_key(frame, "L")
+        assert key["card"] is True
+        assert key["card_text"] == "Slider 1%. Two-pitch pitcher to this side."
+
+    def test_count_tell_reads_short(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 60, "balls": 0, "strikes": 2},
+            {"pitch_type": "FS", "n": 40, "balls": 0, "strikes": 2},
+            {"pitch_type": "FF", "n": 600, "balls": 1, "strikes": 1},
+            {"pitch_type": "FS", "n": 20, "balls": 1, "strikes": 1},
+        ])
+        key = gameplan.count_tell_key(frame)
+        assert key["card_text"] == ("0-2: splitter about 40%, more than double "
+                                    "his usual 8%.")
+
+    def test_a_season_that_looks_like_the_last_is_not_a_card_line(self):
+        same = {"latest": 2026, "earlier": [2025], "n_latest": 900,
+                "new": [], "dropped": [], "shifts": [], "velo": []}
+        changed = {**same, "new": [("FC", 0.12)]}
+        assert gameplan.season_change_key(same)["card"] is False
+        assert gameplan.season_change_key(changed)["card"] is True
+
+    def plan(self) -> dict:
+        specs = []
+        for side in ("L", "R"):
+            specs += [
+                {"pitch_type": "FF", "n": 60, "stand": side, "balls": 0, "strikes": 0},
+                {"pitch_type": "CU", "n": 20, "stand": side, "balls": 0, "strikes": 0},
+                {"pitch_type": "FF", "n": 45, "stand": side, "balls": 2, "strikes": 0},
+                {"pitch_type": "CU", "n": 30, "stand": side, "balls": 2, "strikes": 0},
+                {"pitch_type": "FS", "n": 25, "stand": side, "balls": 2, "strikes": 0},
+                {"pitch_type": "FS", "n": 60, "stand": side, "balls": 1, "strikes": 2,
+                 "plate_z": 1.0},
+            ]
+        return gameplan.build(make_frame(specs))
+
+    def test_the_card_takes_the_advice_and_leaves_the_plan_whole(self):
+        plan = self.plan()
+        before = {side: list(plan[side]) for side in ("L", "R", "both")}
+        keys = gameplan.card_keys(plan)
+
+        for side in ("L", "R"):
+            labels = [k["label"] for k in keys[side]]
+            assert "First pitch" not in labels
+            assert "Hitter's count" not in labels    # he mixes there
+            assert "Two strikes" in labels
+            assert len(keys[side]) < len(plan[side])
+        assert {side: list(plan[side]) for side in before} == before
+
+    def test_a_short_line_carries_no_number_its_plan_line_does_not(self):
+        """The card's wording is the plan's, cut down. It may drop a number,
+        never introduce one."""
+        import re
+        plan = self.plan()
+        for key in plan["L"] + plan["R"] + plan["both"]:
+            for figure in re.findall(r"\d+%", key["card_text"]):
+                assert figure in key["text"], (key["card_text"], key["text"])
+
+    def test_the_sequence_line_follows_the_plan_lines(self):
+        plan = self.plan()
+        table = pd.DataFrame([{
+            "stand": "R", "pitch_type": "SL", "next_pitch": "SL", "n": 96,
+            "row_n": 150, "share": 0.64, "usual": 0.40, "lift_z": 5.0,
+            "standout": "more",
+        }])
+        keys = gameplan.card_keys(plan, table)
+        assert keys["R"][-1]["label"] == "Sequence"
+        assert all(k["label"] != "Sequence" for k in keys["L"])
+
+
+class TestSequenceKey:
+    def table(self, *rows) -> pd.DataFrame:
+        base = {"stand": "R", "lift_z": 4.0, "standout": "more"}
+        return pd.DataFrame([{**base, **r} for r in rows])
+
+    def test_doubling_up(self):
+        key = gameplan.sequence_key(self.table(
+            {"pitch_type": "SL", "next_pitch": "SL", "n": 96, "row_n": 150,
+             "share": 0.64, "usual": 0.40}), "R")
+        assert key["label"] == "Sequence"
+        assert key["text"] == ("He doubles up on the slider: another one follows "
+                               "64% of the time, against his usual 40%.")
+        assert key["card_text"] == "Doubles up on the slider: 64% after a slider, usual 40%."
+        assert key["n"] == 150
+
+    def test_one_pitch_setting_up_another(self):
+        key = gameplan.sequence_key(self.table(
+            {"pitch_type": "CU", "next_pitch": "SI", "n": 42, "row_n": 104,
+             "share": 0.40, "usual": 0.20}), "R")
+        assert key["card_text"] == ("Curveball sets up the sinker: 40% after a "
+                                    "curveball, usual 20%.")
+
+    def test_going_away_from_a_pitch(self):
+        key = gameplan.sequence_key(self.table(
+            {"pitch_type": "SI", "next_pitch": "FF", "n": 59, "row_n": 232,
+             "share": 0.25, "usual": 0.37, "standout": "less", "lift_z": -4.0}), "R")
+        assert key["card_text"] == ("Goes away from the four-seam after the sinker: "
+                                    "25% after a sinker, usual 37%.")
+
+    def test_is_read_one_side_at_a_time(self):
+        table = self.table(
+            {"pitch_type": "SL", "next_pitch": "SL", "n": 96, "row_n": 150,
+             "share": 0.64, "usual": 0.40})
+        assert gameplan.sequence_key(table, "L") is None
+
+    def test_takes_the_follow_up_furthest_from_chance(self):
+        key = gameplan.sequence_key(self.table(
+            {"pitch_type": "SL", "next_pitch": "SL", "n": 96, "row_n": 150,
+             "share": 0.64, "usual": 0.40, "lift_z": 3.5},
+            {"pitch_type": "FF", "next_pitch": "SL", "n": 40, "row_n": 200,
+             "share": 0.20, "usual": 0.40, "standout": "less", "lift_z": -6.0}), "R")
+        assert key["text"].startswith("He goes away from the slider after the four-seam")
+
+    def test_silent_when_nothing_stands_out(self):
+        table = self.table(
+            {"pitch_type": "FF", "next_pitch": "SL", "n": 80, "row_n": 200,
+             "share": 0.40, "usual": 0.40, "standout": ""})
+        assert gameplan.sequence_key(table, "R") is None
+        assert gameplan.sequence_key(table.iloc[0:0], "R") is None
 
 
 class TestHeightLine:

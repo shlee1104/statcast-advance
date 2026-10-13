@@ -11,6 +11,8 @@ reports/replication/<season>/:
   per_pitch.csv     one row per pitch thrown 100+ times in both halves, every
                     table column in each half
   per_pitcher.csv   numbers that exist once per pitcher or once per count
+  card.csv          every slice of the dugout card's pies and every cell of
+                    its zone maps, by batter side, in each half
   full_season.csv   one row per pitcher: findings by type, comparisons run,
                     and how many survive correction
 
@@ -125,7 +127,8 @@ def _span(lo: float, hi: float) -> str:
 
 
 def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
-                  season_totals: dict, season: int, pitchers: int) -> None:
+                  season_totals: dict, season: int, pitchers: int,
+                  card: list[dict] | None = None) -> None:
     print(f"\nDo the findings repeat?  first half → second half, {season}, "
           f"{pitchers} pitchers")
     print("-" * 96)
@@ -154,6 +157,21 @@ def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
         print(f"  {s['label']:<44}r = {s['r']:+.2f}   ({s['pairs']} pairs)")
     if not pitcher:
         print(f"  fewer than {replication.MIN_PAIRS} pitchers to correlate")
+
+    if card:
+        print("\n  The dugout card's pictures, the same number in each half")
+        print(f"  {'':<52}{'r':>6}{'median move':>13}{'90% within':>12}"
+              f"{'under 5 pts':>13}{'numbers':>9}{'same top':>10}{'of':>6}")
+        for s in card:
+            print(f"  {s['label']:<52}{s['r']:>+6.2f}"
+                  f"{s['median_change'] * 100:>9.1f} pts"
+                  f"{s['p90_change'] * 100:>8.1f} pts"
+                  f"{_pct(s['within_five']):>13}{s['pairs']:>9}"
+                  f"{_pct(s['same_top']):>10}{s['pictures']:>6}")
+        print(f"  from {max(s['pitchers'] for s in card)} pitchers with "
+              f"{replication.MIN_HALF_PITCHES}+ pitches in each half; \"same top\" is")
+        print("  how often a pie's largest slice, or a map's busiest zone, is the")
+        print("  same one in both halves")
 
     if season_totals.get("pitchers"):
         t = season_totals
@@ -216,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     findings: list[dict] = []
     per_pitch: list[dict] = []
     per_pitcher: list[dict] = []
+    card: list[dict] = []
     full_season: list[dict] = []
     ran = 0
     for name, load in work:
@@ -236,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
                 (replication.finding_rows(first, second), findings),
                 (replication.per_pitch_rows(first, second, league), per_pitch),
                 (replication.per_pitcher_rows(first, second), per_pitcher),
+                (replication.card_rows(first, second), card),
             ):
                 table.extend({"pitcher": name, **r} for r in rows)
             ran += 1
@@ -246,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(out / "findings.csv", findings)
     write_csv(out / "per_pitch.csv", per_pitch)
     write_csv(out / "per_pitcher.csv", per_pitcher)
+    write_csv(out / "card.csv", card)
     write_csv(out / "full_season.csv", full_season)
     print_summary(
         replication.summarise_findings(findings),
@@ -253,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         replication.pitcher_correlations(per_pitcher),
         replication.summarise_full_season(full_season),
         args.season, ran,
+        card=replication.card_summary(card),
     )
     return 0
 

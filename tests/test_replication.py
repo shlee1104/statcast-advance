@@ -388,6 +388,89 @@ class TestPerPitchRows:
         assert row["xwoba_vs_lg_2"] == pytest.approx(-0.050)
 
 
+class TestCardRows:
+    """The card's pies and zone maps, re-measured in the other half."""
+
+    def half(self, fastballs: int, sliders: int, slider_zone: int = 13) -> pd.DataFrame:
+        return make_frame([
+            {"pitch_type": "FF", "n": fastballs, "stand": "R"},
+            {"pitch_type": "SL", "n": sliders, "stand": "R", "zone": slider_zone},
+            {"pitch_type": "FF", "n": 150, "stand": "L"},
+        ])
+
+    def of(self, rows: list[dict], metric: str, key: str) -> dict:
+        return next(r for r in rows if r["metric"] == metric and r["key"] == key)
+
+    def test_a_pie_slice_is_recorded_for_each_half(self):
+        rows = replication.card_rows(self.half(60, 40), self.half(70, 30))
+        slider = self.of(rows, "pie_share", "R/first_pitch/SL")
+        assert slider["first"] == pytest.approx(0.40)
+        assert slider["second"] == pytest.approx(0.30)
+        assert (slider["n_first"], slider["n_second"]) == (100, 100)
+
+    def test_a_slice_that_disappears_is_compared_at_zero(self):
+        """Leaving it out would drop the largest change a pie can make."""
+        rows = replication.card_rows(self.half(60, 40), self.half(100, 0))
+        slider = self.of(rows, "pie_share", "R/first_pitch/SL")
+        assert slider["second"] == 0.0
+
+    def test_a_faded_pie_is_not_compared(self):
+        """The card fades a pie on fewer than 30 pitches and asks nobody to
+        trust it."""
+        thin = make_frame([
+            {"pitch_type": "FF", "n": 15, "stand": "R"},
+            {"pitch_type": "SL", "n": 5, "stand": "R"},
+            {"pitch_type": "FF", "n": 200, "stand": "L"},
+        ])
+        rows = replication.card_rows(self.half(60, 40), thin)
+        assert not [r for r in rows if r["key"].startswith("R/first_pitch")]
+
+    def test_a_zone_map_is_compared_cell_by_cell(self):
+        rows = replication.card_rows(self.half(60, 40), self.half(60, 40, slider_zone=14))
+        cells = [r for r in rows if r["metric"] == "zone_share" and r["key"].startswith("R/SL/")]
+        assert len(cells) == 13
+        assert self.of(rows, "zone_share", "R/SL/13")["first"] == 1.0
+        assert self.of(rows, "zone_share", "R/SL/13")["second"] == 0.0
+        assert self.of(rows, "zone_share", "R/SL/14")["second"] == 1.0
+
+    def test_a_pitch_too_rare_to_map_is_not_compared(self):
+        rows = replication.card_rows(self.half(180, 20), self.half(180, 20))
+        assert not [r for r in rows if r["metric"] == "zone_share" and "/SL/" in r["key"]]
+
+    def test_a_half_too_short_gives_no_rows(self):
+        short = make_frame([{"pitch_type": "FF", "n": 50}])
+        assert replication.card_rows(short, self.half(60, 40)) == []
+
+    def test_summary_reports_the_move_in_points(self):
+        rows = [{"metric": "pie_share", "key": str(i), "first": a, "second": b}
+                for i, (a, b) in enumerate([(0.40, 0.42), (0.30, 0.27), (0.10, 0.11),
+                                            (0.20, 0.20), (0.50, 0.44), (0.05, 0.06)])]
+        (line,) = replication.card_summary(rows)
+        assert line["metric"] == "pie_share" and line["pairs"] == 6
+        assert line["median_change"] == pytest.approx(0.015)
+        assert line["within_five"] == pytest.approx(5 / 6)
+        assert line["r"] > 0.9
+
+    def test_summary_says_how_often_the_biggest_slice_stays_the_biggest(self):
+        """What a hitter reads off a pie is which pitch is most of it."""
+        def pie(name, fastball, slider):
+            return [
+                {"metric": "pie_share", "pitcher": "A", "key": f"R/{name}/FF",
+                 "first": fastball[0], "second": fastball[1]},
+                {"metric": "pie_share", "pitcher": "A", "key": f"R/{name}/SL",
+                 "first": slider[0], "second": slider[1]},
+            ]
+        rows = (pie("first_pitch", (0.6, 0.7), (0.4, 0.3))        # stays the four-seam
+                + pie("two_strikes", (0.55, 0.45), (0.45, 0.55))  # flips to the slider
+                + pie("even", (0.7, 0.6), (0.3, 0.4)))
+        (line,) = replication.card_summary(rows)
+        assert line["pictures"] == 3
+        assert line["same_top"] == pytest.approx(2 / 3)
+
+    def test_summary_of_nothing(self):
+        assert replication.card_summary([]) == []
+
+
 class TestSummariseFindings:
     def rows(self) -> list[dict]:
         def r(pitcher, kind, held, direction, first=2.0, second=1.6):

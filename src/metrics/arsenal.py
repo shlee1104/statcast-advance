@@ -133,6 +133,8 @@ def scout_arsenal(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.Dat
       whiff_rate   float, whiffs per swing
       chase_rate   float, swings per pitch outside the zone
       xwoba        float, xwOBA per plate appearance ending on this pitch
+      swings       int, swings the whiff rate is a share of
+      chances      int, pitches outside the zone the chase rate is a share of
 
     Three choices here follow how scouts actually read a pitch, not how the
     data arrives.
@@ -155,6 +157,7 @@ def scout_arsenal(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.Dat
     columns = [
         "n", "usage", "usage_L", "usage_R", "sits_lo", "sits_hi", "touches",
         "ivb", "arm_run", "spin", "whiff_rate", "chase_rate", "xwoba",
+        "swings", "chances",
     ]
 
     if len(frame) == 0:
@@ -199,6 +202,8 @@ def scout_arsenal(frame: pd.DataFrame, min_pitches: int | None = None) -> pd.Dat
             "whiff_rate": whiffs / swings if swings else float("nan"),
             "chase_rate": chases / len(out_of_zone) if len(out_of_zone) else float("nan"),
             "xwoba": _mean(group, "estimated_woba_using_speedangle"),
+            "swings": swings,
+            "chances": len(out_of_zone),
         })
 
     table = pd.DataFrame(records).set_index("pitch_type")

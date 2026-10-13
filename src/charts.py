@@ -421,3 +421,96 @@ def sequence_layout(pitches: list[str], rows: list[dict], row_gate: int) -> dict
         "standouts": len(standouts),
         "label_boxes": placed,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dugout card: situation pies and zone maps
+# ---------------------------------------------------------------------------
+
+PIE = {"size": 120, "r": 56}
+
+# A slice thinner than this cannot hold its own label. It is still drawn, in
+# its pitch colour, and the arsenal table beside it is the colour key.
+PIE_LABEL_MIN_SHARE = 0.10
+
+# A slice thinner than this gets a smaller label, set nearer the rim where the
+# slice is widest. At one radius, the labels of two neighbouring 13% slices
+# ran into each other.
+PIE_SMALL_SHARE = 0.16
+
+# The share of a pitch going to one zone at which a zone-map cell reaches the
+# pitch's full colour. Fixed, never fitted to the map, so the same share is the
+# same depth of colour in every map on the card.
+ZONE_FULL_SHARE = 0.30
+
+# Past this depth of colour the number in a cell is printed in white.
+ZONE_DARK_TEXT_FROM = 0.60
+
+
+def pie_layout(rows: list[dict]) -> dict:
+    """Slices for one pie, clockwise from twelve o'clock in the order given.
+
+    `rows` are dicts with a `pitch` and a `share`; any other keys are passed
+    through to the slice. Shares are expected to sum to one. A pitch with no
+    share gets no slice.
+
+    Pitches go round in the order given, which the card keeps the same in
+    every pie — most used first — so a pitch starts from the same place in
+    each and a reader compares the pies by where the colours fall. Sorting
+    each pie by its own shares would move the colours around between them.
+
+    A slice holding the whole pie is returned with `full` set and no path: an
+    arc from a point back to itself draws nothing.
+    """
+    size, r = PIE["size"], PIE["r"]
+    cx = cy = size / 2
+    slices = []
+    angle = -math.pi / 2
+    for row in rows:
+        share = float(row.get("share") or 0.0)
+        if share <= 0:
+            continue
+        start, end = angle, angle + 2 * math.pi * share
+        mid = (start + end) / 2
+        full = share >= 0.999
+        small = share < PIE_SMALL_SHARE
+        label_r = 0.0 if full else r * (0.72 if small else 0.60)
+        piece = {
+            **row,
+            "color": color(row["pitch"]),
+            "full": full,
+            "d": None if full else (
+                f"M{cx:.1f},{cy:.1f} "
+                f"L{cx + r * math.cos(start):.1f},{cy + r * math.sin(start):.1f} "
+                f"A{r},{r} 0 {1 if share > 0.5 else 0} 1 "
+                f"{cx + r * math.cos(end):.1f},{cy + r * math.sin(end):.1f} Z"
+            ),
+            "labelled": share >= PIE_LABEL_MIN_SHARE,
+            "small": small,
+            "label_x": round(cx + label_r * math.cos(mid), 1),
+            "label_y": round(cy + label_r * math.sin(mid), 1),
+        }
+        slices.append(piece)
+        angle = end
+    return {"size": size, "cx": cx, "cy": cy, "r": r, "slices": slices}
+
+
+def tint(hex_color: str, strength: float) -> str:
+    """A colour mixed toward white: 0 is white, 1 is the colour itself."""
+    t = min(max(strength, 0.0), 1.0)
+    channels = [int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]
+    return "rgb({},{},{})".format(*(round(255 + (c - 255) * t) for c in channels))
+
+
+def zone_cell(pitch_type: str, share: float) -> dict:
+    """How one cell of a card zone map is drawn: its fill and its text colour.
+
+    The fill is the pitch's own colour, deeper the more of that pitch goes to
+    the cell. So each map is in the colour its pitch has in the pies and the
+    arsenal table, and the depth means the same share in every map.
+    """
+    strength = min(max(share, 0.0) / ZONE_FULL_SHARE, 1.0)
+    return {
+        "bg": tint(color(pitch_type), strength),
+        "dark": strength >= ZONE_DARK_TEXT_FROM,
+    }

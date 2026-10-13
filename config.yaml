@@ -196,6 +196,19 @@ plan:
   # "the curveball jumps to about 5% — expect it there" (Imanaga).
   count_tell_min_share: 0.25
 
+# The one-page dugout card. Which plan lines go on it is decided in
+# gameplan.card_keys(); these are the samples below which the card greys a
+# number or leaves a picture out.
+card:
+  # A zone map is drawn for a pitch thrown at least this many times to that
+  # batter side. Thirteen zones under fewer pitches is a picture of noise; the
+  # card prints the pitch count in the map's place.
+  zone_map_min_pitches: 40
+
+  # A whiff rate resting on fewer than this many swings, or a chase rate on
+  # fewer than this many pitches outside the zone, is printed in grey.
+  min_rate_sample: 30
+
 # Minimum sample sizes before a weakness flag is allowed to fire.
 # These are the guardrails against small-sample noise. Every flag must
 # clear its gate, and every claim in the report carries its own n.
