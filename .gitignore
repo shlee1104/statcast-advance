@@ -24,6 +24,8 @@ reports/calibration/
 reports/holdout/
 # Replication runs: regenerable from the cache.
 reports/replication/
+# Sample-size runs: regenerable from the cache.
+reports/sample_size/
 
 # --- macOS ---
 .DS_Store

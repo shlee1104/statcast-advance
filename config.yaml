@@ -391,3 +391,24 @@ flags:
     # First-pitch predictability: the share of first pitches that are his
     # most-used opener.
     first_pitch_share: 0.70
+
+# The sample-size check (src/sample_size.py, scripts/sample_size.py): what the
+# report says, and whether it is right, when it is built from a few starts.
+sample_size:
+  # Training samples, in starts. Three is a pitcher seen in March, five is the
+  # start of conference play, ten is most of a college regular season. The
+  # largest sample is always the whole training side: half a major-league
+  # season, about 1,400 pitches, which is a weekend starter's full year.
+  starts: [3, 5, 10]
+
+  # Shuffles per pitcher-season. Each one holds out a different half of his
+  # games, so the result does not hang on one lucky split.
+  draws: 20
+  seed: 17
+
+  # A pitcher-season is used if it has this many regular-season games at this
+  # many pitches a game (median): enough to hold half out and still draw ten
+  # starts from the rest. Relievers are left out, because ten of their games
+  # are 150 pitches and that is a different sample from ten starts.
+  min_games: 20
+  min_pitches_per_game: 60

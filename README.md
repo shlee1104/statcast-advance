@@ -109,6 +109,10 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   rules make in the first half of a season on the second half, and correlates
   every table column between halves, so each section of the report can be
   judged on whether it repeats
+- Sample-size check — `scripts/sample_size.py` holds out half of a starter's
+  games and builds reports from 3, 5 and 10 of the others, to see how much the
+  report says, and how often it is right, on what a college staff would have
+  on a pitcher (see "How few starts does it need?")
 - Pruning — what fails those two checks comes out of the report, with its
   cutoffs and its code: the first-pitch "take or swing" advice, a verdict on
   the third trip through the order, a "hittable pitch" finding, and a run
@@ -130,7 +134,7 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   the two apart from where the ball is. In the evidence file, under the
   sequence graph, and not on the card: its central number repeats between
   halves at r of 0.5 to 0.7, below the card's bar
-- 698 unit tests, plus an end-to-end validation suite over live data
+- 753 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -138,6 +142,9 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
 - League context for tunneling: where a pair sits among every pitcher's
   version of that pair (see [docs/tunneling_design.md](docs/tunneling_design.md))
 - Swing-disruption metrics from the bat-tracking fields
+- The checks on pitchers below the majors: the sample-size check cuts
+  major-league starters down to a college-sized sample, which answers the
+  sample question and not whether a Triple-A or college pitcher is as readable
 
 ## Setup
 
@@ -197,6 +204,13 @@ tested on the postseason:
 ```bash
 python scripts/holdout.py --season 2025
 python scripts/holdout.py --season 2025 --split postseason
+```
+
+Check what the report says, and how often it is right, when it is built from
+3, 5 or 10 starts instead of half a season:
+
+```bash
+python scripts/sample_size.py --season 2025 2026 --cached
 ```
 
 Generate a report. Name in, self-contained HTML out:
@@ -545,6 +559,129 @@ python scripts/replication.py --season 2026 --cached   # local cache only, no ne
 These correlations are across a list built to span very different pitchers,
 so they are higher than they would be across a random sample of the league.
 
+## How few starts does it need?
+
+Both checks above cut a major-league season in half, which hands each side
+about 1,400 pitches from a starter. That is a college weekend starter's whole
+year, and far more than anyone has on him in March. `scripts/sample_size.py`
+asks what the report does with less.
+
+Half of a starter's games are held out as the answer key. Reports are built
+from 3, 5 and 10 of his other starts, and then from all of them, by the same
+functions and at the same bars as the real report, and everything each one
+would print is scored against the held-out games. The games are drawn at
+random, 20 shuffles a season, so the only thing that changes from one column
+to the next is the size. Run on every cached season of 20 or more starts: 33
+seasons from 19 starters, 2025 and 2026 pooled.
+
+**What one report prints**
+
+| | 3 starts | 5 starts | 10 starts | Half season |
+|---|---|---|---|---|
+| Pitches | 277 | 461 | 925 | 1,348 |
+| Lines on the card | 2.8 | 4.0 | 5.2 | 5.7 |
+| Sequence graph: rows it can read | 1.5 | 3.3 | 5.9 | 6.9 |
+| Reports that colour any follow-up | 4% | 12% | 40% | 59% |
+| Reports that colour any count | 15% | 48% | 84% | 93% |
+| Reports that put a word on any tunneling pair | 7% | 32% | 84% | 97% |
+
+**How often what it printed held** (95% interval, resampling pitchers)
+
+| | 3 starts | 5 starts | 10 starts | Half season |
+|---|---|---|---|---|
+| Hitter's count: what to sit on | 63% (49–74%) | 69% (59–78%) | 76% (66–84%) | 78% (68–86%) |
+| Two strikes: the put-away pitch | 66% (60–72%) | 68% (63–75%) | 76% (70–81%) | 78% (72–84%) |
+| Two strikes: lay off it low | 91% (80–97%) | 87% (76–93%) | 86% (77–93%) | 86% (76–92%) |
+| Won't see | 89% (83–94%) | 94% (91–96%) | 96% (95–98%) | 97% (95–99%) |
+| Read the height | 84% (67–96%) | 85% (70–95%) | 87% (72–97%) | 88% (74–97%) |
+| Count tell | 90% (59–100%) | 90% (71–97%) | 92% (82–97%) | 95% (89–99%) |
+| Count grid: a coloured cell | 36% (11–60%) | 58% (42–68%) | 67% (58–73%) | 69% (61–75%) |
+| Sequence graph: more than usual | 12% (0–33%) | 35% (20–56%) | 57% (40–69%) | 67% (55–76%) |
+| Sequence graph: less than usual | 50% (33–100%) | 33% (6–55%) | 54% (28–70%) | 61% (51–68%) |
+| Setup by pitch and height | 25% (0–56%) | 40% (12–56%) | 59% (18–74%) | 63% (43–74%) |
+| Tunneling: same window | 29% (0–56%) | 60% (27–81%) | 69% (52–81%) | 71% (59–80%) |
+| Tunneling: apart early | 53% (0–77%) | 66% (29–84%) | 73% (60–82%) | 71% (59–80%) |
+
+The sequencing and tunneling rows of the three-start column rest on 10 to 30
+claims out of 660 reports, from as few as three pitchers. A report that small
+almost never makes those claims, which is the first table's point, and the
+intervals say how little the rate beside them is worth.
+
+**How big it looked, and how big it was** (median, sample → held-out games;
+1.0 is his usual rate)
+
+| | 3 starts | 5 starts | 10 starts | Half season |
+|---|---|---|---|---|
+| Count grid: a coloured cell | 1.71 → 1.42 | 1.82 → 1.57 | 1.80 → 1.64 | 1.80 → 1.66 |
+| Sequence graph: more than usual | 1.43 → 1.17 | 1.42 → 1.21 | 1.47 → 1.28 | 1.57 → 1.34 |
+
+What that says, in three parts.
+
+*The plan's lines survive a small sample.* A three-start card has half the
+lines of a half-season one, and they are worth reading: the two that name a
+pitch hold about two times in three against 78%, and the rest hold 84% to
+91%. At no size did a plan line send the hitter to a different pitch more than
+2% of the time (3% in the date-order control below). These lines are shares of
+a situation he reaches in every start, so they settle early.
+
+*The coloured tendencies do not.* A count cell coloured on three starts holds
+36% of the time and a coloured follow-up 12%, against 69% and 67% on a half
+season. The direction is nearly always right: at most 2% of count cells and 7%
+of follow-ups came back on the other side of his usual rate. What fails is the
+size. A count cell coloured on three starts looks like one coloured on a half
+season, 1.7 to 1.8 times his usual rate, but it comes back at 1.4 where the
+half-season one comes back near 1.7. On 280 pitches, what clears three
+standard errors is a mix of real tendencies and ordinary ones caught on a good
+run, and nothing in the sample tells them apart. A bar set in standard errors
+keeps a small sample quiet. It cannot make the few things it does say the
+right size.
+
+*Sequencing needs about ten starts.* Before that the graph mostly says nothing:
+4% of three-start reports and 12% of five-start reports colour a follow-up at
+all. The shares it draws are another matter. A row is drawn only once the
+pitch has 40 follow-ups to that side, so a share on a three-start graph sits
+a median 3.7 points from the held-out share, against 3.0 on a half season;
+there are just 1.5 rows of it where a half season has 6.9. Tunneling behaves
+the same way and for the same reason: few pairs reach their 30 occurrences
+before ten starts (0.2 a report on three, 0.9 on five, 3.8 on ten), and from
+ten on the words hold as often as they ever do.
+
+So for a staff with three starts on a pitcher: read the card's lines, read the
+shares on the sequence graph, and treat anything coloured as a direction and
+not a size. The colours start to mean something around his tenth start, which
+is late in a college regular season.
+
+**The control.** A real report is built from his first games and read against
+his later ones, and he changes in between; shuffling hides that. So the
+half-season sample was scored once more in date order, first half against
+second, for the same 33 seasons.
+
+| | Shuffled: held | By date: held | By date: claims |
+|---|---|---|---|
+| Hitter's count: what to sit on | 78% | 72% | 36 |
+| Two strikes: the put-away pitch | 78% | 72% | 65 |
+| Won't see | 97% | 94% | 49 |
+| Count grid: a coloured cell | 69% | 69% | 90 |
+| Sequence graph: more than usual | 67% | 62% | 34 |
+| Tunneling: same window | 71% | 72% | 58 |
+| Tunneling: apart early | 71% | 57% | 47 |
+
+On these pitchers a season's drift costs the plan's lines about six points,
+from one split a season and a few dozen claims a row. That is the allowance to
+make on the small-sample columns above, which were shuffled.
+
+What this does not show. These are major-league starters cut down to a
+college-sized sample, not college pitchers. A college starter may be easier to
+read — fewer pitches, less command, a simpler game called behind the plate —
+or harder, and nothing here measures it. Relievers are left out, because ten
+of their games are 150 pitches. And the bars were not moved for small samples:
+this is the report as it stands, not the best report that could be written
+from three starts.
+
+```bash
+python scripts/sample_size.py --season 2025 2026 --cached   # about five minutes
+```
+
 ## Design notes
 
 **Sample gates are a feature.** Every flag has a minimum-n threshold defined in
@@ -580,6 +717,16 @@ expected, which is under two standard errors — and a report looks at forty
 such cells per pitcher. So every usage lift also has to stand three standard
 errors clear of no lift, measured against his pitches outside that count or
 location rather than against an overall rate that already contains them.
+
+**Standard errors do not rescue a small sample.** The three-standard-error
+bar was added so that a report checking 40 cells would not print the two that
+cleared a lower bar by chance, and on a half season it does that. On three
+starts it cannot do the rest of the job: what clears it is a mix of real
+tendencies and ordinary ones on a good run. Scored against held-out games, a
+coloured count cell keeps its direction and gives back about 40% of its
+distance from his usual rate, against under 20% for one found on a half season
+(see "How few starts does it need?"). The bar controls how often the report
+speaks. It does not correct the size of what it says.
 
 **Compare an outing with itself.** Pitches 90 to 105 only exist in the starts
 that lasted, and those are the starts where he had his best stuff, so the
