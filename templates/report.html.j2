@@ -167,23 +167,6 @@ section.card{background:var(--card);border-radius:var(--radius);padding:20px 24p
 section.card > h2{font-size:15px;font-weight:650;margin-bottom:4px}
 section.card > .lede{font-size:13px;color:var(--muted);margin-bottom:16px;max-width:70ch}
 
-/* Takeaways lead the page. They are the deliverable; everything else is
-   evidence, and the styling should say so. */
-.take{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
-.take:last-child{border-bottom:none}
-.take .rank{flex:0 0 26px;height:26px;border-radius:13px;background:var(--head);color:#fff;
-            font-size:13px;font-weight:650;display:flex;align-items:center;justify-content:center}
-.take .body{flex:1}
-.take .claim{font-size:15px;line-height:1.45}
-.take .meta{margin-top:5px;font-size:11px;color:var(--muted);display:flex;gap:8px;
-            flex-wrap:wrap;align-items:center}
-.chip{display:inline-block;padding:2px 7px;border-radius:4px;background:#eef2f6;
-      color:#40556b;font-size:11px;font-weight:600;letter-spacing:.02em}
-.chip.z{background:#e6f0e9;color:var(--good)}
-.chip.t{background:#f3eee6;color:#7a5d33}
-.chip.cost{background:#f7e4de;color:var(--warn)}
-.chip.works{background:#e3ecf6;color:#2f5f8f}
-
 .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:var(--gap)}
 /* min-width:0 lets a table inside a chart box scroll sideways on a phone
    instead of stretching the box, and the page, to the table's width. */
@@ -586,65 +569,6 @@ button.more:hover{background:#f3f6fa}
 </div>
 {% endif %}
 
-<section class="card">
-  <h2>Findings, with their evidence</h2>
-  <p class="lede">
-    The rule-based findings behind the plan, ranked, one per category, each carrying
-    the sample it rests on. A claim without its sample size is not in this report.
-  </p>
-{% if payload.takeaways %}
-  {% for t in payload.takeaways %}
-  <div class="take">
-    <div class="rank">{{ loop.index }}</div>
-    <div class="body">
-      <div class="claim">{{ t.claim }}</div>
-      <div class="meta">
-        <span class="chip">{{ payload.flag_labels.get(t.flag, t.flag) }}</span>
-        <span>n = {{ t.n }}</span>
-        <span>strength {{ "%.1f"|format(t.severity) }}</span>
-        {# A run chip appears only when the estimate survived the correction,
-           which is rare. "Run cost unresolved" used to be printed on every
-           other finding, and a label on nearly everything says nothing; the
-           note under the list says it once. #}
-        {% if t.runs_cost is not none and t.resolved %}
-          {% if t.runs_cost > 0 %}
-          <span class="chip cost">costs him {{ "%.1f"|format(t.runs_cost) }} runs</span>
-          {% else %}
-          <span class="chip works">saves him {{ "%.1f"|format(-t.runs_cost) }} runs</span>
-          {% endif %}
-        {% endif %}
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-  <p class="note">
-    {{ payload.finding_count }} findings cleared their gates in total; the list above
-    is the strongest in each category, and the rest are rows in the tables below.
-    Counts and sequences are compared against <b>his own</b> overall rates, not the
-    league's — the league answers "who is this pitcher", his own rate answers "what is
-    he about to throw", and only the second is a hitter's question.
-  </p>
-  <p class="note">
-    <b>How many comparisons produced this.</b>
-    {{ payload.comparisons.total }} were run
-    ({% for fam, k in payload.comparisons.families.items() %}{{ k }} {{ fam }}{% if not loop.last %}, {% endif %}{% endfor %}),
-    of which about {{ payload.comparisons.expected_by_chance }} would clear an
-    uncorrected p &lt; .05 by chance alone. After a Benjamini-Hochberg correction
-    across all of them,
-    {% if payload.resolved_count == 1 %}
-    <b>1</b> run-consequence estimate survives.
-    {% else %}
-    <b>{{ payload.resolved_count }}</b> run-consequence estimates survive.
-    {% endif %}
-    So the frequency patterns above are the findings; what they cost him is not
-    resolved by a sample this size from one pitcher, and the report does not
-    pretend otherwise.
-  </p>
-{% else %}
-  <p class="nodata">Nothing cleared the sample gates. That is a result, not a failure.</p>
-{% endif %}
-</section>
-
 {# ----------------------------------------------------------- count grid
    Drawn by the template, like the dugout card, so it prints and needs no
    script. Colour comes from log2 of the lift, supplied by the payload, so the
@@ -925,19 +849,6 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   <div class="scroll"><table id="arsenalTable"><thead></thead><tbody></tbody></table></div>
 </section>
 
-<section class="card">
-  <h2>Count tendencies</h2>
-  <p class="lede">
-    Predictability runs from 0 to 1: 1.0 means he throws only one pitch in that
-    count, 0.0 means an even spread across his whole arsenal.
-    {% if payload.meta.has_league %}
-    The league share is context — who he is. Whether a count is a finding is
-    decided against his own rate, in the count grid above.
-    {% endif %}
-  </p>
-  <div class="scroll"><table id="predTable"><thead></thead><tbody></tbody></table></div>
-</section>
-
 {# Sequence graph, SVG from the template; layout from charts.sequence_layout.
    Left to right is time: the pitch he just threw, then the pitch that
    followed. Drawn without script so it prints with the rest. #}
@@ -1067,8 +978,7 @@ const sign = (v, d = 3) => v === null || v === undefined ? '—'
 /* ---------------------------------------------------------------- tables */
 /* No table prints a run estimate. The setup and height tables used to carry
    a "Runs" column, coloured red and green, of estimates that do not survive
-   the correction the findings are held to — a figure the page declines to
-   print in a sentence should not be printed in a cell. */
+   correction across everything the report compares: 1 in 287 did. */
 /* One renderer for every table. Columns declare their own formatter, so a
    rate can never be printed as a raw float by accident. A formatter gets the
    cell's value and then its whole row, for a cell that prints its own n. */
@@ -1142,17 +1052,6 @@ table('arsenalTable', D.arsenal, [
   { f: 'n_R', l: 'n to R', n: 1, fmt: int },
   { f: 'xwoba', l: 'xwOBA', n: 1, fmt: v => num(v, 3) },
   { f: 'xwoba_delta', l: 'Δ xwOBA', n: 1, fmt: v => sign(v, 3), tone: 1 },
-]);
-
-table('predTable', D.predictability, [
-  { f: 'count', l: 'Count' },
-  { f: 'n', l: 'n', n: 1, fmt: int },
-  { f: 'top_pitch', l: 'Top pitch' },
-  { f: 'top_share', l: 'Share', n: 1, fmt: pct },
-  { f: 'league_top_share', l: 'Lg share', n: 1, fmt: pct },
-  { f: 'share_delta', l: 'vs league', n: 1, fmt: v => sign(v, 3), tone: 1 },
-  { f: 'share_z', l: 'SEs from league', n: 1, fmt: v => num(v, 1) },
-  { f: 'predictability', l: 'Predictability', n: 1, fmt: v => num(v, 3) },
 ]);
 
 table('setupTable', D.setups, [

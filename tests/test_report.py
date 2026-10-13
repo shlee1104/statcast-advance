@@ -123,11 +123,12 @@ class TestBuildPayload:
         blob = json.dumps(payload, allow_nan=False)
         assert not re.search(r'(?<![\w"])(NaN|Infinity)(?![\w"])', blob)
 
-    def test_every_claim_carries_its_sample_size(self):
+    def test_every_line_of_the_plan_carries_its_sample_size(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        assert payload["takeaways"]
-        for finding in payload["takeaways"]:
-            assert "n=" in finding["claim"]
+        plan = payload["card"]["plan"]
+        lines = plan["L"] + plan["R"] + plan["both"]
+        assert lines
+        assert all(line["n"] > 0 for line in lines)
 
     def test_zone_grid_counts_every_located_pitch(self):
         """The grid is the only zone map now, so it has to hold everything the
@@ -151,12 +152,6 @@ class TestBuildPayload:
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         assert "count_mix" not in payload
         assert "countChart" not in report.render(payload)
-
-    def test_takeaways_are_one_per_finding_type(self):
-        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        kinds = [t["flag"] for t in payload["takeaways"]]
-        assert len(kinds) == len(set(kinds))
-        assert payload["finding_count"] >= len(kinds)
 
 
 class TestArsenalDetailTable:
@@ -219,13 +214,17 @@ class TestCutSections:
     a field nothing draws is a number nobody checks."""
 
     REMOVED_FIELDS = ("findings", "count_lifts", "quadrants", "first_pitch",
-                      "zone", "platoon", "tto_decomposition")
+                      "zone", "platoon", "tto_decomposition",
+                      # The ranked findings list and the entropy table.
+                      "takeaways", "finding_count", "resolved_count",
+                      "comparisons", "flag_labels", "predictability")
     REMOVED_FROM_PAGE = ("arsenalChart", "platoonTable", "liftTable",
                          "findingsTable", "zonePick", "All findings",
-                         "run cost unresolved")
+                         "run cost unresolved",
+                         "Findings, with their evidence", 'class="take"',
+                         "Count tendencies", "predTable", "Predictability")
     KEPT_FIELDS = ("release", "setups", "putaway", "location_profile",
-                   "band_information", "zone_slices", "movement", "tto",
-                   "predictability")
+                   "band_information", "zone_slices", "movement", "tto")
 
     def build(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
@@ -262,8 +261,8 @@ class TestCutSections:
         assert "r.velo_pairs" in html
 
     def test_no_table_carries_an_uncorrected_run_estimate(self):
-        """The findings print a run figure only when it survives correction.
-        The setup and height tables used to print every one, in colour."""
+        """One run estimate in 287 survived correction, so the page prints
+        none. The setup and height tables used to print every one, in colour."""
         frame = make_frame([
             {"pitch_type": "FF", "n": 120, "plate_z": 3.3},
             {"pitch_type": "SL", "n": 30, "plate_z": 3.3},
@@ -277,8 +276,6 @@ class TestCutSections:
             assert {"n", "xwoba_when"} <= set(row)
         html = report.render(payload)
         assert "l: 'Runs'" not in html
-        # The findings keep theirs: a cost that survives is still printed.
-        assert all("runs_cost" in t and "resolved" in t for t in payload["takeaways"])
 
     def test_height_note_moved_to_the_height_table(self):
         frame = make_frame([
@@ -475,8 +472,8 @@ class TestDugoutCard:
         html = report.render(payload)
         card_at = html.find('<section class="dugout"')
         behind_at = html.find("Behind the card")
-        findings_at = html.find("Findings, with their evidence")
-        assert 0 < card_at < behind_at < findings_at
+        evidence_at = html.find("<h2>Location</h2>")
+        assert 0 < card_at < behind_at < evidence_at
 
         card = card_html(html)
         assert "<script" not in card

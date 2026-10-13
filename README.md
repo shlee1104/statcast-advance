@@ -50,22 +50,23 @@ self-contained interactive HTML report comes out.
   batter's own strike zone, with per-pitch quadrant concentration, command
   spread, and a conditional-entropy score for how much a location band gives
   away about which pitch is coming
-- Weakness-flag rules engine — six rules over the metrics layer, each finding
-  carrying its sample size in the sentence, ranked on a single severity axis
-  that records whether it came from a league z-score or a weighted threshold.
-  A usage lift has to clear its minimum sample and stand at least three
-  standard errors from no lift before it is a finding
-- Interactive HTML report — the dugout card and findings first, then the count,
-  movement, location, arsenal, sequencing and release evidence; zone heat maps
-  sliceable by count and batter side; self-contained in one file with no server
-  and no build step
+- Findings engine — six rules over the metrics layer, each finding carrying
+  its sample size in the sentence. A usage lift has to clear its minimum
+  sample and stand at least three standard errors from no lift before it is a
+  finding. The replication check below is run through it; its ranked list is
+  no longer printed in the report (see Pruning)
+- Interactive HTML report — the dugout card first, then the count, movement,
+  location, arsenal, sequencing and release evidence; zone heat maps sliceable
+  by count and batter side; self-contained in one file with no server and no
+  build step
 - Single-command CLI — `python -m src.cli --pitcher "Name"` from name to report
 - Outcome coupling — every tell's cost in runs is estimated with a confidence
-  interval, and printed only if it survives the correction below; the page says
-  once how many comparisons were run and how many survived
+  interval and held to the correction below. Across 58 reports one estimate in
+  287 survived it, so the report prints no run figure
 - Multiple-comparison correction — Benjamini-Hochberg across every run-value
-  comparison the report makes (not just the ones that became findings), with
-  the number of comparisons printed next to the number of findings
+  comparison a report runs (a median of 74 to 80 per pitcher, not just the ones that
+  became findings); `scripts/replication.py` prints how many were run and how
+  many survive
 - Dugout card — page one is a one-page advance sheet, laid out the way clubs
   lay theirs out: season line, arsenal with velocity ranges, his last five
   outings, pitch-mix pies for five situations and a zone map for every pitch,
@@ -106,14 +107,16 @@ self-contained interactive HTML report comes out.
   cutoffs and its code: the first-pitch "take or swing" advice, a verdict on
   the third trip through the order, a "hittable pitch" finding, and a run
   estimate printed on every finding (see "Does the plan hold up?" and "Do the
-  findings repeat?")
+  findings repeat?"). Two sections left the page later and kept their code: a
+  ranked findings list, whose "strength" score rested on weights that were a
+  judgment call, and a per-count entropy table that no rule read
 - Sequence graph — what follows each pitch, one panel per batter side, read
   left to right: the pitch he just threw, then the next one. Lines are as thick
   as the follow-up is common, and coloured only where it comes clearly more or
   less often than usual; titled with an auto-written sentence ("he doubles up
   on the slider", "the curveball sets up the sinker") or one saying nothing
   stands out
-- 624 unit tests, plus an end-to-end validation suite over live data
+- 623 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -262,10 +265,6 @@ dugout version first, and the detail behind it after.
   The full plan — including the first-pitch mix, "he mixes" and "look
   fastball" — is still built and still in the report's data, and the lines on
   the card are the same sentences cut down (`gameplan.card_keys`).
-- **Findings** — the rule-based findings behind the plan, the strongest in each
-  category, each carrying its sample size, with one note on how many
-  comparisons produced them and how many run-cost estimates survived
-  correction
 - **Count grid** — one balls-by-strikes grid per pitch: how far each count
   moves him from his own usual rate, with the share and pitch count in every
   cell
@@ -281,8 +280,6 @@ dugout version first, and the detail behind it after.
 - **Arsenal against the league, by batter side** — usage, velocity, whiff rate
   and xwOBA for each pitch next to the league's version of it, zone rate, and
   whiff rate against each side
-- **Count tendencies** — a normalized-entropy predictability score for each
-  count, with the league's share of the same pitch as context
 - **Sequencing** — a graph of what follows each pitch to lefties and to
   righties, coloured where a follow-up departs from his usual; then setup
   pairs keyed on pitch type and height, with how much more likely the
@@ -450,8 +447,8 @@ trip says close to nothing, while the change in velocity on that trip carries
 over.
 
 Across the 58 full-season reports the rules made 287 findings, and the run
-consequence of one of them survived correction, so the run estimate came off
-every finding and is stated once. The hittable-pitch finding fired for 2 of 30
+consequence of one of them survived correction, so the report prints no run
+estimate. The hittable-pitch finding fired for 2 of 30
 pitchers in 2025 and 3 of 28 in 2026, and was removed.
 
 The script as it stands measures the rules that remain (260 findings across
@@ -509,10 +506,10 @@ carried as context.
 findings has run far more comparisons than eight. This one runs 120 — 44 count,
 44 location, 32 sequencing — of which about six clear an uncorrected p < .05 by
 chance alone. Benjamini-Hochberg is applied across all 120 in the engine,
-where the whole family is visible, and the comparison count is printed next to
-the finding count. On Yamamoto, sixteen comparisons clear the raw threshold and
-none survive the correction, which is why that report prints no run figure for
-any finding. (More than six clear it because the null is not
+where the whole family is visible, and the replication script prints the
+comparison count next to the finding count. On Yamamoto, sixteen comparisons
+clear the raw threshold and none survive the correction, which is why the
+report prints no run figure. (More than six clear it because the null is not
 exactly true: where a pitch is thrown, and in what count, moves its run value
 whether or not anyone saw it coming. A comparison that does survive says the
 pitch does better or worse in that spot than it does for him generally; it
@@ -541,13 +538,12 @@ with two strikes. (xwOBA here is per plate appearance, strikeouts counted as
 zero, so any two-strike number runs low; the comparison is what means
 something.) So the cost of every tell is estimated in runs — and one season of
 one pitcher usually cannot resolve it: run value per pitch has a standard
-deviation near 0.19 against pattern-level differences of 0.01 to 0.02. A run
-figure is printed only when it survives the correction. Otherwise the
-frequency pattern is the finding and the report prints no run figure, rather
-than one that implies precision it does not have. It says so once, under the
-findings, with the number of comparisons behind it; it used to say so in a
-sentence on every finding, and a caveat attached to everything is read by no
-one.
+deviation near 0.19 against pattern-level differences of 0.01 to 0.02. Across
+the 58 calibration reports one estimate in 287 survived the correction. So
+the frequency pattern is the finding, and the report prints no run figure
+rather than one that implies precision it does not have. It used to say so in
+a sentence on every finding, and a caveat attached to everything is read by
+no one.
 
 **What does not repeat comes out.** A line in the plan is a prediction, and a
 finding type is only worth its space if it comes back in games it was not
@@ -557,7 +553,12 @@ it was deleted rather than hedged. A verdict on the third trip through the
 order (back in 1 of 7 cases) and a "hittable pitch" finding (fired in 5 of 58
 pitcher-seasons) were removed the same way after being re-measured on the other half
 of the season; the tables they were read from are still in the report, without
-the conclusion.
+the conclusion. The ranked findings list went for a different reason: its
+patterns repeat, but they are the patterns the card and the tables already
+show, and the order it put them in came from a severity score with
+hand-chosen weights. A number on a page that nobody can defend is worse than
+no number, so the list is off the page and the engine behind it is kept for
+the replication check.
 
 **One page means choosing, and the choice has a rule.** Clubs pare a phone
 book down to a page, and the page is short because someone decided what a

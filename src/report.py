@@ -16,8 +16,17 @@ Keeping them apart means the payload can be inspected, diffed between runs, or
 fed to something else entirely without touching presentation — and the
 template cannot quietly introduce a number that no metric produced.
 
-Takeaways lead the page. Everything below them is the evidence for them, in
-the order a reader would want it while checking whether to believe a claim.
+The dugout card leads the page. Everything below it is the evidence for it,
+in the order a reader would want it while checking whether to believe a line.
+
+Two things the page used to print are no longer built here. The ranked
+findings list (`flags.evaluate`) repeated, as sentences with a "strength"
+score, patterns the card and the tables already show; the score's weights
+were a judgment call, and the run cost it existed to attach survived
+correction for 1 finding in 287. The per-count entropy "predictability"
+table fed no rule. Both still exist in the metrics layer — `src/flags.py`
+and `counts.predictability` — and `scripts/replication.py` still measures
+them; the report does not call them.
 """
 
 from __future__ import annotations
@@ -30,7 +39,7 @@ from typing import Any
 
 import pandas as pd
 
-from src import baselines, charts, config, flags, gameplan
+from src import baselines, charts, config, gameplan
 from src.metrics import arsenal, counts, events, location, seasons, sequencing, splits
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -96,18 +105,6 @@ OPTIONAL_COLUMNS: dict[str, str] = {
 }
 
 
-# What each finding type is called on the page. The codes are for the
-# program; a coach reading "location_tell" next to a finding learns nothing.
-FLAG_LABELS: dict[str, str] = {
-    "predictable_count": "Count tendency",
-    "handedness_gap": "Lefty/righty split",
-    "fatigue": "Velocity late in starts",
-    "sequencing_tell": "Sequencing",
-    "location_tell": "Height tell",
-    "first_pitch": "First pitch",
-}
-
-
 def _data_gaps(frame: pd.DataFrame) -> list[dict]:
     """Report metric inputs missing from this frame."""
     return [
@@ -132,6 +129,10 @@ def build_payload(
     needs one degrades to the un-compared version rather than disappearing, so
     a report generated before `build_baselines.py` has run is thinner but not
     broken.
+
+    `league_mix` is accepted so a caller can pass the three league tables
+    together, and is not read: the two sections that used it, the findings
+    list and the count-predictability table, are no longer in the report.
     """
     if len(frame) == 0:
         raise ValueError("Cannot build a report from an empty frame.")
@@ -149,14 +150,6 @@ def build_payload(
 
     arsenal_rows = _build_arsenal(frame, league_outcomes)
 
-    predictability = counts.predictability(frame, min_pitches=20)
-    if has_league and league_mix is not None and len(predictability):
-        predictability_rows = _records(
-            baselines.compare_predictability(predictability, league_mix)
-        )
-    else:
-        predictability_rows = _records(predictability, index_name="count")
-
     putaway = sequencing.putaway(frame, min_pitches=10)
     if has_league and league_putaway is not None and len(putaway):
         putaway_rows = _records(baselines.compare_putaway(putaway, league_putaway))
@@ -164,9 +157,6 @@ def build_payload(
         putaway_rows = _records(putaway, index_name="pitch_type")
 
     fatigue = splits.fatigue(frame, bucket_size=15)
-
-    all_findings = flags.evaluate(frame, league_mix)
-    takeaways = flags.takeaways(frame, findings=all_findings)
 
     # Read once: the card's sequence line and the sequence graph are the same
     # follow-ups, and must come from the same table.
@@ -196,17 +186,11 @@ def build_payload(
         "data_gaps": _data_gaps(frame),
         "card": _build_card(frame, changes=changes, season_frame=full_frame,
                             sequences=sequences),
-        "takeaways": _records(takeaways),
-        "finding_count": int(len(all_findings)),
-        "resolved_count": int(all_findings["resolved"].sum()) if len(all_findings) else 0,
-        "comparisons": flags.comparison_count(frame, league_mix),
         "arsenal": arsenal_rows,
         "display_names": _display_names(frame),
-        "flag_labels": FLAG_LABELS,
         "count_grid": _build_count_grid(frame),
         "platoon_slope": _build_platoon_slope(frame),
         "movement": _build_movement(frame, league_outcomes),
-        "predictability": predictability_rows,
         "putaway": putaway_rows,
         "sequence_graph": _build_sequence_graph(frame, sequences),
         "setups": _records(_without_runs(
@@ -229,14 +213,13 @@ def build_payload(
                 "Every claim states its sample size. Thresholds and minimum "
                 "samples are defined in config.yaml, not in code."
             ),
-            "max_takeaways": int(config.get("report.max_takeaways", 5)),
         },
     }
 
 
 # The run-value columns the metric tables carry. flags.py reads them to
-# correct across every comparison the report runs; the page does not show
-# them, so they are not sent to it.
+# correct across every comparison it runs; the page does not show them, so
+# they are not sent to it.
 RUN_COLUMNS: list[str] = [
     "rv_when", "rv_base", "rv_delta", "runs_cost", "runs_lo", "runs_hi",
     "significant", "rv_p",
@@ -248,8 +231,7 @@ def _without_runs(table: pd.DataFrame) -> pd.DataFrame:
 
     Each row's run cost is one of about a hundred comparisons, and on the
     calibration pitchers 1 finding in 287 had a cost that survived correction.
-    The findings stopped printing the estimate for that reason; a table that
-    kept it, in colour, would be saying what the findings no longer say.
+    The page prints no run figure anywhere for that reason.
     """
     return table.drop(columns=[c for c in RUN_COLUMNS if c in table.columns])
 

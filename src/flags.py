@@ -17,17 +17,29 @@ than no report because it converts noise into instructions.
 discarded rather than reported with a caveat. Caveats do not survive the trip
 from a PDF to a dugout.
 
-**Severity is ranked on one axis, and the axis is named.** Findings arrive in
-incompatible units. Where a league proportion exists, severity is standard
-errors from it, which is a measurement. Where none exists — fatigue,
-sequencing lift, location lift — severity is how far past its own threshold
-the finding sits, scaled by a weight in `report.severity_weights`, which is a
-judgment call. Every finding records which of the two produced its number in
-`severity_basis`, so a weighted guess is never mistaken for a z-score.
+**Severity is ranked on one axis, and the axis is a judgment call.** Findings
+arrive in incompatible units — a share, a lift ratio, a velocity drop — so
+each is scored by how far past its own threshold it sits and how large its
+sample is against its gate, scaled by a weight in `report.severity_weights`.
+That is a ranking device, not a measurement. The count finding was once
+scored in standard errors from a league proportion instead; when counts moved
+to his own rate as the baseline that basis went unused, and every rule now
+records `threshold_multiple` in `severity_basis`.
 
 No rule needs a league baseline: every comparison is the pitcher against
 himself. The league's count mix, when supplied, is quoted as context inside
 the count finding and decides nothing.
+
+The report no longer prints this module's findings. Its list repeated, as
+ranked sentences, what the dugout card's keys and the tables already say, on
+a severity scale whose weights are a judgment call; and the run cost it was
+built to attach survived correction for 1 finding in 287 across the
+calibration reports. The engine is kept, tested, because the replication
+check is run through it (`scripts/replication.py`: do these findings repeat
+between halves of a season?) and because the correction across every
+comparison lives here (`benjamini_hochberg`, `comparison_count`). A rule for
+the report itself belongs in `gameplan.py`, where the holdout check can score
+it.
 """
 
 from __future__ import annotations
@@ -56,9 +68,9 @@ FINDING_COLUMNS: list[str] = [
     "claim", "observed", "reference", "delta", "runs_lo", "runs_hi", "rv_p",
 ]
 
-# The two ways a severity number can come to exist. Recorded per finding
-# rather than inferred from the flag type, so the distinction survives into
-# the report.
+# The two ways a severity number can come to exist, recorded per finding
+# rather than inferred from the flag type. No rule produces BASIS_Z any more:
+# it was the count finding's, from when counts were tested against the league.
 BASIS_Z = "z_vs_league"
 BASIS_THRESHOLD = "threshold_multiple"
 
@@ -661,10 +673,9 @@ def evaluate(
     `league_mix` only adds the league's rate to the count finding's sentence,
     so this works against a bare fixture as well as a fully built cache.
 
-    Ranking mixes two severity bases by design, and `severity_basis` names
-    which one produced each row. See the module docstring, and the comment on
-    `report.severity_weights` in config.yaml, for why that is a deliberate
-    compromise rather than an oversight.
+    Every rule scores severity the same way, as a multiple of its own
+    threshold (see `_threshold_severity` and the module docstring), and
+    `severity_basis` records it on each row.
     """
     if len(frame) == 0:
         return pd.DataFrame(columns=FINDING_COLUMNS)

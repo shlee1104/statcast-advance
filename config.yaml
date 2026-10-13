@@ -63,24 +63,18 @@ report:
   # stays visible — that near-empty cell is often the finding.
   count_grid_min_count: 30
 
-  # Findings arrive in different units — a share delta, a velocity drop in mph,
-  # a lift ratio — and the top takeaways have to be ranked against each other.
+  # For the findings engine (src/flags.py), which the report no longer prints
+  # but the replication check still runs; `max_takeaways` above belongs to it
+  # as well.
   #
-  # Where a league proportion exists, severity is standard errors from that
-  # proportion, which is a real measurement: it demotes a large deviation on a
-  # thin sample automatically. Roughly |z| > 2 is worth reporting, so severity
-  # is on that scale.
-  #
-  # Fatigue and lift findings have no league proportion to test against, so
-  # they are scaled onto the same axis by how far past their own threshold they
-  # sit, multiplied by the weight below. THESE WEIGHTS ARE A JUDGMENT CALL, not
-  # a measurement, and every finding records which basis produced its severity
-  # so the two are never silently conflated.
-  # Only predictable_count has a true league proportion behind it and is
-  # therefore ranked by z-score; every other flag is scaled by the weight
-  # below. Equal weights are the honest starting point — they say "these
-  # matter about the same amount", which is a claim I can defend, where tuned
-  # weights would imply a precision that does not exist yet.
+  # Findings arrive in different units — a share, a lift ratio, a velocity drop
+  # in mph — and have to be ranked against each other. Each is scored by how
+  # far past its own threshold it sits and how large its sample is against its
+  # gate, multiplied by the weight below. THESE WEIGHTS ARE A JUDGMENT CALL,
+  # not a measurement. Equal weights say "these matter about the same amount",
+  # which can be defended; tuned weights would imply a precision that does not
+  # exist. That the ranking rests on them is one reason the ranked list came
+  # off the page.
   severity_weights:
     predictable_count: 2.0
     handedness_gap: 2.0

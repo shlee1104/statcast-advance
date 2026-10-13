@@ -239,8 +239,10 @@ def summarise(entry: dict, frame: pd.DataFrame, payload: dict) -> tuple[dict, li
         1 for p in grid for c in p["cells"].values() if not c["reliable"]
     )
     row["movement_label_overlaps"] = movement_overlaps(payload)
-    row["findings"] = payload.get("finding_count", 0)
-    row["findings_resolved"] = payload.get("resolved_count", 0)
+    # Straight from the engine: the report no longer builds the findings list.
+    found = flags.evaluate(frame)
+    row["findings"] = int(len(found))
+    row["findings_resolved"] = int(found["resolved"].sum()) if len(found) else 0
     row["headline_count"] = payload.get("count_grid", {}).get("headline") or ""
     row["headline_platoon"] = payload.get("platoon_slope", {}).get("headline") or ""
     row["headline_movement"] = payload.get("movement", {}).get("headline") or ""
