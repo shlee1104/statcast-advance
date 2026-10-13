@@ -147,8 +147,8 @@ class TestCombinedReport:
 
     def test_renders(self):
         payload = report.build_payload(self.build(), "Test Pitcher", "2025–2026")
-        html = report.render(payload)
-        assert "Seasons combined" in html
+        assert "2025–2026" in report.render(payload, "card")
+        assert "Seasons combined" in report.render(payload, "detail")
 
 
 class TestCli:

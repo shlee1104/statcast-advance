@@ -2,7 +2,12 @@
 
 Automated advance scouting reports from MLB pitch-level data.
 
-Player name in, coach-ready interactive report out.
+Player name in, a one-page advance card out, with the evidence one link
+behind it.
+
+**Sample (Yoshinobu Yamamoto, 2025):**
+[the card](https://shlee1104.github.io/statcast-advance/sample_report.html) ·
+[the evidence behind it](https://shlee1104.github.io/statcast-advance/sample_report_detail.html)
 
 ## What this is
 
@@ -23,8 +28,8 @@ outcome), which makes the methodology directly transferable.
 
 ## Status
 
-Working end to end against real season data. A pitcher name goes in and a
-self-contained interactive HTML report comes out.
+Working end to end against real season data. A pitcher name goes in and two
+self-contained HTML files come out: a one-page card, and the evidence for it.
 
 **Complete**
 
@@ -55,10 +60,11 @@ self-contained interactive HTML report comes out.
   sample and stand at least three standard errors from no lift before it is a
   finding. The replication check below is run through it; its ranked list is
   no longer printed in the report (see Pruning)
-- Interactive HTML report — the dugout card first, then the count, movement,
-  location, arsenal, sequencing and release evidence; zone heat maps sliceable
-  by count and batter side; self-contained in one file with no server and no
-  build step
+- Two-file HTML report — the dugout card on its own, static, one printed
+  page; and beside it the evidence: count, movement, location, arsenal,
+  sequencing and release, with zone heat maps sliceable by count and batter
+  side. Each file is self-contained, with no server and no build step, and
+  links to the other
 - Single-command CLI — `python -m src.cli --pitcher "Name"` from name to report
 - Outcome coupling — every tell's cost in runs is estimated with a confidence
   interval and held to the correction below. Across 58 reports one estimate in
@@ -67,8 +73,8 @@ self-contained interactive HTML report comes out.
   comparison a report runs (a median of 74 to 80 per pitcher, not just the ones that
   became findings); `scripts/replication.py` prints how many were run and how
   many survive
-- Dugout card — page one is a one-page advance sheet, laid out the way clubs
-  lay theirs out: season line, arsenal with velocity ranges, his last five
+- Dugout card — the default output is a one-page advance sheet, laid out the
+  way clubs lay theirs out: season line, arsenal with velocity ranges, his last five
   outings, pitch-mix pies for five situations and a zone map for every pitch,
   both split by batter side, and the keys. It prints on exactly one letter
   page, for a two-pitch closer and a seven-pitch starter alike
@@ -116,7 +122,7 @@ self-contained interactive HTML report comes out.
   less often than usual; titled with an auto-written sentence ("he doubles up
   on the slider", "the curveball sets up the sinker") or one saying nothing
   stands out
-- 623 unit tests, plus an end-to-end validation suite over live data
+- 632 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -205,7 +211,9 @@ If two active players share the name, the lookup stops rather than guess;
 pass the MLBAM id it lists with `--player-id`.
 
 It resolves the name, reads the cache or fetches, cleans, computes every
-metric, runs the flags, and writes `reports/<name>_<season>.html`. League
+metric, builds the hitting plan, and writes two files:
+`reports/<name>_<season>.html`, the one-page card, and
+`reports/<name>_<season>_detail.html`, the evidence behind it. League
 baselines are used if they exist and skipped if they do not. To work offline
 from a committed fixture:
 
@@ -238,7 +246,12 @@ control and those are small samples, so this is support, not proof.
 ## Report contents
 
 The structure follows how teams describe their own advance reports: a short
-dugout version first, and the detail behind it after.
+dugout version, and the detail behind it. They are two files. The card is the
+one a coach is sent; it is static, needs no script, and prints on one page.
+The second file is for whoever wants to check a line. They were one file,
+card first, which made a one-page report twelve pages long.
+
+**The card** (`<name>_<season>.html`)
 
 - **Dugout card** — one printed page, top to bottom:
   - *Season line* — K%, BB%, whiff, chase, zone, first-pitch strike, xwOBA.
@@ -265,6 +278,9 @@ dugout version first, and the detail behind it after.
   The full plan — including the first-pitch mix, "he mixes" and "look
   fastball" — is still built and still in the report's data, and the lines on
   the card are the same sentences cut down (`gameplan.card_keys`).
+
+**The evidence** (`<name>_<season>_detail.html`)
+
 - **Count grid** — one balls-by-strikes grid per pitch: how far each count
   moves him from his own usual rate, with the share and pitch count in every
   cell

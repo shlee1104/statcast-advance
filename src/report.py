@@ -1,23 +1,31 @@
 """Assemble every metric into one payload and render the report.
 
-The report is a single self-contained HTML file. No server, no external data
-fetch, no build step — a coach gets sent one file, opens it, and it works, on a
-phone in a parking lot if that is where he is. That constraint is why all data
-is embedded as JSON rather than loaded, and why the only external dependency
-is a charting library from a CDN with a graceful fallback to tables.
+The report is two self-contained HTML files. The dugout card is one printed
+page and is the file a coach is sent: static, no script, nothing to load. The
+detail file beside it is the evidence for the card, for whoever wants to check
+a line. No server, no external data fetch, no build step — either file is
+opened and it works, on a phone in a parking lot if that is where the reader
+is. That constraint is why the detail's data is embedded as JSON rather than
+loaded, and why its only external dependency is a charting library from a CDN
+with a graceful fallback to tables.
+
+They were one file, card first. The card said "one page" and the file was
+twelve, so a reader who wanted what a coach gets had to stop scrolling at the
+right place. Now the default file is the page, and the rest is one link away.
 
 Two layers live here:
 
   build_payload()  runs the metrics modules and flattens everything into a
                    JSON-serializable dict. All the baseball happens here.
-  render()         hands that dict to a Jinja2 template. No computation.
+  render()         hands that dict to a Jinja2 template, once per file. No
+                   computation.
 
 Keeping them apart means the payload can be inspected, diffed between runs, or
 fed to something else entirely without touching presentation — and the
 template cannot quietly introduce a number that no metric produced.
 
-The dugout card leads the page. Everything below it is the evidence for it,
-in the order a reader would want it while checking whether to believe a line.
+The detail file is in the order a reader would want it while checking
+whether to believe a line on the card.
 
 Two things the page used to print are no longer built here. The ranked
 findings list (`flags.evaluate`) repeated, as sentences with a "strength"
@@ -741,8 +749,26 @@ def _build_card_zones(frame: pd.DataFrame, order: list[str]) -> dict:
     return {"sides": sides, "min_pitches": min_pitches}
 
 
-def render(payload: dict, template_dir: Path | None = None) -> str:
-    """Render the payload into HTML.
+PAGES: tuple[str, ...] = ("card", "detail")
+
+
+def detail_path(card_path: Path) -> Path:
+    """Where the evidence file goes: beside the card, as `<name>_detail.html`."""
+    return card_path.with_name(f"{card_path.stem}_detail{card_path.suffix}")
+
+
+def render(
+    payload: dict,
+    page: str,
+    links: dict[str, str] | None = None,
+    template_dir: Path | None = None,
+) -> str:
+    """Render one of the report's two files from the payload.
+
+    `page` is "card", the one-page dugout card, or "detail", the evidence
+    behind it. `links` maps each page to its file name so the two can point
+    at each other; without it neither carries a link, which is what a caller
+    rendering one page on its own wants.
 
     Autoescaping is on. Findings are rendered from computed metrics rather
     than user input, but a pitch name arriving from an upstream feed still has
@@ -750,6 +776,9 @@ def render(payload: dict, template_dir: Path | None = None) -> str:
     around.
     """
     from jinja2 import Environment, FileSystemLoader
+
+    if page not in PAGES:
+        raise ValueError(f"page must be one of {PAGES}, not {page!r}")
 
     env = Environment(
         loader=FileSystemLoader(str(template_dir or TEMPLATE_DIR)),
@@ -767,9 +796,10 @@ def render(payload: dict, template_dir: Path | None = None) -> str:
     )
     template = env.get_template(TEMPLATE_NAME)
 
-    # The payload goes in as one JSON blob the page parses on load. Passing it
-    # through Jinja as nested structures would mean escaping decisions in a
-    # hundred places instead of one.
+    # The payload goes into the detail file as one JSON blob the page parses
+    # on load. Passing it through Jinja as nested structures would mean
+    # escaping decisions in a hundred places instead of one. The card draws
+    # everything in the template and carries no blob.
     #
     # allow_nan=False makes a stray NaN fail loudly here rather than silently
     # producing a page that will not parse in the browser. The slash escape
@@ -778,7 +808,22 @@ def render(payload: dict, template_dir: Path | None = None) -> str:
     # from an upstream feed and one day something will.
     blob = json.dumps(payload, allow_nan=False).replace("</", "<\\/")
 
-    return template.render(payload=payload, payload_json=blob)
+    return template.render(payload=payload, payload_json=blob, page=page, links=links)
+
+
+def write_pages(payload: dict, card_path: Path) -> tuple[Path, Path]:
+    """Render both files from one payload and write them side by side.
+
+    Returns (card path, detail path). The detail's name is derived from the
+    card's (see `detail_path`), and each file links to the other by name, so
+    the pair can be moved or emailed together and the links still work.
+    """
+    detail = detail_path(card_path)
+    links = {"card": card_path.name, "detail": detail.name}
+    card_path.parent.mkdir(parents=True, exist_ok=True)
+    card_path.write_text(render(payload, "card", links), encoding="utf-8")
+    detail.write_text(render(payload, "detail", links), encoding="utf-8")
+    return card_path, detail
 
 
 def write(
@@ -788,17 +833,18 @@ def write(
     out_path: Path | None = None,
     **league: pd.DataFrame | None,
 ) -> Path:
-    """Build, render, and write the report. Returns the path written."""
+    """Build, render, and write the report's two files.
+
+    Returns the card's path, which is `out_path` when one is given. The
+    evidence is written beside it, at `detail_path()` of that.
+    """
     payload = build_payload(frame, pitcher, season, **league)
-    html = render(payload)
 
     if out_path is None:
         out_dir = ROOT / str(config.get("report.output_dir", "reports"))
-        out_dir.mkdir(parents=True, exist_ok=True)
         stem = pitcher.lower().replace(" ", "_")
         tag = str(season).replace("–", "-").replace(", ", "_")
         out_path = out_dir / f"{stem}_{tag}.html"
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html, encoding="utf-8")
-    return out_path
+    card, _ = write_pages(payload, out_path)
+    return card

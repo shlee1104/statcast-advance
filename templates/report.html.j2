@@ -1,8 +1,17 @@
-{# Advance scouting report — single self-contained file.
+{# Advance scouting report — two self-contained files from this one template.
 
-   Everything is embedded: data as JSON, styles and behaviour inline. The only
-   external request is Chart.js, and the page degrades to tables if it is
-   blocked, because the person reading this may be on stadium wifi.
+   page == "card"    the dugout card: one printed page, and the file a coach
+                     is sent. Static: no script, no data blob, no external
+                     request, so it opens anywhere and prints as it looks.
+   page == "detail"  the evidence behind the card, for whoever wants to check
+                     a line. Data embedded as JSON, behaviour inline. Its only
+                     external request is Chart.js, and it degrades to tables
+                     if that is blocked, because the person reading may be on
+                     stadium wifi.
+
+   They were one file, card first. A reader who wanted the page a coach gets
+   was handed twelve. `links`, when given, holds each file's name so the two
+   can point at each other.
 
    No computation happens in here. Every number comes from the payload built
    by src/report.py, so the template cannot introduce a figure that no metric
@@ -12,8 +21,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{ payload.meta.pitcher }} {{ payload.meta.season }} — Advance Report</title>
+<title>{{ payload.meta.pitcher }} {{ payload.meta.season }} — {{ "Advance Report" if page == "card" else "Behind the card" }}</title>
+{% if page == "detail" %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+{% endif %}
 <style>
 :root{
   --bg:#f6f7f9; --card:#fff; --ink:#1c2024; --muted:#6b7280; --line:#e5e7eb;
@@ -31,6 +42,10 @@ header.top{background:var(--head);color:#fff;padding:22px 26px;border-radius:var
 header.top h2{font-size:22px;font-weight:650;letter-spacing:-.01em}
 header.top .sub{color:#9fb0c4;font-size:13px;margin-top:4px}
 header.top .sub b{color:#d7e2ee;font-weight:600}
+header.top a{color:#d7e2ee}
+/* Under the card, on screen only: where the evidence is. */
+.behind{font-size:13px;color:var(--muted);padding:0 6px 20px;max-width:90ch}
+.behind a{color:var(--accent);font-weight:600}
 
 /* Dugout card. The page a coach takes out, so it is set like a printed
    sheet: one page, dense, ruled, and nothing on it that needs JavaScript.
@@ -320,7 +335,7 @@ button.more:hover{background:#f3f6fa}
   .sheet > .byhand{flex:1 1 auto;min-height:0;overflow:hidden;grid-template-rows:minmax(0,1fr)}
   .byhand > div{display:flex;flex-direction:column;min-height:0}
   .byhand .ruled{flex:1 1 auto;height:auto;min-height:0}
-  .controls,button.more{display:none}
+  .controls,button.more,.behind{display:none}
   section.card,.chartbox{break-inside:avoid}
 }
 </style>
@@ -329,9 +344,9 @@ button.more:hover{background:#f3f6fa}
 <div class="wrap">
 
 {# ------------------------------------------------------------ dugout card
-   Page one, and one page. Rendered here in the template rather than in
-   JavaScript so it prints, and so it still works if scripts are blocked: this
-   is the page that gets folded into a back pocket.
+   One page, and a file of its own. Rendered here in the template rather than
+   in JavaScript so it prints, and so there is no script to block: this is the
+   page that gets folded into a back pocket.
 
    It prints what repeats and what a hitter can act on, and nothing else: see
    report._build_card for the rule, and gameplan.card_keys for which lines of
@@ -346,6 +361,7 @@ button.more:hover{background:#f3f6fa}
 {% macro woba(v) %}{% if v is none %}—{% else %}{{ ("%.3f"|format(v)).replace("0.", ".", 1) if v >= 0 else "%.3f"|format(v) }}{% endif %}{% endmacro %}
 {% macro coach(p) %}{{ c.coach_names.get(p, names.get(p, p))|capitalize }}{% endmacro %}
 
+{% if page == "card" %}
 <section class="dugout" aria-label="Dugout card">
 <div class="sheet">
   <div class="band">
@@ -534,12 +550,20 @@ button.more:hover{background:#f3f6fa}
   </div>
 </div>
 </section>
+{% if links %}
+<p class="behind">
+  One letter page: print it as it is.
+  <a href="{{ links.detail }}">The evidence behind this card</a> has his counts, movement,
+  location by count, sequencing and release, and what was left off the card.
+</p>
+{% endif %}
 
+{% else %}
 <header class="top">
   <h2>Behind the card — {{ payload.meta.pitcher }}, {{ payload.meta.season }}</h2>
   <div class="sub">
-    The card is the page to print. What follows is the evidence for it, and what was
-    left off it.
+    The evidence for the one-page card, and what was left off it.
+    {% if links %}<a href="{{ links.card }}">Back to the card</a>{% endif %}
   </div>
   <div class="sub">
     Throws <b>{{ payload.meta.hand }}</b> ·
@@ -961,8 +985,10 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   {{ payload.gates.note }}<br>
   Generated {{ payload.meta.generated }} · statcast-advance · data from Baseball Savant
 </footer>
+{% endif %}
 </div>
 
+{% if page == "detail" %}
 <script id="payload" type="application/json">{{ payload_json|safe }}</script>
 <script>
 const D = JSON.parse(document.getElementById('payload').textContent);
@@ -1348,5 +1374,6 @@ if (typeof Chart === 'undefined') {
 
 }
 </script>
+{% endif %}
 </body>
 </html>

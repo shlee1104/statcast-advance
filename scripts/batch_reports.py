@@ -6,7 +6,8 @@ relievers, both hands, sinkerballers, splitter pitchers, two-pitch closers,
 soft-tossers, injury-shortened seasons — and writes three things to
 reports/calibration/:
 
-  <pitcher>.html       each report, for reading
+  <pitcher>.html       each pitcher's one-page card, for reading, with the
+                       evidence behind it beside it as <pitcher>_detail.html
   summary.csv          one row per pitcher: the numbers behind every plan rule,
                        including the rules that stayed silent
   plan_lines.csv       every sentence the plan wrote, one per row
@@ -424,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
             league = load_league(args.season, hand, args.offline, not args.no_league)
             payload = report.build_payload(frame, resolved, args.season, **league)
             out_path = args.out / f"{slug(entry['name'])}_{args.season}.html"
-            out_path.write_text(report.render(payload), encoding="utf-8")
+            report.write_pages(payload, out_path)
 
             row, lines = summarise(entry, frame, payload)
             summary.append({**base, "status": "ok", "resolved": resolved,

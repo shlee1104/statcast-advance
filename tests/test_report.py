@@ -70,6 +70,16 @@ def make_frame(specs: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def card_page(payload: dict) -> str:
+    """The one-page dugout card: the file a coach is sent."""
+    return report.render(payload, "card")
+
+
+def detail_page(payload: dict) -> str:
+    """The evidence behind the card: the second file."""
+    return report.render(payload, "detail")
+
+
 def sample_frame() -> pd.DataFrame:
     return make_frame([
         {"pitch_type": "FF", "n": 120, "plate_z": 3.3, "stand": "L"},
@@ -151,7 +161,7 @@ class TestBuildPayload:
         """Its data would be a field nothing reads."""
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         assert "count_mix" not in payload
-        assert "countChart" not in report.render(payload)
+        assert "countChart" not in card_page(payload) + detail_page(payload)
 
 
 class TestArsenalDetailTable:
@@ -201,7 +211,7 @@ class TestArsenalDetailTable:
         assert all("whiff_L" not in row for row in payload["arsenal"])
 
     def test_page_draws_the_side_columns(self):
-        html = report.render(
+        html = detail_page(
             report.build_payload(self.swinging_frame(), "Test Pitcher", 2025)
         )
         assert "{ f: 'whiff_L', l: 'Whiff vs L'" in html
@@ -228,7 +238,7 @@ class TestCutSections:
 
     def build(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        return payload, report.render(payload)
+        return payload, detail_page(payload)
 
     def test_removed_sections_leave_no_field_behind(self):
         payload, _ = self.build()
@@ -236,9 +246,9 @@ class TestCutSections:
             assert field not in payload, field
 
     def test_removed_sections_are_not_on_the_page(self):
-        _, html = self.build()
+        payload, html = self.build()
         for text in self.REMOVED_FROM_PAGE:
-            assert text not in html, text
+            assert text not in html + card_page(payload), text
 
     def test_what_tunneling_and_sequencing_read_is_still_there(self):
         payload, html = self.build()
@@ -274,7 +284,7 @@ class TestCutSections:
         for row in payload["location_tells"] + payload["setups"]:
             assert not set(report.RUN_COLUMNS) & set(row)
             assert {"n", "xwoba_when"} <= set(row)
-        html = report.render(payload)
+        html = detail_page(payload)
         assert "l: 'Runs'" not in html
 
     def test_height_note_moved_to_the_height_table(self):
@@ -284,7 +294,7 @@ class TestCutSections:
             {"pitch_type": "SL", "n": 120, "plate_z": 1.7},
             {"pitch_type": "FF", "n": 30, "plate_z": 1.7},
         ])
-        html = report.render(report.build_payload(frame, "Test Pitcher", 2025))
+        html = detail_page(report.build_payload(frame, "Test Pitcher", 2025))
         heading = html.index("What the pitch's height gives away")
         assert heading < html.index('id="bandNote"') < html.index('id="tellsTable"')
 
@@ -309,7 +319,7 @@ class TestSequenceGraph:
 
     def build(self):
         payload = report.build_payload(self.doubling_up(), "Test Pitcher", 2025)
-        return payload, report.render(payload)
+        return payload, detail_page(payload)
 
     def test_one_panel_per_batter_side(self):
         payload, _ = self.build()
@@ -364,7 +374,7 @@ class TestSequenceGraph:
         frame = two_pitch_frame([(50, "SL", "SL"), (50, "SL", "FF"),
                                  (50, "FF", "SL"), (50, "FF", "FF")])
         payload = report.build_payload(frame, "Test Pitcher", 2025)
-        html = report.render(payload)
+        html = detail_page(payload)
         assert payload["sequence_graph"]["panels"][1]["standouts"] == 0
         assert payload["sequence_graph"]["headline"].startswith("No pitch-to-pitch")
         assert "Nothing stands out to this side" in html
@@ -377,7 +387,7 @@ class TestSequenceGraph:
         """Every plate appearance one pitch long: nothing follows anything."""
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         assert all(not p["enough"] for p in payload["sequence_graph"]["panels"])
-        assert "<h2>Sequencing</h2>" in report.render(payload)
+        assert "<h2>Sequencing</h2>" in detail_page(payload)
 
 
 class TestDataGaps:
@@ -433,12 +443,6 @@ class TestFatigueReliability:
         assert len(f["buckets"]) == len(f["reliable"]) == len(f["velo"])
 
 
-def card_html(html: str) -> str:
-    """The dugout card's own markup, without the pages behind it or the
-    embedded payload, which still carries everything the card leaves off."""
-    return html[html.index('<section class="dugout"'):html.index('<header class="top">')]
-
-
 def thin_side_frame() -> pd.DataFrame:
     """Plenty to righties, a handful of sliders to lefties, and a hitter's
     count to righties in which he mixes."""
@@ -465,32 +469,56 @@ class TestDugoutCard:
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         assert "kpis" not in payload
 
-    def test_card_renders_first_and_without_javascript(self):
+    def test_the_card_is_a_file_of_its_own_and_needs_no_script(self):
         """The card is the page that gets printed and folded, so it is drawn by
-        the template, not by scripts."""
-        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        html = report.render(payload)
-        card_at = html.find('<section class="dugout"')
-        behind_at = html.find("Behind the card")
-        evidence_at = html.find("<h2>Location</h2>")
-        assert 0 < card_at < behind_at < evidence_at
-
-        card = card_html(html)
+        the template, not by scripts, and nothing is fetched to show it."""
+        card = card_page(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        assert '<section class="dugout"' in card
         assert "<script" not in card
+        assert "https://" not in card and "http://" not in card
         for heading in ("Arsenal", "Pitch mix by situation", "Location by pitch",
                         "Keys vs LHH", "Keys vs RHH", "Either side",
                         "Running game", "Scout notes"):
             assert heading in card
 
+    def test_the_card_file_holds_nothing_but_the_card(self):
+        """It was page one of twelve. A reader who wants what a coach gets
+        should not have to know where to stop scrolling."""
+        card = card_page(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        for evidence in ('<header class="top">', "<h2>Location</h2>",
+                         "<h2>Sequencing</h2>", 'id="payload"'):
+            assert evidence not in card
+
+    def test_the_evidence_is_the_other_file(self):
+        detail = detail_page(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        assert '<section class="dugout"' not in detail
+        behind_at = detail.find("Behind the card — Test Pitcher, 2025")
+        assert 0 < behind_at < detail.find("<h2>Location</h2>")
+        assert 'id="payload"' in detail
+
+    def test_each_file_links_to_the_other_by_name(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        links = {"card": "pitcher_2025.html", "detail": "pitcher_2025_detail.html"}
+        assert 'href="pitcher_2025_detail.html"' in report.render(payload, "card", links)
+        assert 'href="pitcher_2025.html"' in report.render(payload, "detail", links)
+
+    def test_a_page_rendered_alone_carries_no_dead_link(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        assert "<a href" not in card_page(payload)
+        assert "Back to the card" not in detail_page(payload)
+
     def test_card_is_one_printed_page(self):
-        """Sized to a letter page, and the next section starts on a new one.
-        That the content fits is checked on real pitchers, not here: every
-        size on the card is relative to its width, so it is the same picture
-        on paper as on screen."""
-        html = report.render(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        """Sized to a letter page. That the content fits is checked on real
+        pitchers, not here: every size on the card is relative to its width,
+        so it is the same picture on paper as on screen."""
+        html = card_page(report.build_payload(sample_frame(), "Test Pitcher", 2025))
         assert "@page{size:letter;margin:.35in}" in html
-        assert "break-after:page" in html
         assert "font-size:1.14cqw" in html
+
+    def test_only_two_pages_exist(self):
+        payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
+        with pytest.raises(ValueError):
+            report.render(payload, "full")
 
     def test_tendency_rows_cover_every_situation(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
@@ -532,8 +560,8 @@ class TestCardPies:
         card = self.pies()
         two_strikes = card["pies"][0]["pies"][-1]
         assert two_strikes["n"] == 0 and two_strikes["slices"] == []
-        html = report.render(report.build_payload(sample_frame(), "Test Pitcher", 2025))
-        assert "no pitches" in card_html(html)
+        html = card_page(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        assert "no pitches" in html
 
     def test_a_thin_situation_is_marked_for_fading(self):
         card = self.pies(thin_side_frame())
@@ -572,8 +600,8 @@ class TestCardZones:
         slider = next(m for m in lefties["maps"] if m["pitch"] == "SL")
         assert slider["n"] == 10 and slider["enough"] is False
         assert "inner" not in slider
-        html = report.render(report.build_payload(thin_side_frame(), "Test Pitcher", 2025))
-        assert "too few" in card_html(html)
+        html = card_page(report.build_payload(thin_side_frame(), "Test Pitcher", 2025))
+        assert "too few" in html
 
     def test_an_empty_zone_prints_no_number(self):
         lefties = self.zones(sample_frame())["sides"][0]
@@ -591,7 +619,7 @@ class TestCardKeepsWhatRepeats:
         payload = report.build_payload(thin_side_frame(), "Test Pitcher", 2025)
         plan = [k["text"] for k in payload["card"]["plan"]["R"]]
         assert any(text.startswith("He still mixes") for text in plan)
-        assert "He still mixes" not in card_html(report.render(payload))
+        assert "He still mixes" not in card_page(payload)
 
     def test_card_lines_are_all_advice(self):
         payload = report.build_payload(thin_side_frame(), "Test Pitcher", 2025)
@@ -601,13 +629,13 @@ class TestCardKeepsWhatRepeats:
     def test_a_side_with_nothing_to_say_says_so(self):
         payload = report.build_payload(thin_side_frame(), "Test Pitcher", 2025)
         payload["card"]["key_lines"]["R"] = []
-        assert "Nothing to this side clears its bar" in card_html(report.render(payload))
+        assert "Nothing to this side clears its bar" in card_page(payload)
 
     def test_results_and_runs_stay_off_the_card(self):
         """A pitch's xwOBA in one half of a season says little about the
         other, so the card's arsenal table does not carry it."""
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        card = card_html(report.render(payload))
+        card = card_page(payload)
         arsenal_table = card[card.index("<table"):card.index("</table>")]
         assert "xwOBA" not in arsenal_table and "Spin" not in arsenal_table
         assert "K−BB" not in card
@@ -620,7 +648,7 @@ class TestCardKeepsWhatRepeats:
         assert card["tendencies"] and card["plan"]["basis"]
 
     def test_spin_moved_to_the_detail_table(self):
-        html = report.render(report.build_payload(sample_frame(), "Test Pitcher", 2025))
+        html = detail_page(report.build_payload(sample_frame(), "Test Pitcher", 2025))
         assert "{ f: 'spin', l: 'Spin'" in html
 
     def test_a_thin_rate_is_flagged_by_its_sample(self):
@@ -628,7 +656,7 @@ class TestCardKeepsWhatRepeats:
         card = payload["card"]
         assert card["rate_min"] == 30
         assert all(row["swings"] < card["rate_min"] for row in card["arsenal"])
-        assert 'class="dim"' in card_html(report.render(payload))
+        assert 'class="dim"' in card_page(payload)
 
 
 class TestZoneMapLayout:
@@ -643,7 +671,7 @@ class TestZoneMapLayout:
 
     def render(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        return report.render(payload)
+        return detail_page(payload)
 
     def test_outside_labels_are_pinned_to_outer_corners(self):
         html = self.render()
@@ -667,21 +695,23 @@ class TestZoneMapLayout:
 
 
 class TestRender:
-    def test_produces_a_complete_document(self):
+    @pytest.mark.parametrize("page", report.PAGES)
+    def test_produces_a_complete_document(self, page):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        html = report.render(payload)
+        html = report.render(payload, page)
         assert html.lstrip().startswith("<!DOCTYPE html>")
         assert html.rstrip().endswith("</html>")
 
-    def test_leaves_no_unrendered_template_syntax(self):
+    @pytest.mark.parametrize("page", report.PAGES)
+    def test_leaves_no_unrendered_template_syntax(self, page):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        html = report.render(payload)
+        html = report.render(payload, page)
         assert "{{" not in html
         assert "{%" not in html
 
     def test_embedded_payload_parses_as_json(self):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
-        html = report.render(payload)
+        html = detail_page(payload)
         match = re.search(
             r'<script id="payload" type="application/json">(.*?)</script>',
             html, re.S,
@@ -690,27 +720,34 @@ class TestRender:
         parsed = json.loads(match.group(1).replace("<\\/", "</"))
         assert parsed["meta"]["pitcher"] == "Test Pitcher"
 
-    def test_escapes_a_closing_script_tag_in_the_data(self):
+    @pytest.mark.parametrize("page", report.PAGES)
+    def test_escapes_a_closing_script_tag_in_the_data(self, page):
         """Pitch names will never contain markup. The payload is built from an
         upstream feed, so one day something will."""
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         payload["meta"]["pitcher"] = "</script><script>alert(1)</script>"
-        html = report.render(payload)
+        html = report.render(payload, page)
         assert "</script><script>alert(1)" not in html
 
-    def test_pitcher_name_is_escaped_in_the_body(self):
+    @pytest.mark.parametrize("page", report.PAGES)
+    def test_pitcher_name_is_escaped_in_the_body(self, page):
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)
         payload["meta"]["pitcher"] = "<b>Bold</b>"
-        html = report.render(payload)
+        html = report.render(payload, page)
         assert "<b>Bold</b>" not in html
         assert "&lt;b&gt;Bold&lt;/b&gt;" in html
 
-    def test_writes_a_file(self, tmp_path=None):
+    def test_writes_the_card_and_the_evidence_beside_it(self):
         import tempfile
         from pathlib import Path
 
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "report.html"
             written = report.write(sample_frame(), "Test Pitcher", 2025, out_path=out)
-            assert written.exists()
-            assert written.stat().st_size > 5000
+            detail = report.detail_path(written)
+            assert written == out and written.exists()
+            assert detail.name == "report_detail.html" and detail.exists()
+            assert 'href="report_detail.html"' in written.read_text()
+            assert 'href="report.html"' in detail.read_text()
+            # The card is the small one: no data blob, no script.
+            assert 5000 < written.stat().st_size < detail.stat().st_size

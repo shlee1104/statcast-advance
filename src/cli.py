@@ -225,7 +225,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-league", action="store_true",
                         help="Skip league baselines even if they exist")
     parser.add_argument("--out", type=Path, default=None,
-                        help="Output path (default: reports/<name>_<season>.html)")
+                        help="Where the one-page card goes (default: "
+                             "reports/<name>_<season>.html). The evidence "
+                             "behind it is written beside it, as "
+                             "<name>_<season>_detail.html")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -273,12 +276,15 @@ def main(argv: list[str] | None = None) -> int:
     path = report.write(frame, args.pitcher, label,
                         out_path=args.out, **league)
 
-    size_kb = path.stat().st_size / 1024
-    try:
-        shown = path.relative_to(Path.cwd())
-    except ValueError:
-        shown = path
-    print(f"\n  Wrote {shown}  ({size_kb:,.0f} KB)\n")
+    def shown(written: Path) -> str:
+        try:
+            where = written.relative_to(Path.cwd())
+        except ValueError:
+            where = written
+        return f"{where}  ({written.stat().st_size / 1024:,.0f} KB)"
+
+    print(f"\n  Wrote {shown(path)}  the one-page card")
+    print(f"        {shown(report.detail_path(path))}  the evidence behind it\n")
     return 0
 
 
