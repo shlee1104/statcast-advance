@@ -993,17 +993,16 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   <h3 class="sec3">Setups by pitch and height</h3>
   <p class="lede">
     The same question one level down: the pitch and where it was thrown, then what
-    followed. Frequency and effectiveness are measured separately. A sequence that is
-    predictable <em>and</em> not working is the most exploitable pattern a report can
-    carry, and any metric that merges the two hides it.
+    followed, and how much more often than usual. This says what he does, not whether
+    it works: what happened after a setup — more swings and misses, softer contact —
+    came back between halves of a season no better than chance, so it is not shown.
   </p>
   {% if payload.setups %}
   <div class="scroll"><table id="setupTable"><thead></thead><tbody></tbody></table></div>
   <p class="note">
     "How much more likely" is how much the setup pitch raises the chance of the
-    follow-up over his usual rate. "Whiff change" is whether the follow-up then
-    gets more swings and misses. A follow-up that becomes much more likely
-    without more whiffs is the pattern to look for: predictable, and not working.
+    follow-up over his usual rate. Rows are the strongest pairs that occurred at
+    least {{ payload.setup_min_n }} times, strongest first.
   </p>
   {% else %}
   <p class="nodata">No setup pair cleared the sample gate.</p>
@@ -1150,9 +1149,6 @@ table('setupTable', D.setups, [
   { f: 'p_next', l: 'Chance next', n: 1, fmt: pct },
   { f: 'baseline_p', l: 'His usual', n: 1, fmt: pct },
   { f: 'freq_lift', l: 'How much more likely', n: 1, fmt: v => num(v, 2) + 'x' },
-  { f: 'effect_lift', l: 'Whiff change', n: 1, fmt: v => num(v, 2) + 'x' },
-  { f: 'xwoba_when', l: 'xwOBA after', n: 1, fmt: v => num(v, 3) },
-  { f: 'score', l: 'Strength', n: 1, fmt: v => num(v, 1) },
 ]);
 
 table('putawayTable', D.putaway, [

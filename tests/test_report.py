@@ -287,6 +287,31 @@ class TestCutSections:
         html = detail_page(payload)
         assert "l: 'Runs'" not in html
 
+    def test_the_setup_table_prints_what_happened_next_and_nothing_after(self):
+        """Whether the follow-up then missed more bats, and the xwOBA on it,
+        came back between halves at r of 0.02 and 0.29, and the strength
+        score is a sort key. All three are still computed, and none is sent
+        to the page."""
+        from tests.test_replication import make_frame as paired
+        frame = paired([
+            {"pitch_type": "FF", "zone": 2, "n": 60, "then": {"pitch_type": "CU"}},
+            {"pitch_type": "FF", "zone": 2, "n": 20, "then": {"pitch_type": "FF"}},
+            {"pitch_type": "SL", "zone": 5, "n": 40, "then": {"pitch_type": "CU"}},
+            {"pitch_type": "SL", "zone": 5, "n": 120, "then": {"pitch_type": "FF"}},
+        ])
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        assert payload["setups"]
+        for row in payload["setups"]:
+            assert set(row) == set(report.SETUP_COLUMNS)
+        html = detail_page(payload)
+        start = html.index("table('setupTable'")
+        columns = html[start:html.index("]);", start)]
+        for gone in ("effect_lift", "xwoba_when", "score", "Whiff change"):
+            assert gone not in columns, gone
+        assert "How much more likely" in columns
+        assert "Whiff change" not in html
+        assert f"at least {report.SETUP_MIN_N} times" in " ".join(html.split())
+
     def test_height_note_moved_to_the_height_table(self):
         frame = make_frame([
             {"pitch_type": "FF", "n": 120, "plate_z": 3.3},

@@ -119,7 +119,10 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   estimate printed on every finding (see "Does the plan hold up?" and "Do the
   findings repeat?"). Two sections left the page later and kept their code: a
   ranked findings list, whose "strength" score rested on weights that were a
-  judgment call, and a per-count entropy table that no rule read
+  judgment call, and a per-count entropy table that no rule read. So did three
+  columns of the setup table — whether the follow-up then missed more bats,
+  its xwOBA, and a strength score — the first two because they did not repeat
+  between halves of a season
 - Sequence graph — what follows each pitch, one panel per batter side, read
   left to right: the pitch he just threw, then the next one. Lines are as thick
   as the follow-up is common, and coloured only where it comes clearly more or
@@ -134,7 +137,7 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   the two apart from where the ball is. In the evidence file, under the
   sequence graph, and not on the card: its central number repeats between
   halves at r of 0.5 to 0.7, below the card's bar
-- 764 unit tests, plus an end-to-end validation suite over live data
+- 770 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -326,8 +329,7 @@ card first, which made a one-page report twelve pages long.
   ("4 inches lower"), whether that reads as the same window or apart early,
   how differently they move after it, and how much later the second arrives;
   then setup pairs keyed on pitch type and height, with how much more likely
-  the follow-up becomes and whether it then misses more bats; and his
-  two-strike mix and put-away rates
+  the follow-up becomes; and his two-strike mix and put-away rates
 - **Release consistency** — where each pitch leaves his hand compared with his
   fastball, the first step of the tunneling design
 
@@ -508,7 +510,13 @@ estimate. The hittable-pitch finding fired for 2 of 30
 pitchers in 2025 and 3 of 28 in 2026, and was removed.
 
 The script as it stands measures the rules that remain (260 findings across
-the same 58 reports). The figures for the removed rules are reproducible at
+the same 58 reports).
+
+The setup table in the evidence file is checked as it is printed, row by row.
+Its share and its lift repeat (r 0.85–0.86 and 0.74–0.76 in 2025 and 2026).
+Two columns it used to print did not: whether the follow-up then missed more
+bats (r -0.03 and 0.07) and its xwOBA (0.27 and 0.32). Both came off the page
+with the strength score they were ranked by; the code that computes them stays. The figures for the removed rules are reproducible at
 commit `432abb0`, where those rules still exist.
 
 The dugout card's two pictures are split by batter side, which none of the
@@ -819,11 +827,17 @@ card's lines are the same sentences in a scout's clipped form.
 then persisted to a local DuckDB store. Repeat requests skip the network, and the
 analytical work is written as SQL against pitch-level tables.
 
-**Frequency and effectiveness are measured separately.** A sequence being
-predictable and a sequence working are different claims, and they diverge often
-enough to matter. A pattern the pitcher repeats without gaining anything is the
-most exploitable finding a report can surface, and it is invisible to any metric
-that collapses the two.
+**Frequency and effectiveness are measured separately, and only one of them
+is printed.** A sequence being predictable and a sequence working are different
+claims, and the code keeps them apart: `sequencing.setup_pairs` measures both
+how much more often a follow-up comes after a setup and whether it then misses
+more bats. The plan was to print both and point the reader at a pattern that is
+predictable and not working. The split-half check said no. How often the
+follow-up comes repeats between halves at r of 0.74 to 0.76; whether it then
+missed more bats repeats at -0.03 and 0.07, which is nothing, because a whiff
+rate on 20 to 30 swings after one setup is mostly the swings. So the setup
+table says what he does, and says outright that it does not say whether it
+works.
 
 **Conditioning is confounded with the count.** The outcome of one pitch
 determines the count for the next, so comparing "what he throws after a whiff"

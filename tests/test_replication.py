@@ -158,6 +158,54 @@ class TestSequencing:
         assert not row["held"] and not row["direction"]
 
 
+class TestSetupTable:
+    """The setup table as the evidence file prints it, re-measured."""
+
+    def half(self, curve_after_high_fastball: int) -> pd.DataFrame:
+        return TestSequencing().half(curve_after_high_fastball)
+
+    def test_a_printed_row_is_compared_with_the_same_row(self):
+        rows = replication.setup_table_rows(self.half(60), self.half(40))
+        (row,) = [r for r in rows if r["key"] == "FF UP > CU"]
+        assert row["freq_lift_1"] == pytest.approx(0.75 / (100 / 240))
+        assert row["freq_lift_2"] == pytest.approx(0.50 / (100 / 240))
+        assert row["p_next_1"] == pytest.approx(0.75)
+        assert row["clears"]
+
+    def test_every_printed_row_is_tested_not_only_the_strong_ones(self):
+        """The page prints the strongest rows that occurred 25 times, with no
+        bar on chance, so the check reads them all."""
+        rows = replication.setup_table_rows(self.half(60), self.half(60))
+        assert len(rows) > 1
+        assert any(not r["clears"] for r in rows)
+
+    def test_a_column_that_cannot_be_computed_is_empty_not_infinite(self):
+        rows = replication.setup_table_rows(self.half(60), self.half(60))
+        for row in rows:
+            assert row["effect_lift_1"] != float("inf")
+
+    def test_summary(self):
+        rows = [{"pitcher": p, "freq_lift_1": a, "freq_lift_2": b, "p_next_1": a / 3,
+                 "p_next_2": b / 3, "effect_lift_1": 1.0 + 0.1 * i,
+                 "effect_lift_2": 1.0 - 0.1 * i, "xwoba_when_1": 0.3 + 0.01 * i,
+                 "xwoba_when_2": 0.3 + 0.01 * (i % 2), "clears": a > 1.5}
+                for i, (p, a, b) in enumerate([("A", 1.8, 1.5), ("A", 1.2, 0.9),
+                                                ("B", 1.7, 1.3), ("B", 1.1, 1.2),
+                                                ("C", 1.9, 1.6), ("C", 1.05, 0.95)])]
+        out = replication.setup_table_summary(rows)
+        assert out["rows"] == 6 and out["pitchers"] == 3
+        assert out["clear_share"] == pytest.approx(0.5)
+        assert out["same_way_clear"] == pytest.approx(1.0)
+        assert out["same_way_rest"] == pytest.approx(1 / 3)
+        by = {m["metric"]: m["r"] for m in out["metrics"]}
+        assert by["freq_lift"] > 0.5
+        assert by["effect_lift"] == pytest.approx(-1.0)
+        assert abs(by["xwoba_when"]) < 0.5
+
+    def test_too_short_a_half(self):
+        assert replication.setup_table_rows(self.half(60).head(100), self.half(60)) == []
+
+
 class TestFollowUps:
     """What the sequence graph colours, tested through the graph's own rule."""
 

@@ -69,7 +69,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src import config, flags, gameplan
+from src import config, flags, gameplan, report
 from src.metrics import arsenal, counts, location, sequencing, splits, tunneling
 from src.validation import pitcher_interval, wilson_interval
 
@@ -156,6 +156,16 @@ TUNNEL_METRICS: dict[str, str] = {
     "late_offset": "Offset in late movement",
     "plate_offset": "Offset at the plate",
     "flight_ms": "Difference in flight time (ms)",
+}
+
+# The evidence file's setup table, column by column. The last two were
+# printed until this check showed they do not repeat; they are measured here
+# so that stays rerunnable.
+SETUP_METRICS: dict[str, str] = {
+    "p_next": "Chance next",
+    "freq_lift": "How much more likely",
+    "effect_lift": "Whiff change (no longer printed)",
+    "xwoba_when": "xwOBA after (no longer printed)",
 }
 
 FLAG_TYPES: tuple[str, ...] = (
@@ -753,6 +763,74 @@ def tunnel_summary(rows: list[dict]) -> list[dict]:
             "pitchers": int(table["pitcher"].nunique()) if "pitcher" in table else 0,
         })
     return out
+
+
+# ---------------------------------------------------------------------------
+# The setup table, as the evidence file prints it
+# ---------------------------------------------------------------------------
+
+
+def setup_table_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
+    """Every row of the first half's setup table, with the same row in the second.
+
+    The table is read as the page prints it: the strongest pairs that occurred
+    `report.SETUP_MIN_N` times, at most `report.SETUP_ROWS`, with no bar on how
+    far a pair stands from chance. A row is compared where the same setup,
+    height and follow-up clears the same gate in the second half. Each of
+    SETUP_METRICS is recorded as `<metric>_1` and `<metric>_2`, with the first
+    half's `lift_z` and whether it cleared three standard errors.
+    """
+    if len(first) < MIN_HALF_PITCHES or len(second) < MIN_HALF_PITCHES:
+        return []
+    printed = sequencing.setup_pairs(first, min_n=report.SETUP_MIN_N).head(report.SETUP_ROWS)
+    again = sequencing.setup_pairs(second, min_n=report.SETUP_MIN_N)
+    if len(printed) == 0 or len(again) == 0:
+        return []
+    keys = ["setup_pitch", "setup_band", "next_pitch"]
+    both = printed.merge(again, on=keys, suffixes=("_1", "_2"))
+    rows = []
+    for r in both.to_dict("records"):
+        row = {"key": f"{r['setup_pitch']} {r['setup_band']} > {r['next_pitch']}",
+               "n_first": int(r["n_1"]), "n_second": int(r["n_2"]),
+               "lift_z": float(r["lift_z_1"]),
+               "clears": bool(r["lift_z_1"] >= _min_z())}
+        for metric in SETUP_METRICS:
+            for half in ("1", "2"):
+                value = float(r[f"{metric}_{half}"])
+                # A follow-up never swung at in one half has no whiff ratio.
+                row[f"{metric}_{half}"] = value if abs(value) != float("inf") else float("nan")
+        rows.append(row)
+    return rows
+
+
+def setup_table_summary(rows: list[dict]) -> dict:
+    """Which of the setup table's columns describe the pitcher, and which the half.
+
+    `metrics`: per column, the split-half correlation over every printed row
+    re-measured in the second half. `clear_share`: how many printed rows
+    stood three standard errors clear of no lift in the first half.
+    `same_way_clear` and `same_way_rest`: how often a row's lift was still
+    above 1 in the second half, for those rows and for the rest.
+    """
+    table = pd.DataFrame(rows)
+    if table.empty:
+        return {}
+    metrics = []
+    for metric, label in SETUP_METRICS.items():
+        pairs = table[[f"{metric}_1", f"{metric}_2"]].rename(
+            columns={f"{metric}_1": "first", f"{metric}_2": "second"})
+        metrics.append({"metric": metric, "label": label,
+                        "r": _correlation(pairs), "pairs": int(len(pairs.dropna()))})
+    still = table["freq_lift_2"] > 1.0
+    clear = table["clears"]
+    return {
+        "metrics": metrics,
+        "rows": int(len(table)),
+        "pitchers": int(table["pitcher"].nunique()) if "pitcher" in table else 0,
+        "clear_share": float(clear.mean()),
+        "same_way_clear": float(still[clear].mean()) if clear.any() else float("nan"),
+        "same_way_rest": float(still[~clear].mean()) if (~clear).any() else float("nan"),
+    }
 
 
 # ---------------------------------------------------------------------------

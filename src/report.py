@@ -204,8 +204,8 @@ def build_payload(
         "putaway": putaway_rows,
         "sequence_graph": _build_sequence_graph(frame, sequences),
         "tunneling": _build_tunneling(frame, sequences, hand),
-        "setups": _records(_without_runs(
-            sequencing.setup_pairs(frame, min_n=25).head(12))),
+        "setups": _records(setup_table(frame)),
+        "setup_min_n": SETUP_MIN_N,
         "location_profile": _records(
             location.location_profile(frame), index_name="pitch_type"
         ),
@@ -235,6 +235,31 @@ RUN_COLUMNS: list[str] = [
     "rv_when", "rv_base", "rv_delta", "runs_cost", "runs_lo", "runs_hi",
     "significant", "rv_p",
 ]
+
+
+# The evidence file's setup table: the strongest pairs that occurred this
+# often, and the columns it prints.
+SETUP_ROWS = 12
+SETUP_MIN_N = 25
+SETUP_COLUMNS: list[str] = [
+    "setup_pitch", "setup_band", "next_pitch", "n", "p_next", "baseline_p",
+    "freq_lift",
+]
+
+
+def setup_table(frame: pd.DataFrame) -> pd.DataFrame:
+    """The setup pairs the evidence file prints, and only what it prints.
+
+    `sequencing.setup_pairs` still measures what happened after each setup —
+    the follow-up's whiff rate against its usual, the xwOBA on contact — and a
+    `score` it ranks by. None of it is printed. Between halves of a season, on
+    the calibration pitchers, the whiff change came back at r of -0.03 and
+    0.07 (2025, 2026) and the xwOBA at 0.27 and 0.32, where the share and the
+    lift that are printed came back at 0.74 to 0.86 (`scripts/replication.py`
+    prints all four). The score is a sort key, not a number a reader can use.
+    """
+    table = sequencing.setup_pairs(frame, min_n=SETUP_MIN_N).head(SETUP_ROWS)
+    return table[[c for c in SETUP_COLUMNS if c in table.columns]]
 
 
 def _without_runs(table: pd.DataFrame) -> pd.DataFrame:

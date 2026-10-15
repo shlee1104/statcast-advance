@@ -15,6 +15,8 @@ reports/replication/<season>/:
                     its zone maps, by batter side, in each half
   tunnel.csv        every pair of pitch types thrown back to back often enough
                     in both halves: its separations and late movement in each
+  setups.csv        every row of the first half's setup table, as the evidence
+                    file prints it, with the same row in the second half
   full_season.csv   one row per pitcher: findings by type, comparisons run,
                     and how many survive correction
 
@@ -132,7 +134,8 @@ def _span(lo: float, hi: float) -> str:
 def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
                   season_totals: dict, season: int, pitchers: int,
                   card: list[dict] | None = None,
-                  tunnel: list[dict] | None = None) -> None:
+                  tunnel: list[dict] | None = None,
+                  setups: dict | None = None) -> None:
     print(f"\nDo the findings repeat?  first half → second half, {season}, "
           f"{pitchers} pitchers")
     print("-" * 96)
@@ -196,6 +199,16 @@ def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
         print("  pair type's average across pitchers is removed: whether the "
               "number says")
         print("  something about this pitcher, not about fastballs and curveballs")
+
+    if setups:
+        print("\n  The setup table in the evidence file, the same row in each half")
+        for m in setups["metrics"]:
+            print(f"  {m['label']:<46}r = {m['r']:+.2f}   ({m['pairs']} rows)")
+        print(f"  {setups['rows']} printed rows from {setups['pitchers']} pitchers came back "
+              f"in the second half; {_pct(setups['clear_share'])} of them")
+        print(f"  stood three standard errors clear in the first. Still above his usual "
+              f"rate: {_pct(setups['same_way_clear'])}")
+        print(f"  of those, {_pct(setups['same_way_rest'])} of the rest")
 
     if season_totals.get("pitchers"):
         t = season_totals
@@ -262,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     per_pitcher: list[dict] = []
     card: list[dict] = []
     tunnel: list[dict] = []
+    setups: list[dict] = []
     full_season: list[dict] = []
     ran = 0
     for name, load in work:
@@ -284,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
                 (replication.per_pitcher_rows(first, second), per_pitcher),
                 (replication.card_rows(first, second), card),
                 (replication.tunnel_rows(first, second), tunnel),
+                (replication.setup_table_rows(first, second), setups),
             ):
                 table.extend({"pitcher": name, **r} for r in rows)
             ran += 1
@@ -296,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(out / "per_pitcher.csv", per_pitcher)
     write_csv(out / "card.csv", card)
     write_csv(out / "tunnel.csv", tunnel)
+    write_csv(out / "setups.csv", setups)
     write_csv(out / "full_season.csv", full_season)
     print_summary(
         replication.summarise_findings(findings),
@@ -305,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         args.season, ran,
         card=replication.card_summary(card),
         tunnel=replication.tunnel_summary(tunnel),
+        setups=replication.setup_table_summary(setups),
     )
     return 0
 
