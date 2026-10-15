@@ -748,6 +748,22 @@ class TestTunneling:
         assert detail.index("<h2>Sequencing</h2>") < detail.index('id="tunnelTable"') \
             < detail.index("Setups by pitch and height")
 
+    def test_pairs_to_one_side_only_still_render(self):
+        """A pitcher whose pairs all came to righties has no scatter to
+        lefties. The note used to read both sides and the evidence page
+        failed to render at all, as it did for Hunter Greene's 2026, whose
+        only pairs came to lefties."""
+        from src import cli
+        frame = cli.prepare(cli.load_from_fixture("yamamoto", 2025))
+        payload = report.build_payload(frame[frame["stand"] == "R"],
+                                       "Yoshinobu Yamamoto", 2025)
+        tn = payload["tunneling"]
+        assert tn["rows"] and {r["stand"] for r in tn["rows"]} == {"R"}
+        assert tn["scatter"]["L"] is None and tn["scatter"]["R"] > 0
+        note = " ".join(detail_page(payload).split())
+        assert f'({tn["scatter"]["R"]:.1f} inches to righties)' in note
+        assert "inches to lefties" not in note
+
     def test_a_season_cached_without_a_flight_says_how_to_get_one(self):
         """An empty table would read as "he has no pairs"."""
         payload = report.build_payload(sample_frame(), "Test Pitcher", 2025)

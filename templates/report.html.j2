@@ -972,9 +972,11 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
   <div class="scroll"><table id="tunnelTable"><thead></thead><tbody></tbody></table></div>
   <p class="note">
     "Reads as" divides the offset at the decision point by how much his own pitches
-    scatter there{% if tn.scatter.L is not none and tn.scatter.R is not none %}
-    ({{ "%.1f"|format(tn.scatter.L) }} inches to lefties, {{ "%.1f"|format(tn.scatter.R) }}
-    to righties){% endif %}. <b>Same window</b> means where the ball is at that moment
+    scatter there{% set sc = tn.scatter %}{% if sc.L is not none and sc.R is not none %}
+    ({{ "%.1f"|format(sc.L) }} inches to lefties, {{ "%.1f"|format(sc.R) }}
+    to righties){% elif sc.L is not none %} ({{ "%.1f"|format(sc.L) }} inches to
+    lefties){% elif sc.R is not none %} ({{ "%.1f"|format(sc.R) }} inches to
+    righties){% endif %}. <b>Same window</b> means where the ball is at that moment
     would pick the right pitch of the two less than 65% of the time; <b>apart early</b>
     means more than 73%. Between the two it gets no word. A pair is listed once it has
     come {{ tn.min_pairs }} times to that side.

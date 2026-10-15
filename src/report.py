@@ -510,8 +510,11 @@ def _build_tunneling(frame: pd.DataFrame, sequences: pd.DataFrame, hand: str) ->
                 "late_where": gameplan.where(r.late_dx, r.late_dz, r.stand, hand),
                 "flight_ms": _clean(r.flight_ms),
             })
-    scatter = {side: _clean(float(group["spread"].iloc[0]))
-               for side, group in table.groupby("stand")}
+    # Both sides are always named: a pitcher whose pairs all came to one side
+    # has no scatter for the other, and the page has to be able to say so.
+    scatter = {"L": None, "R": None}
+    scatter.update({side: _clean(float(group["spread"].iloc[0]))
+                    for side, group in table.groupby("stand")})
     return {**base, "rows": rows, "scatter": scatter,
             "headline": gameplan.tunnel_headline(table, hand)}
 
