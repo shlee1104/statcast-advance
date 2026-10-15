@@ -158,6 +158,41 @@ class TestSequencing:
         assert not row["held"] and not row["direction"]
 
 
+class TestCountGrid:
+    def half(self, sliders_in_0_2: int) -> pd.DataFrame:
+        """400 pitches: 100 in 0-2, `sliders_in_0_2` of them sliders, and a
+        slider a quarter of the time overall."""
+        return make_frame([
+            {"pitch_type": "SL", "n": sliders_in_0_2, "strikes": 2},
+            {"pitch_type": "FF", "n": 100 - sliders_in_0_2, "strikes": 2},
+            {"pitch_type": "SL", "n": 100 - sliders_in_0_2},
+            {"pitch_type": "FF", "n": 200 + sliders_in_0_2},
+        ])
+
+    def test_a_cell_is_compared_when_both_halves_can_read_it(self):
+        rows = replication.count_grid_rows(self.half(60), self.half(45))
+        (row,) = [r for r in rows if r["key"] == "SL 0-2"]
+        assert row["share_1"] == pytest.approx(0.60)
+        assert row["share_2"] == pytest.approx(0.45)
+        assert row["lift_1"] == pytest.approx(2.4)
+        assert row["clears"]
+
+    def test_summary_splits_the_coloured_cells_by_their_outline(self):
+        def r(p, lift_1, lift_2, clears):
+            return {"pitcher": p, "share_1": 0.2 + 0.05 * lift_1, "share_2": 0.3 + 0.01 * lift_2,
+                    "lift_1": lift_1, "lift_2": lift_2, "clears": clears}
+        rows = [r("A", 2.0, 1.8, True), r("A", 0.5, 0.6, True),
+                r("B", 1.6, 1.1, False), r("B", 1.7, 0.9, False),
+                r("C", 1.1, 1.0, False), r("C", 1.0, 1.0, False),
+                r("D", 1.2, 1.2, False)]
+        out = replication.count_grid_summary(rows)
+        assert out["cells"] == 7 and out["pitchers"] == 4
+        assert out["outlined"] == {"cells": 2, "same_side": 1.0, "held": 1.0}
+        assert out["not_outlined"]["cells"] == 2
+        assert out["not_outlined"]["same_side"] == pytest.approx(0.5)
+        assert out["not_outlined"]["held"] == 0.0
+
+
 class TestSetupTable:
     """The setup table as the evidence file prints it, re-measured."""
 

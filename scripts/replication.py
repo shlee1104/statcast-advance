@@ -17,6 +17,8 @@ reports/replication/<season>/:
                     in both halves: its separations and late movement in each
   setups.csv        every row of the first half's setup table, as the evidence
                     file prints it, with the same row in the second half
+  count_grid.csv    every count-grid cell both halves can read: its share and
+                    lift in each, and whether the first half outlined it
   full_season.csv   one row per pitcher: findings by type, comparisons run,
                     and how many survive correction
 
@@ -135,7 +137,8 @@ def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
                   season_totals: dict, season: int, pitchers: int,
                   card: list[dict] | None = None,
                   tunnel: list[dict] | None = None,
-                  setups: dict | None = None) -> None:
+                  setups: dict | None = None,
+                  grid: dict | None = None) -> None:
     print(f"\nDo the findings repeat?  first half → second half, {season}, "
           f"{pitchers} pitchers")
     print("-" * 96)
@@ -199,6 +202,20 @@ def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
         print("  pair type's average across pitchers is removed: whether the "
               "number says")
         print("  something about this pitcher, not about fastballs and curveballs")
+
+    if grid:
+        print("\n  The count grid in the evidence file, the same cell in each half")
+        print(f"  {grid['cells']:,} cells from {grid['pitchers']} pitchers: share "
+              f"r = {grid['share_r']:+.2f}, median move "
+              f"{grid['median_change'] * 100:.1f} pts, 90% within "
+              f"{grid['p90_change'] * 100:.1f} pts")
+        print(f"  Cells coloured past {replication.GRID_STRONG_LIFT}x or "
+              f"{1 / replication.GRID_STRONG_LIFT:.2f}x in the first half:")
+        for label, part in (("outlined (3 SE)", grid["outlined"]),
+                            ("not outlined", grid["not_outlined"])):
+            print(f"    {label:<18}{part['cells']:>5} cells   same side again "
+                  f"{_pct(part['same_side']):>4}   past the same tick again "
+                  f"{_pct(part['held']):>4}")
 
     if setups:
         print("\n  The setup table in the evidence file, the same row in each half")
@@ -276,6 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     card: list[dict] = []
     tunnel: list[dict] = []
     setups: list[dict] = []
+    grid: list[dict] = []
     full_season: list[dict] = []
     ran = 0
     for name, load in work:
@@ -299,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
                 (replication.card_rows(first, second), card),
                 (replication.tunnel_rows(first, second), tunnel),
                 (replication.setup_table_rows(first, second), setups),
+                (replication.count_grid_rows(first, second), grid),
             ):
                 table.extend({"pitcher": name, **r} for r in rows)
             ran += 1
@@ -312,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(out / "card.csv", card)
     write_csv(out / "tunnel.csv", tunnel)
     write_csv(out / "setups.csv", setups)
+    write_csv(out / "count_grid.csv", grid)
     write_csv(out / "full_season.csv", full_season)
     print_summary(
         replication.summarise_findings(findings),
@@ -322,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         card=replication.card_summary(card),
         tunnel=replication.tunnel_summary(tunnel),
         setups=replication.setup_table_summary(setups),
+        grid=replication.count_grid_summary(grid),
     )
     return 0
 

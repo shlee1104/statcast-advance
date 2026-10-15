@@ -348,6 +348,7 @@ def _build_count_grid(frame: pd.DataFrame) -> dict:
                 "lift": _clean(r["lift"]),
                 "log2_lift": _clean(r["log2_lift"]),
                 "reliable": bool(r["reliable"]),
+                "clears": bool(r["clears"]),
             }
         pitches.append({
             "pitch": pitch,
@@ -365,6 +366,7 @@ def _build_count_grid(frame: pd.DataFrame) -> dict:
         "excluded": excluded,
         "headline": gameplan.count_headline(frame),
         "min_count": min_count,
+        "min_z": float(config.get("flags.thresholds.frequency_min_z", 3.0)),
     }
 
 

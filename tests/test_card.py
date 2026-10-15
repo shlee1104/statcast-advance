@@ -933,6 +933,33 @@ class TestCountGrid:
         assert zero["lift"] == 0
         assert zero["log2_lift"] == -5.0
 
+    def test_a_lift_that_clears_three_standard_errors_is_marked(self):
+        """30 cutters in 40-odd hitter's-count pitches where he throws it 20%
+        of the time elsewhere: far past chance. So is the splitter he
+        saves for 1-2, and the cutter he drops there."""
+        grid = counts.count_grid(self.build(), min_count=30).set_index(["pitch_type", "count"])
+        assert grid.loc[("FC", "2-1"), "clears"] and grid.loc[("FC", "2-1"), "lift_z"] > 3
+        assert grid.loc[("FS", "1-2"), "clears"]
+        assert grid.loc[("FC", "1-2"), "clears"] and grid.loc[("FC", "1-2"), "lift_z"] < -3
+
+    def test_a_coloured_cell_that_could_be_chance_is_not_marked(self):
+        """8 sliders in 40 first pitches against 12 in 120 elsewhere: 1.6
+        times his rate, which is 1.7 standard errors."""
+        grid = counts.count_grid(make_frame([
+            {"pitch_type": "SL", "n": 8, "balls": 0, "strikes": 0},
+            {"pitch_type": "FF", "n": 32, "balls": 0, "strikes": 0},
+            {"pitch_type": "SL", "n": 12, "balls": 1, "strikes": 1},
+            {"pitch_type": "FF", "n": 108, "balls": 1, "strikes": 1},
+        ]), min_count=30).set_index(["pitch_type", "count"])
+        cell = grid.loc[("SL", "0-0")]
+        assert cell["lift"] == pytest.approx(1.6)
+        assert cell["lift_z"] == pytest.approx(1.66, abs=0.01)
+        assert not cell["clears"]
+
+    def test_a_thin_count_is_never_marked(self):
+        grid = counts.count_grid(self.build(), min_count=30).set_index(["pitch_type", "count"])
+        assert not grid.loc[("FF", "3-0"), "clears"]
+
     def test_rare_pitches_get_no_grid(self):
         frame = pd.concat([self.build(), make_frame([{"pitch_type": "SL", "n": 6}])])
         grid = counts.count_grid(frame.reset_index(drop=True), min_count=30, min_usage=0.05)

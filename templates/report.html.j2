@@ -272,6 +272,12 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .cgc.dark{color:#fff}
 .cgc.dark i{opacity:.9}
 .cgc.gated{background:#eef1f4;color:#9aa4ae;font-size:14px}
+/* Outlined: the lift stands three standard errors clear of his usual rate. */
+.cgc.clear{box-shadow:inset 0 0 0 2px #16202e}
+.cgc.dark.clear{box-shadow:inset 0 0 0 2px #16202e,inset 0 0 0 3.5px #fff}
+.cglegend .box{display:inline-block;width:12px;height:10px;border-radius:2px;
+               box-shadow:inset 0 0 0 2px #16202e;vertical-align:-1px;margin-right:5px}
+.cglegend .mark{margin-top:6px}
 .cg-cap{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
         margin:3px 0 0 18px}
 /* Outside-the-zone regions. The map draws four quadrants and lays the strike
@@ -615,7 +621,9 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
     counts sit next to each other. Colour is how much more or less often he throws
     that pitch in that count than he does overall — orange more, blue less, white at
     his normal rate. The big number is that ratio; underneath is the pitch's share of
-    the count and how many he threw there.
+    the count and how many he threw there. An outlined cell stands at least
+    {{ "%g"|format(cg.min_z) }} standard errors from his usual rate; the colour of the
+    rest could be chance.
   </p>
   {# Tick labels sit at their true positions on the log2 scale: 0.67x and
      1.5x are log2 = -/+0.585, which is 20.7% and 79.3% of the way along. #}
@@ -626,6 +634,7 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
       <span style="left:50%">his rate</span><span style="left:79.3%">1.5×</span>
       <span style="left:100%">≥2×</span>
     </div>
+    <div class="mark"><span class="box"></span>at least {{ "%g"|format(cg.min_z) }} standard errors from his rate</div>
   </div>
   <div class="cgrid">
   {% for p in cg.pitches %}
@@ -643,7 +652,7 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
             <div class="cgc gated" title="{{ b }}-{{ s }}: {{ cell.count_n }} pitches in this count — too few to read">—</div>
             {% else %}
             {% set t = [[cell.log2_lift, 1.0]|min, -1.0]|max %}
-            <div class="cgc{% if t > 0.55 or t < -0.55 %} dark{% endif %}"
+            <div class="cgc{% if t > 0.55 or t < -0.55 %} dark{% endif %}{% if cell.clears %} clear{% endif %}"
                  style="background:{{ lift_bg(cell.log2_lift) }}"
                  title="{{ b }}-{{ s }}: {{ cell.n }} of {{ cell.count_n }} pitches">
               <b>{{ "%.2f"|format(cell.lift) }}×</b>

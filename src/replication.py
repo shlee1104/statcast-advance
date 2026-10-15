@@ -766,6 +766,71 @@ def tunnel_summary(rows: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# The count grid, as the evidence file colours it
+# ---------------------------------------------------------------------------
+
+# A cell is "coloured" when its lift is past the legend's 1.5x or 0.67x ticks.
+GRID_STRONG_LIFT = 1.5
+
+
+def count_grid_rows(first: pd.DataFrame, second: pd.DataFrame) -> list[dict]:
+    """Every cell of the count grid both halves can read.
+
+    One dict per (pitch, count) where the count clears the grid's own gate in
+    each half: `key` ("SL 0-2"), `share_1`/`share_2`, `lift_1`/`lift_2`, and
+    the first half's `lift_z` and `clears`, which is what the page outlines.
+    """
+    if len(first) < MIN_HALF_PITCHES or len(second) < MIN_HALF_PITCHES:
+        return []
+    grids = counts.count_grid(first), counts.count_grid(second)
+    if any(len(g) == 0 for g in grids):
+        return []
+    both = grids[0].merge(grids[1], on=["pitch_type", "count"], suffixes=("_1", "_2"))
+    both = both[both["reliable_1"] & both["reliable_2"]]
+    return [{"key": f"{r['pitch_type']} {r['count']}",
+             "share_1": float(r["share_1"]), "share_2": float(r["share_2"]),
+             "lift_1": float(r["lift_1"]), "lift_2": float(r["lift_2"]),
+             "lift_z": float(r["lift_z_1"]), "clears": bool(r["clears_1"])}
+            for r in both.to_dict("records")]
+
+
+def count_grid_summary(rows: list[dict]) -> dict:
+    """How far a grid cell moves, and what its outline is worth.
+
+    `share_r`, `median_change`, `p90_change`: the share in each half, as the
+    card's pies are read. Then, of the cells coloured past 1.5x or 0.67x in
+    the first half, split by whether the page outlined them: how many came
+    back on the same side of his usual rate (`same_side`) and how many past
+    the same tick again (`held`).
+    """
+    table = pd.DataFrame(rows)
+    if table.empty:
+        return {}
+    moved = (table["share_2"] - table["share_1"]).abs()
+    lo = 1.0 / GRID_STRONG_LIFT
+    strong = table[(table["lift_1"] >= GRID_STRONG_LIFT) | (table["lift_1"] <= lo)]
+    up = strong["lift_1"] > 1.0
+    same_side = (strong["lift_2"] > 1.0) == up
+    held = (up & (strong["lift_2"] >= GRID_STRONG_LIFT)) | (~up & (strong["lift_2"] <= lo))
+
+    def part(mask: pd.Series) -> dict:
+        n = int(mask.sum())
+        return {"cells": n,
+                "same_side": float(same_side[mask].mean()) if n else float("nan"),
+                "held": float(held[mask].mean()) if n else float("nan")}
+
+    return {
+        "cells": int(len(table)),
+        "pitchers": int(table["pitcher"].nunique()) if "pitcher" in table else 0,
+        "share_r": _correlation(table[["share_1", "share_2"]]),
+        "median_change": float(moved.median()),
+        "p90_change": float(moved.quantile(0.90)),
+        "outlined": part(strong["clears"]),
+        "not_outlined": part(~strong["clears"]),
+    }
+
+
+# ---------------------------------------------------------------------------
 # The setup table, as the evidence file prints it
 # ---------------------------------------------------------------------------
 

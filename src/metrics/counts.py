@@ -306,6 +306,10 @@ def count_grid(
       lift       float, share / own_rate
       log2_lift  float, log2(lift), floored at -5 for a lift of zero
       reliable   bool, whether count_n clears `min_count`
+      lift_z     float, standard errors between his rate for the pitch in
+                 this count and in every other count (see events.lift_z)
+      clears     bool, reliable and at least `frequency_min_z` standard
+                 errors either way: more, or less, than chance would give
 
     A count is a coordinate, not a category. 2-1 and 1-2 are neighbours on a
     balls-by-strikes lattice, and laying the counts out that way is what lets a
@@ -323,9 +327,17 @@ def count_grid(
     Pitches below `min_usage` get no grid at all. A pitch thrown 3% of the time
     appears a handful of times per count, and its lift swings by a factor of two
     on a single pitch.
+
+    The count gate decides whether a share is worth printing, not whether the
+    lift is real. A count with 40 pitches can show 1.6 times his rate by
+    chance, and split-half the grid's cells at 1.5 times or more came back
+    there about half the time. `clears` marks the ones that stand three
+    standard errors clear, the bar every other usage lift in the report has
+    to meet, so the page can tell the two apart.
     """
     columns = ["pitch_type", "count", "balls", "strikes", "n", "count_n",
-               "share", "own_rate", "lift", "log2_lift", "reliable"]
+               "share", "own_rate", "lift", "log2_lift", "reliable",
+               "lift_z", "clears"]
 
     if min_count is None:
         min_count = int(config.get("report.count_grid_min_count", 30))
@@ -338,6 +350,8 @@ def count_grid(
     pitches = [p for p in overall.index if overall[p] >= min_usage]
     per_count = working["count"].value_counts()
     tallies = working.groupby(["count", "pitch_type"]).size()
+    totals = working["pitch_type"].value_counts()
+    min_z = float(config.get("flags.thresholds.frequency_min_z", 3.0))
 
     records = []
     for pitch in pitches:
@@ -354,6 +368,7 @@ def count_grid(
             else:
                 log2_lift = -5.0
             balls, strikes = (int(x) for x in count.split("-"))
+            z = events.lift_z(n, count_n, int(totals.get(pitch, 0)), len(working))
             records.append({
                 "pitch_type": pitch,
                 "count": count,
@@ -366,6 +381,8 @@ def count_grid(
                 "lift": lift,
                 "log2_lift": log2_lift,
                 "reliable": count_n >= min_count,
+                "lift_z": z,
+                "clears": bool(count_n >= min_count and z == z and abs(z) >= min_z),
             })
 
     if not records:

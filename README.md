@@ -83,7 +83,9 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   "he mixes", per-pitch xwOBA and anything in runs stay in the pages behind it
 - Count grid — one balls-by-strikes lattice per pitch, coloured by how far each
   count moves him from his own habit, with an auto-written headline stating
-  what it shows; it replaced a stacked bar chart that hid the count's structure
+  what it shows; it replaced a stacked bar chart that hid the count's structure.
+  A cell is outlined when it stands three standard errors from his usual rate,
+  so a reader can tell a habit from a colour that could be chance
 - Platoon slope chart and movement plot — usage against each side drawn as one
   line per pitch, and ride against arm-side run with league-average markers;
   both titled with an auto-written sentence stating what they show
@@ -137,7 +139,7 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   the two apart from where the ball is. In the evidence file, under the
   sequence graph, and not on the card: its central number repeats between
   halves at r of 0.5 to 0.7, below the card's bar
-- 770 unit tests, plus an end-to-end validation suite over live data
+- 776 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -309,7 +311,7 @@ card first, which made a one-page report twelve pages long.
 
 - **Count grid** — one balls-by-strikes grid per pitch: how far each count
   moves him from his own usual rate, with the share and pitch count in every
-  cell
+  cell, and an outline on the cells that stand three standard errors clear
 - **Movement** — ride against arm-side run for each pitch, with the league's
   version of the pitch marked behind it
 - **Velocity through the outing** — his main fastball by pitch count, each
@@ -511,6 +513,19 @@ pitchers in 2025 and 3 of 28 in 2026, and was removed.
 
 The script as it stands measures the rules that remain (260 findings across
 the same 58 reports).
+
+The count grid is checked the same way, cell by cell. A cell's share moves a
+median 4.3 points between halves, about as much as a pie slice on the card.
+Its colour is less steady, which is why the page now outlines the cells that
+stand three standard errors from his usual rate:
+
+| Coloured past 1.5× or 0.67× in the first half | 2025: cells | Same side again | Past the same tick again | 2026: cells | Same side again | Past the same tick again |
+|---|---|---|---|---|---|---|
+| Outlined | 125 | 99% | 83% | 96 | 95% | 64% |
+| Not outlined | 178 | 85% | 52% | 147 | 84% | 49% |
+
+An outlined cell is a habit. An unoutlined one, however orange, comes back
+past its tick about half the time.
 
 The setup table in the evidence file is checked as it is printed, row by row.
 Its share and its lift repeat (r 0.85–0.86 and 0.74–0.76 in 2025 and 2026).

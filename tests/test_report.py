@@ -150,6 +150,24 @@ class TestBuildPayload:
             counted = sum(c["n"] for c in slices["cells"] if c["p"] == pitch)
             assert counted == int((frame["pitch_type"] == pitch).sum())
 
+    def test_count_grid_outlines_the_cells_past_chance(self):
+        frame = make_frame([
+            {"pitch_type": "FF", "n": 60, "balls": 0, "strikes": 0},
+            {"pitch_type": "FC", "n": 10, "balls": 0, "strikes": 0},
+            {"pitch_type": "FF", "n": 30, "balls": 2, "strikes": 1},
+            {"pitch_type": "FC", "n": 30, "balls": 2, "strikes": 1},
+            {"pitch_type": "FF", "n": 60, "balls": 1, "strikes": 2},
+            {"pitch_type": "FC", "n": 2, "balls": 1, "strikes": 2},
+        ])
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        cutter = next(p for p in payload["count_grid"]["pitches"] if p["pitch"] == "FC")
+        assert cutter["cells"]["2-1"]["clears"]
+        assert not cutter["cells"]["3-0"]["clears"]
+        html = detail_page(payload)
+        assert html.count(' clear"') == sum(
+            c["clears"] for p in payload["count_grid"]["pitches"] for c in p["cells"].values())
+        assert "standard errors from his rate" in html
+
     def test_count_grid_covers_all_twelve_counts(self):
         """The grid draws a fixed 4x3 lattice, so every pitch needs every
         count, including counts where he never threw it."""
