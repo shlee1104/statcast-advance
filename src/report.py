@@ -169,8 +169,12 @@ def build_payload(
     fatigue = splits.fatigue(frame, bucket_size=15)
 
     # Read once: the card's sequence line and the sequence graph are the same
-    # follow-ups, and must come from the same table.
+    # follow-ups, and must come from the same table. On a thin sample nothing
+    # in it is marked as standing out (see `_sample`).
+    sample = _sample(frame)
     sequences = _sequence_table(frame)
+    if sample["thin"]:
+        sequences = sequences.assign(standout="")
 
     return {
         "meta": {
@@ -193,16 +197,17 @@ def build_payload(
                 else "No league baselines loaded — deviations unavailable"
             ),
         },
+        "sample": sample,
         "data_gaps": _data_gaps(frame),
         "card": _build_card(frame, changes=changes, season_frame=full_frame,
                             sequences=sequences),
         "arsenal": arsenal_rows,
         "display_names": _display_names(frame),
-        "count_grid": _build_count_grid(frame),
+        "count_grid": _build_count_grid(frame, thin=sample["thin"]),
         "platoon_slope": _build_platoon_slope(frame),
         "movement": _build_movement(frame, league_outcomes),
         "putaway": putaway_rows,
-        "sequence_graph": _build_sequence_graph(frame, sequences),
+        "sequence_graph": _build_sequence_graph(frame, sequences, sample),
         "tunneling": _build_tunneling(frame, sequences, hand),
         "setups": _records(setup_table(frame)),
         "setup_min_n": SETUP_MIN_N,
@@ -308,7 +313,21 @@ def _build_arsenal(
     return rows
 
 
-def _build_count_grid(frame: pd.DataFrame) -> dict:
+def _sample(frame: pd.DataFrame) -> dict:
+    """Whether there are enough pitches to mark anything as standing out.
+
+    Below `report.standouts_min_pitches` (about ten starts) the report still
+    prints every number and every line of the plan, and stops marking: no
+    coloured follow-up, no outlined count, no sequence line on the card. The
+    sample-size check found those marks come back less than half as often on
+    a few starts as on half a season, while the plan's lines barely moved.
+    """
+    floor = int(config.get("report.standouts_min_pitches", 900))
+    n = int(len(frame))
+    return {"pitches": n, "min_pitches": floor, "thin": n < floor}
+
+
+def _build_count_grid(frame: pd.DataFrame, thin: bool = False) -> dict:
     """Balls-by-strikes grids, one per pitch, for the count section.
 
     Replaces a 100% stacked bar of pitch mix by count. That chart had three
@@ -348,7 +367,7 @@ def _build_count_grid(frame: pd.DataFrame) -> dict:
                 "lift": _clean(r["lift"]),
                 "log2_lift": _clean(r["log2_lift"]),
                 "reliable": bool(r["reliable"]),
-                "clears": bool(r["clears"]),
+                "clears": bool(r["clears"]) and not thin,
             }
         pitches.append({
             "pitch": pitch,
@@ -367,6 +386,7 @@ def _build_count_grid(frame: pd.DataFrame) -> dict:
         "headline": gameplan.count_headline(frame),
         "min_count": min_count,
         "min_z": float(config.get("flags.thresholds.frequency_min_z", 3.0)),
+        "thin": thin,
     }
 
 
@@ -414,6 +434,7 @@ def _sequence_table(frame: pd.DataFrame) -> pd.DataFrame:
 def _build_sequence_graph(
     frame: pd.DataFrame,
     table: pd.DataFrame | None = None,
+    sample: dict | None = None,
 ) -> dict:
     """What follows each pitch, to each batter side, as two-column graphs.
 
@@ -444,9 +465,15 @@ def _build_sequence_graph(
                 [p for p in order if p in seen], _records(rows), row_gate))
         panels.append(panel)
 
+    thin = bool(sample and sample["thin"])
+    headline = (f"Too few pitches to say which follow-ups stand out: "
+                f"{sample['pitches']:,}, under the {sample['min_pitches']:,} the "
+                f"report needs before it marks one." if thin
+                else gameplan.sequence_headline(table))
     return {
         "panels": panels,
-        "headline": gameplan.sequence_headline(table),
+        "headline": headline,
+        "thin": thin,
         "row_gate": row_gate,
         "more_lift": float(config.get("flags.thresholds.sequence_more_lift", 1.25)),
         "less_lift": float(config.get("flags.thresholds.sequence_less_lift", 0.80)),

@@ -115,6 +115,11 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   games and builds reports from 3, 5 and 10 of the others, to see how much the
   report says, and how often it is right, on what a college staff would have
   on a pitcher (see "How few starts does it need?")
+- Small-sample rule — acting on that check: below 900 pitches, about ten
+  starts, the report keeps every number and every line of the plan and stops
+  marking anything as standing out. The sequence graph is drawn without
+  colour, the count grid without outlines, the card without its sequence
+  line, and both pages say so
 - Pruning — what fails those two checks comes out of the report, with its
   cutoffs and its code: the first-pitch "take or swing" advice, a verdict on
   the third trip through the order, a "hittable pitch" finding, and a run
@@ -139,7 +144,7 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   the two apart from where the ball is. In the evidence file, under the
   sequence graph, and not on the card: its central number repeats between
   halves at r of 0.5 to 0.7, below the card's bar
-- 776 unit tests, plus an end-to-end validation suite over live data
+- 781 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -296,8 +301,9 @@ card first, which made a one-page report twelve pages long.
     not mapped.
   - *Keys* — to lefties, to righties and to either side: what to sit on in a
     hitter's count, his two-strike pitch and whether to lay off it low, what a
-    side will not see, the follow-up that stands out most, a count or height
-    tell, and what has changed lately. Each line carries its sample size.
+    side will not see, the follow-up that stands out most (left off under 900
+    pitches), a count or height tell, and what has changed lately. Each line
+    carries its sample size.
   - *Running game and scout notes* — blank, for a pen. Time to the plate,
     pickoff move and tipping come from video and a stopwatch, not from pitch
     tracking.
@@ -689,6 +695,14 @@ So for a staff with three starts on a pitcher: read the card's lines, read the
 shares on the sequence graph, and treat anything coloured as a direction and
 not a size. The colours start to mean something around his tenth start, which
 is late in a college regular season.
+
+The report now does this itself. Under `report.standouts_min_pitches` (900,
+about what ten starts averaged here) it stops marking: the sequence graph has
+no colours and its title says why, the count grid has no outlines, and the
+card leaves off its sequence line and says "Small sample" in its header. The
+plan's lines and the numbers are unchanged, because they held up. The bar was
+set after reading this check, so the check describes it and does not test it;
+the check itself scores the rules as if the bar were not there.
 
 **The control.** A real report is built from his first games and read against
 his later ones, and he changes in between; shuffling hides that. So the

@@ -62,6 +62,11 @@ And the draws are not independent. Twenty shuffles of one pitcher are the same
 arm twenty times, so every interval here resamples pitchers, not rows, and a
 rate that rests on fewer than MIN_PITCHERS pitchers is not reported at all.
 
+The report acts on what this found: under `report.standouts_min_pitches` it
+stops marking follow-ups and counts as standing out (see `report._sample`).
+This check scores the rules as if that bar were not there, since it is the
+evidence the bar was set from.
+
 Seasons can be pooled, and the two cached ones are not alike: every cutoff was
 set on 2025. Pooling is for the shape, how a rate climbs with the sample. For
 the level, run the season no cutoff has seen on its own.

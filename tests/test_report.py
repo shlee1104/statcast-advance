@@ -70,6 +70,18 @@ def make_frame(specs: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def marks_at_any_sample():
+    """The frames here run to a few hundred pitches, under the bar below
+    which the report stops marking anything as standing out
+    (`report.standouts_min_pitches`). Most tests are about the marks, so the
+    bar is lifted for the module; TestThinSample puts it back."""
+    from src import config
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(config.load_config()["report"], "standouts_min_pitches", 0)
+        yield
+
+
 def card_page(payload: dict) -> str:
     """The one-page dugout card: the file a coach is sent."""
     return report.render(payload, "card")
@@ -349,6 +361,65 @@ def two_pitch_frame(groups: list[tuple[int, str, str]], stand: str = "R") -> pd.
                          for n, _, b in groups])
     second["pitch_number"] = 2
     return pd.concat([first, second], ignore_index=True)
+
+
+class TestThinSample:
+    """Under about ten starts the report keeps every number and stops marking."""
+
+    @pytest.fixture
+    def bar(self, monkeypatch):
+        from src import config
+        settings = config.load_config()["report"]
+
+        def to(pitches: int) -> None:
+            monkeypatch.setitem(settings, "standouts_min_pitches", pitches)
+        return to
+
+    def build(self):
+        frame = TestSequenceGraph().doubling_up()
+        payload = report.build_payload(frame, "Test Pitcher", 2025)
+        return payload, card_page(payload), detail_page(payload)
+
+    def test_under_the_bar_nothing_is_marked(self, bar):
+        bar(900)
+        payload, card, detail = self.build()
+        assert payload["sample"] == {"pitches": 400, "min_pitches": 900, "thin": True}
+        graph = payload["sequence_graph"]
+        assert all(p.get("standouts", 0) == 0 for p in graph["panels"])
+        assert graph["headline"].startswith("Too few pitches to say")
+        assert not any(c["clears"] for p in payload["count_grid"]["pitches"]
+                       for c in p["cells"].values())
+        labels = [k["label"] for side in payload["card"]["key_lines"].values() for k in side]
+        assert "Sequence" not in labels
+
+    def test_both_pages_say_why(self, bar):
+        bar(900)
+        _, card, detail = self.build()
+        assert "Small sample: no follow-up is" in card
+        assert "<b>Small sample.</b>" in detail
+        assert "no cell is outlined" in detail
+        assert "standard errors from his rate</div>" not in detail
+
+    def test_the_numbers_and_the_plan_are_untouched(self, bar):
+        bar(900)
+        thin, _, _ = self.build()
+        bar(300)
+        full, _, _ = self.build()
+        assert not full["sample"]["thin"]
+        assert thin["card"]["plan"] == full["card"]["plan"]
+        assert thin["count_grid"]["pitches"][0]["cells"]["0-0"]["lift"] == \
+            full["count_grid"]["pitches"][0]["cells"]["0-0"]["lift"]
+        thin_lines = thin["sequence_graph"]["panels"][1]["lines"]
+        full_lines = full["sequence_graph"]["panels"][1]["lines"]
+        assert sorted(l["n"] for l in thin_lines) == sorted(l["n"] for l in full_lines)
+
+    def test_over_the_bar_the_marks_come_back(self, bar):
+        bar(300)
+        payload, card, detail = self.build()
+        assert payload["sequence_graph"]["panels"][1]["standouts"] > 0
+        labels = [k["label"] for side in payload["card"]["key_lines"].values() for k in side]
+        assert "Sequence" in labels
+        assert "Small sample" not in card + detail
 
 
 class TestSequenceGraph:

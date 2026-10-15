@@ -42,6 +42,8 @@ header.top{background:var(--head);color:#fff;padding:22px 26px;border-radius:var
 header.top h2{font-size:22px;font-weight:650;letter-spacing:-.01em}
 header.top .sub{color:#9fb0c4;font-size:13px;margin-top:4px}
 header.top .sub b{color:#d7e2ee;font-weight:600}
+header.top .sub.thin{color:#ffd28a;max-width:95ch}
+header.top .sub.thin b{color:#ffd28a}
 header.top a{color:#d7e2ee}
 /* Under the card, on screen only: where the evidence is. */
 .behind{font-size:13px;color:var(--muted);padding:0 6px 20px;max-width:90ch}
@@ -66,6 +68,7 @@ header.top a{color:#d7e2ee}
 .sheet h1{font-size:2.3em;font-weight:800;letter-spacing:.02em;line-height:1.05;
           text-transform:uppercase}
 .sheet .who{text-align:right;font-size:.95em;color:#cdd5de;line-height:1.5}
+.sheet .who .thin{color:#ffd28a}
 .sheet .who b{font-size:1.8em;color:#fff;letter-spacing:.04em;line-height:1.1}
 .sheet .strip{display:flex;border:1px solid #11161c;border-top:none}
 .sheet .strip div{flex:1;text-align:center;padding:.45em .2em;border-right:1px solid #cfd5dc}
@@ -380,6 +383,8 @@ button.more:hover{background:#f3f6fa}
       {{ payload.meta.season }}{% if c.through %} · through {{ c.through }}{% endif %} ·
       {{ "{:,}".format(c.season.pitches) }} pitches · {{ c.season.games }} games ·
       {{ "{:,}".format(c.season.batters) }} batters
+      {% if payload.sample and payload.sample.thin %}<br><span class="thin">Small sample: no follow-up is
+      marked under {{ "{:,}".format(payload.sample.min_pitches) }} pitches</span>{% endif %}
     </div>
   </div>
   <div class="strip">
@@ -578,6 +583,16 @@ button.more:hover{background:#f3f6fa}
     <b>{{ "{:,}".format(payload.meta.batters_faced) }}</b> batters faced ·
     {{ payload.meta.league_note }}
   </div>
+  {% if payload.sample and payload.sample.thin %}
+  <div class="sub thin">
+    <b>Small sample.</b> {{ "{:,}".format(payload.sample.pitches) }} pitches, under the
+    {{ "{:,}".format(payload.sample.min_pitches) }} (about ten starts) the report needs before
+    it marks anything as standing out from his usual. The numbers are all here; the
+    sequence graph has no colours, the count grid no outlines, and the card no sequence
+    line. Built from a few starts, those marks came back less than half as often as
+    from half a season, while the plan's lines held up.
+  </div>
+  {% endif %}
   {% if payload.meta.seasons|length > 1 %}
   <div class="sub">
     Seasons combined:
@@ -621,9 +636,11 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
     counts sit next to each other. Colour is how much more or less often he throws
     that pitch in that count than he does overall — orange more, blue less, white at
     his normal rate. The big number is that ratio; underneath is the pitch's share of
-    the count and how many he threw there. An outlined cell stands at least
+    the count and how many he threw there.
+    {% if cg.thin %}On this few pitches no cell is outlined as standing out; read the
+    colours as what happened, not as habits.{% else %}An outlined cell stands at least
     {{ "%g"|format(cg.min_z) }} standard errors from his usual rate; the colour of the
-    rest could be chance.
+    rest could be chance.{% endif %}
   </p>
   {# Tick labels sit at their true positions on the log2 scale: 0.67x and
      1.5x are log2 = -/+0.585, which is 20.7% and 79.3% of the way along. #}
@@ -634,7 +651,7 @@ rgb({{ (247 + (39 - 247) * u)|round|int }},{{ (247 + (104 - 247) * u)|round|int 
       <span style="left:50%">his rate</span><span style="left:79.3%">1.5×</span>
       <span style="left:100%">≥2×</span>
     </div>
-    <div class="mark"><span class="box"></span>at least {{ "%g"|format(cg.min_z) }} standard errors from his rate</div>
+    {% if not cg.thin %}<div class="mark"><span class="box"></span>at least {{ "%g"|format(cg.min_z) }} standard errors from his rate</div>{% endif %}
   </div>
   <div class="cgrid">
   {% for p in cg.pitches %}

@@ -63,6 +63,21 @@ report:
   # stays visible — that near-empty cell is often the finding.
   count_grid_min_count: 30
 
+  # Below this many pitches the report marks nothing as standing out from his
+  # usual: the sequence graph is drawn without colour, the count grid without
+  # outlines, the card without its sequence line, and both pages say why.
+  # The plan's lines and the numbers themselves are unchanged.
+  #
+  # The reason is the sample-size check (scripts/sample_size.py). A follow-up
+  # coloured on three starts came back past its bar 12% of the time, on five
+  # 35%, on ten 57%, against 67% on half a season; a count tendency at three
+  # standard errors, 36%, 58%, 67% and 69%. Ten starts averaged 925 pitches.
+  # The plan's lines held up at every size, so they are not touched.
+  #
+  # JUDGMENT CALL, and one made after reading that check, so the check is not
+  # also a test of it.
+  standouts_min_pitches: 900
+
   # For the findings engine (src/flags.py), which the report no longer prints
   # but the replication check still runs; `max_takeaways` above belongs to it
   # as well.
