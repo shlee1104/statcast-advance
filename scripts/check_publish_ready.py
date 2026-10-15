@@ -14,6 +14,7 @@ anything you want a stranger to read.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -42,11 +43,27 @@ ALLOWLIST = {"check_publish_ready.py"}
 LOCAL_SUFFIX = ".local."
 
 
+def ignored_by_git(paths: list[Path]) -> set[Path]:
+    """The paths git would never publish: .gitignore, and the local
+    .git/info/exclude, where private working notes are kept. Empty when git
+    is not available, so the check still runs on a plain copy of the code."""
+    if not paths:
+        return set()
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "--stdin"], cwd=ROOT, capture_output=True,
+            text=True, input="\n".join(str(p.relative_to(ROOT)) for p in paths))
+    except OSError:
+        return set()
+    return {ROOT / line for line in result.stdout.splitlines() if line}
+
+
 def iter_source_files():
-    for path in sorted(ROOT.rglob("*")):
-        if not path.is_file():
-            continue
-        if any(part in SKIP_DIRS for part in path.parts):
+    candidates = [p for p in sorted(ROOT.rglob("*"))
+                  if p.is_file() and not any(part in SKIP_DIRS for part in p.parts)]
+    ignored = ignored_by_git(candidates)
+    for path in candidates:
+        if path in ignored:
             continue
         if path.suffix not in {".py", ".md", ".yaml", ".yml", ".sql"}:
             continue
