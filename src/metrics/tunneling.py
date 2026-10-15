@@ -344,6 +344,23 @@ def pair_table(
     pitches of one type has twice the variance of one pitch, so the spread of
     one is the spread of those differences over root two, pooled across both
     axes and every pitch type to that side.
+
+    That step assumes two consecutive pitches of a type are no more alike
+    than two taken at random, which is nearly true and not exactly. Measured
+    directly, as each pitch's distance from its type's average, the scatter
+    across the 58 cached pitcher-seasons (a one-off run, not a script in the
+    repo) came out a median 6% larger (the
+    middle 80% of pitcher-sides: 1% to 13%): back-to-back pitches of a type
+    land a little nearer each other. So `tunnel_d` reads about 6% high, and a
+    d' of 1.0 is nearer 68% than 69%. The test suite holds the two within 15%
+    of each other on the fixtures. It is left as it is because the bars it is
+    read against are a judgment call a good deal coarser than 6%.
+
+    The offsets carry a bias of their own. The length of an average of noisy
+    differences is never zero even when the two pitches share a centre, so a
+    small offset is overstated: by a median 0.2 inch on those seasons, which
+    would change the word on 14 of 567 pairs. Half-to-half, the same number
+    moves 1.3 inches.
     """
     if min_n is None:
         min_n = min_pairs()

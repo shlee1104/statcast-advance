@@ -139,10 +139,12 @@ def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
 
     print("\n  Found in the first half, re-measured in the second")
     print(f"  {'Finding':<30}{'found':>6}{'pitchers':>9}{'held':>6}{'95% CI':>12}"
+          f"{'by pitcher':>12}"
           f"{'same way':>10}{'95% CI':>12}{'median 1st':>12}{'2nd':>7}")
     for s in findings:
         print(f"  {s['label']:<30}{s['found']:>6}{s['pitchers']:>9}"
               f"{_pct(s['held_pct']):>6}{_span(s['held_lo'], s['held_hi']):>12}"
+              f"{_span(s['held_pitcher_lo'], s['held_pitcher_hi']) or '—':>12}"
               f"{_pct(s['direction_pct']):>10}"
               f"{_span(s['direction_lo'], s['direction_hi']):>12}"
               f"{s['median_first']:>12.2f}{s['median_second']:>7.2f}")
@@ -213,6 +215,8 @@ def print_summary(findings: list[dict], pitch: list[dict], pitcher: list[dict],
     print("  same way  it at least still pointed the same direction")
     print("  95% CI    Wilson intervals; a second half too thin to measure a")
     print("            finding in produces no row, not a failure")
+    print("  by pitcher  the same interval from resampling pitchers, since one")
+    print("            pitcher can give several findings; — under six pitchers")
     print("  r         on a deliberately varied list of pitchers, so higher")
     print("            than it would be across a random sample of the league")
 

@@ -16,7 +16,8 @@ reports/sample_size/<seasons>/:
                 share in the sample and in the held-out games
 
 and prints the summary. Seasons are pooled, and intervals resample pitchers,
-so a pitcher with two seasons counts as one arm.
+so a pitcher with two seasons counts as one arm. Every cutoff was set on 2025,
+so read the shape from the pooled run and the level from 2026 alone.
 
 Usage:
     python scripts/sample_size.py --season 2025 2026 --cached
@@ -87,7 +88,7 @@ def print_summary(printed: list[dict], scored: list[dict], shares: list[dict],
             f"{by[(metric, s)]['mean']:>15,.{digits}f}" for s in sizes))
 
     print("\n  Share of reports with at least one")
-    for metric in ("graph_coloured", "count_cells", "tunnel_read"):
+    for metric in ("graph_coloured", "tunnel_read", "count_tendencies"):
         print(f"  {sample_size.PRINTED_LABELS[metric]:<38}" + "".join(
             f"{_pct(by[(metric, s)]['any']):>15}" for s in sizes))
 
@@ -102,10 +103,9 @@ def print_summary(printed: list[dict], scored: list[dict], shares: list[dict],
             if c is None or not c["claims"]:
                 line += f"{'—':>17}"
                 continue
-            # A rate from one or two pitchers is those pitchers, not the rule.
-            rates = (f"{_pct(c['held_pct']):>5}{_pct(c['wrong_pct']):>5}"
-                     if c["pitchers"] >= 3 else f"{'—':>5}{'—':>5}")
-            line += f"{c['per_report']:>7.2f}{rates}"
+            # Under MIN_PITCHERS the rates are empty and print as dashes.
+            line += (f"{c['per_report']:>7.2f}{_pct(c['held_pct']):>5}"
+                     f"{_pct(c['wrong_pct']):>5}")
         print(line)
 
     print("\n  95% interval on the share that held, resampling pitchers")
@@ -125,7 +125,7 @@ def print_summary(printed: list[dict], scored: list[dict], shares: list[dict],
         for s in sizes:
             c = cells.get((kind, s))
             pair = (f"{c['median_first']:.2f} → {c['median_second']:.2f}"
-                    if c and c["claims"] and c["pitchers"] >= 3 else "—")
+                    if c and c["median_first"] == c["median_first"] else "—")
             line += f"{pair:>17}"
         print(line)
 
@@ -138,7 +138,8 @@ def print_summary(printed: list[dict], scored: list[dict], shares: list[dict],
         for kind, label in sample_size.KIND_LABELS.items():
             a = cells.get((kind, sample_size.HALF))
             b = cells.get((kind, sample_size.BY_DATE))
-            if not a or not b or not a["claims"] or not b["claims"]:
+            if not a or not b or not (a["held_pct"] == a["held_pct"]
+                                      and b["held_pct"] == b["held_pct"]):
                 continue
             print(f"  {label:<34}{_pct(a['held_pct']):>12}{_pct(a['wrong_pct']):>12}"
                   f"{_pct(b['held_pct']):>12}{_pct(b['wrong_pct']):>12}"
@@ -159,7 +160,10 @@ def print_summary(printed: list[dict], scored: list[dict], shares: list[dict],
     print("  wrong way  a plan line that named a different pitch; a tendency that")
     print("             came back on the other side of his usual rate; a tunneling")
     print("             word whose pair landed nearer the opposite word's bar")
-    print("  —          no claims, or claims from fewer than three pitchers")
+    print(f"  —          no claims, or claims from fewer than "
+          f"{sample_size.MIN_PITCHERS} pitchers")
+    print("  Rule:      a rule the report computes and does not print, scored to")
+    print("             see what three standard errors lets through at each size")
     print("  These are major-league starters cut down to a college-sized sample,")
     print("  not college pitchers: this is the sample-size question and no other.")
 

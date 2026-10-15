@@ -87,6 +87,14 @@ def print_summary(summary: list[dict], split: str, pitchers: int) -> None:
               f"{span(s['held_lo'], s['held_hi']):>10}{pct(s['held_strict_pct']):>8}"
               f"{pct(s['weakened_pct']):>8}{pct(s['flipped_pct']):>9}"
               f"{span(s['flipped_lo'], s['flipped_hi']):>9}{skill:>7}{skill_ci:>15}")
+    checks = [s for s in summary
+              if s.get("held_pitcher_lo") == s.get("held_pitcher_lo")]
+    if checks:
+        print("\n  Held, with the interval from resampling pitchers beside Wilson's")
+        for s in checks:
+            print(f"  {s['label']:<33}{span(s['held_lo'], s['held_hi']):>10}"
+                  f"{span(s['held_pitcher_lo'], s['held_pitcher_hi']):>12}"
+                  f"   {s['advice_given']} from {s['advice_pitchers']} pitchers")
     two = next((s for s in summary if s["rule"] == "two_strikes"), None)
     if two and two["flipped_broad_pct"] == two["flipped_broad_pct"]:
         print(f"\n  Two strikes, counting \"expect the X\" → \"look fastball\" as a flip: "

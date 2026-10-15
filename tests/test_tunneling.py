@@ -355,6 +355,27 @@ class TestReading:
         assert table.loc["CU", "reading"] == tunneling.APART
 
 
+class TestScatterAssumption:
+    @pytest.mark.parametrize("stem", ["yamamoto", "skubal"])
+    def test_spread_from_pairs_is_close_to_the_scatter_measured_directly(self, stem):
+        """`spread` is read off same-pitch pairs, which is right if two
+        fastballs in a row are no more alike than two at random. This is the
+        check on that: each pitch's distance from its type's average."""
+        frame = cli.prepare(cli.load_from_fixture(stem, 2025))
+        table = tunneling.pair_table(frame)
+        where = tunneling.flight(frame)
+        each = frame.assign(x=where["tunnel_x"] * 12, z=where["tunnel_z"] * 12)
+        each = each[each["pitch_type"].isin(set(table["pitch_type"]))].dropna(
+            subset=["x", "z"])
+        for side, pitches in each.groupby("stand"):
+            off = pitches.groupby("pitch_type")[["x", "z"]].transform(
+                lambda v: v - v.mean())
+            free = len(pitches) - pitches["pitch_type"].nunique()
+            direct = np.sqrt((off ** 2).to_numpy().sum() / free / 2)
+            spread = float(table[table["stand"] == side]["spread"].iloc[0])
+            assert spread == pytest.approx(direct, rel=0.15)
+
+
 class TestCacheCarriesTheFit:
     def test_the_schema_stores_every_column_the_reconstruction_reads(self):
         assert set(tunneling.TRAJECTORY_COLUMNS) <= set(store.PITCH_SCHEMA)

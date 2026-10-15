@@ -71,7 +71,7 @@ import pandas as pd
 
 from src import config, flags, gameplan
 from src.metrics import arsenal, counts, location, sequencing, splits, tunneling
-from src.validation import wilson_interval
+from src.validation import pitcher_interval, wilson_interval
 
 # A half needs this many pitches before anything is measured in it.
 MIN_HALF_PITCHES = 200
@@ -804,6 +804,13 @@ def summarise_findings(rows: list[dict]) -> list[dict]:
     `held` and `direction` each carry a 95% Wilson interval, for the same
     reason the holdout rates do: 1 of 5 is a rate somewhere between 4% and
     62%, not a rate of 20%.
+
+    Wilson counts every finding as independent, and a pitcher can contribute
+    several. `held_pitcher_lo` and `held_pitcher_hi` are the same interval
+    from resampling pitchers (see `validation.pitcher_interval`), printed
+    beside it so the two can be compared: where they agree the clustering
+    does not matter, and where the second is much wider the findings came
+    from a few pitchers who mostly agreed with themselves.
     """
     table = pd.DataFrame(rows)
     out: list[dict] = []
@@ -817,12 +824,14 @@ def summarise_findings(rows: list[dict]) -> list[dict]:
         held, same_way = int(sub["held"].sum()), int(sub["direction"].sum())
         held_lo, held_hi = wilson_interval(held, n)
         dir_lo, dir_hi = wilson_interval(same_way, n)
+        by_lo, by_hi = pitcher_interval(sub, "held", min_pitchers=MIN_PAIRS)
         out.append({
             "kind": kind, "label": label, "found": n,
             "pitchers": (int(sub["pitcher"].nunique())
                          if "pitcher" in sub.columns else float("nan")),
             "held": held, "held_pct": held / n,
             "held_lo": held_lo, "held_hi": held_hi,
+            "held_pitcher_lo": by_lo, "held_pitcher_hi": by_hi,
             "direction": same_way, "direction_pct": same_way / n,
             "direction_lo": dir_lo, "direction_hi": dir_hi,
             "median_first": float(sub["first"].median()),

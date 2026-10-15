@@ -178,6 +178,50 @@ class TestWilsonInterval:
         assert lo != lo and hi != hi
 
 
+class TestSummaryCarriesThePitcherCheck:
+    def test_the_held_rate_has_both_intervals(self):
+        """Eight pitchers, each given advice to both sides that held on one
+        side and not the other: sixteen rows, eight arms."""
+        rows = [{"pitcher": name, "rule": "wont_see", "side": side,
+                 "call_first": "won't see CH", "call_second": "won't see CH",
+                 "same_call": side == "L", "same_call_strict": side == "L",
+                 "flipped": False, "flipped_broad": False,
+                 "value_first": 0.01, "value_second": 0.02,
+                 "n_first": 300, "n_second": 300}
+                for name in "ABCDEFGH" for side in ("L", "R")]
+        (row,) = validation.summarise(rows, n_boot=200)
+        assert row["held_pct"] == pytest.approx(0.5)
+        assert row["held_lo"] < 0.5 < row["held_hi"]
+        # Every pitcher is exactly half right, so resampling pitchers cannot
+        # move the rate at all. Wilson, reading sixteen coin flips, can.
+        assert (row["held_pitcher_lo"], row["held_pitcher_hi"]) == (0.5, 0.5)
+
+
+class TestPitcherInterval:
+    def table(self, held_by_pitcher: dict) -> pd.DataFrame:
+        return pd.DataFrame([{"pitcher": name, "held": h}
+                             for name, flags in held_by_pitcher.items() for h in flags])
+
+    def test_all_or_nothing_is_where_it_fails_and_wilson_does_not(self):
+        """Seven of seven resamples to seven of seven every time. This is why
+        the tables keep Wilson and print this one beside it."""
+        table = self.table({name: [True] for name in "ABCDEFG"})
+        assert validation.pitcher_interval(table, "held") == (1.0, 1.0)
+        assert validation.wilson_interval(7, 7)[0] < 0.65
+
+    def test_the_same_rows_from_fewer_pitchers_are_less_sure(self):
+        spread = self.table({name: [name in "ABCDEF"] for name in "ABCDEFGHIJKL"})
+        lumped = self.table({name: [name in "ABC"] * 2 for name in "ABCDEF"})
+        assert len(spread) == len(lumped) and spread["held"].mean() == lumped["held"].mean()
+        wide = validation.pitcher_interval(lumped, "held")
+        narrow = validation.pitcher_interval(spread, "held")
+        assert (wide[1] - wide[0]) > (narrow[1] - narrow[0])
+
+    def test_rows_that_do_not_say_whose_they_are(self):
+        lo, hi = validation.pitcher_interval(pd.DataFrame({"held": [True, False]}), "held")
+        assert lo != lo and hi != hi
+
+
 class TestSummarise:
     def rows(self):
         def r(rule, a, b, va, vb, flipped=False):

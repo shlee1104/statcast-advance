@@ -134,7 +134,7 @@ self-contained HTML files come out: a one-page card, and the evidence for it.
   the two apart from where the ball is. In the evidence file, under the
   sequence graph, and not on the card: its central number repeats between
   halves at r of 0.5 to 0.7, below the card's bar
-- 753 unit tests, plus an end-to-end validation suite over live data
+- 764 unit tests, plus an end-to-end validation suite over live data
 
 **Next**
 
@@ -358,7 +358,10 @@ the failure that matters. *Skill* is how much better the pitcher's own
 first-half number predicts his second half than the average pitcher's does:
 +0.29 means 29% less error, 0 would mean knowing the pitcher adds nothing.
 Rate intervals are Wilson intervals; skill intervals are a bootstrap over
-pitchers.
+pitchers. Wilson counts each piece of advice as its own fact, and a pitcher
+gives up to two on a line, one to each batter side. The script prints the held
+interval again from resampling pitchers; on both seasons it lands within about
+six points of the one in the table.
 
 What that table says:
 
@@ -454,6 +457,14 @@ rule's own bar.
 means it at least still pointed the same way. A second half too thin to
 measure a finding in is left out, not counted as a miss. Thirty pitchers in
 2025, twenty-eight in 2026.
+
+The intervals are Wilson intervals, which count every finding as independent.
+They are not quite: one pitcher can give two or three. The script prints the
+same interval from resampling pitchers beside each, and for most rows the two
+agree to within a few points. Two rows are wider than they are printed. The
+"apart early" reading in 2026 is 22 findings from 8 pitchers, and by pitcher
+its interval is 18–81%, not 27–65%; the follow-ups that came more than usual
+in 2025 are 24–80%, not 31–74%.
 
 The usage findings — counts, height, batter side — almost never reverse, and
 hold their full size half to four-fifths of the time. Sequencing keeps its
@@ -582,8 +593,8 @@ seasons from 19 starters, 2025 and 2026 pooled.
 | Lines on the card | 2.8 | 4.0 | 5.2 | 5.7 |
 | Sequence graph: rows it can read | 1.5 | 3.3 | 5.9 | 6.9 |
 | Reports that colour any follow-up | 4% | 12% | 40% | 59% |
-| Reports that colour any count | 15% | 48% | 84% | 93% |
-| Reports that put a word on any tunneling pair | 7% | 32% | 84% | 97% |
+| Reports that put a word on any tunneling pair | 7% | 32% | 84% | 96% |
+| Reports where the count rule finds a tendency | 15% | 48% | 84% | 93% |
 
 **How often what it printed held** (95% interval, resampling pitchers)
 
@@ -595,42 +606,47 @@ seasons from 19 starters, 2025 and 2026 pooled.
 | Won't see | 89% (83–94%) | 94% (91–96%) | 96% (95–98%) | 97% (95–99%) |
 | Read the height | 84% (67–96%) | 85% (70–95%) | 87% (72–97%) | 88% (74–97%) |
 | Count tell | 90% (59–100%) | 90% (71–97%) | 92% (82–97%) | 95% (89–99%) |
-| Count grid: a coloured cell | 36% (11–60%) | 58% (42–68%) | 67% (58–73%) | 69% (61–75%) |
 | Sequence graph: more than usual | 12% (0–33%) | 35% (20–56%) | 57% (40–69%) | 67% (55–76%) |
-| Sequence graph: less than usual | 50% (33–100%) | 33% (6–55%) | 54% (28–70%) | 61% (51–68%) |
-| Setup by pitch and height | 25% (0–56%) | 40% (12–56%) | 59% (18–74%) | 63% (43–74%) |
-| Tunneling: same window | 29% (0–56%) | 60% (27–81%) | 69% (52–81%) | 71% (59–80%) |
-| Tunneling: apart early | 53% (0–77%) | 66% (29–84%) | 73% (60–82%) | 71% (59–80%) |
+| Sequence graph: less than usual | — | 33% (6–55%) | 54% (28–70%) | 61% (51–68%) |
+| Tunneling: same window | — | 60% (27–81%) | 69% (52–81%) | 71% (59–80%) |
+| Tunneling: apart early | — | 66% (29–84%) | 73% (60–82%) | 71% (59–80%) |
+| Rule: count tendency | 36% (11–60%) | 58% (42–68%) | 67% (58–73%) | 69% (61–75%) |
+| Rule: setup by pitch and height | 25% (0–56%) | 40% (12–56%) | 59% (18–74%) | 63% (43–74%) |
 
-The sequencing and tunneling rows of the three-start column rest on 10 to 30
-claims out of 660 reports, from as few as three pitchers. A report that small
-almost never makes those claims, which is the first table's point, and the
-intervals say how little the rate beside them is worth.
+A dash is a claim fewer than six pitchers made at that size: 10 to 30 claims
+out of 660 reports, which says something about those pitchers and nothing
+about the rule. The two rows marked *Rule* are not lines the report prints.
+They are rules of the findings engine — a pitch at 1.5 times his own rate in a
+count, and a setup by pitch and height, each at three standard errors — which
+the report still computes and no longer lists. They are scored here because
+they are the best-measured answer to what a three-standard-error bar lets
+through on a small sample: the count rule makes several times the claims the
+sequence graph does.
 
 **How big it looked, and how big it was** (median, sample → held-out games;
 1.0 is his usual rate)
 
 | | 3 starts | 5 starts | 10 starts | Half season |
 |---|---|---|---|---|
-| Count grid: a coloured cell | 1.71 → 1.42 | 1.82 → 1.57 | 1.80 → 1.64 | 1.80 → 1.66 |
+| Rule: count tendency | 1.71 → 1.42 | 1.82 → 1.57 | 1.80 → 1.64 | 1.80 → 1.66 |
 | Sequence graph: more than usual | 1.43 → 1.17 | 1.42 → 1.21 | 1.47 → 1.28 | 1.57 → 1.34 |
 
 What that says, in three parts.
 
 *The plan's lines survive a small sample.* A three-start card has half the
 lines of a half-season one, and they are worth reading: the two that name a
-pitch hold about two times in three against 78%, and the rest hold 84% to
-91%. At no size did a plan line send the hitter to a different pitch more than
+pitch hold about two times in three against 78% (pooled; see the note on
+seasons below), and the rest hold 84% to 91%. At no size did a plan line send the hitter to a different pitch more than
 2% of the time (3% in the date-order control below). These lines are shares of
 a situation he reaches in every start, so they settle early.
 
-*The coloured tendencies do not.* A count cell coloured on three starts holds
-36% of the time and a coloured follow-up 12%, against 69% and 67% on a half
-season. The direction is nearly always right: at most 2% of count cells and 7%
-of follow-ups came back on the other side of his usual rate. What fails is the
-size. A count cell coloured on three starts looks like one coloured on a half
-season, 1.7 to 1.8 times his usual rate, but it comes back at 1.4 where the
-half-season one comes back near 1.7. On 280 pitches, what clears three
+*What clears three standard errors does not.* A count tendency found on three
+starts holds 36% of the time and a coloured follow-up 12%, against 69% and 67%
+on a half season. The direction is nearly always right: at most 2% of count
+tendencies and 7% of follow-ups came back on the other side of his usual rate.
+What fails is the size. A count tendency found on three starts looks like one
+found on a half season, 1.7 to 1.8 times his usual rate, but it comes back at
+1.4 where the half-season one comes back near 1.7. On 280 pitches, what clears three
 standard errors is a mix of real tendencies and ordinary ones caught on a good
 run, and nothing in the sample tells them apart. A bar set in standard errors
 keeps a small sample quiet. It cannot make the few things it does say the
@@ -661,14 +677,33 @@ second, for the same 33 seasons.
 | Hitter's count: what to sit on | 78% | 72% | 36 |
 | Two strikes: the put-away pitch | 78% | 72% | 65 |
 | Won't see | 97% | 94% | 49 |
-| Count grid: a coloured cell | 69% | 69% | 90 |
 | Sequence graph: more than usual | 67% | 62% | 34 |
 | Tunneling: same window | 71% | 72% | 58 |
 | Tunneling: apart early | 71% | 57% | 47 |
+| Rule: count tendency | 69% | 69% | 90 |
 
 On these pitchers a season's drift costs the plan's lines about six points,
 from one split a season and a few dozen claims a row. That is the allowance to
 make on the small-sample columns above, which were shuffled.
+
+**Two seasons, one of them tuned.** Every cutoff was set on 2025, and the
+tables above pool it with 2026 to have enough pitchers at the small sizes.
+The climb with sample size is the same in both seasons; the level is not.
+
+| Held | Season | 3 starts | 5 starts | 10 starts | Half season |
+|---|---|---|---|---|---|
+| Hitter's count: what to sit on | 2025 | 68% | 77% | 84% | 86% |
+| | 2026 | 56% | 60% | 63% | 65% |
+| Two strikes: the put-away pitch | 2025 | 68% | 72% | 77% | 79% |
+| | 2026 | 63% | 65% | 75% | 77% |
+| Won't see | 2025 | 89% | 94% | 97% | 97% |
+| | 2026 | 89% | 93% | 96% | 97% |
+| Rule: count tendency | 2025 | 41% | 61% | 72% | 72% |
+| | 2026 | 26% | 50% | 59% | 64% |
+
+So read the shape from the pooled tables and the level from 2026, the season
+no cutoff had seen: on three starts the hitter's-count line holds a little
+over half the time there, not two times in three.
 
 What this does not show. These are major-league starters cut down to a
 college-sized sample, not college pitchers. A college starter may be easier to
@@ -680,6 +715,7 @@ from three starts.
 
 ```bash
 python scripts/sample_size.py --season 2025 2026 --cached   # about five minutes
+python scripts/sample_size.py --season 2026 --cached        # the untuned season alone
 ```
 
 ## Design notes
@@ -723,8 +759,8 @@ bar was added so that a report checking 40 cells would not print the two that
 cleared a lower bar by chance, and on a half season it does that. On three
 starts it cannot do the rest of the job: what clears it is a mix of real
 tendencies and ordinary ones on a good run. Scored against held-out games, a
-coloured count cell keeps its direction and gives back about 40% of its
-distance from his usual rate, against under 20% for one found on a half season
+count tendency keeps its direction and gives back about 40% of its distance
+from his usual rate, against under 20% for one found on a half season
 (see "How few starts does it need?"). The bar controls how often the report
 speaks. It does not correct the size of what it says.
 

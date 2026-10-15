@@ -26,6 +26,13 @@ counted at each size:
   scored    of what it said, how often the held-out games clear the same bar
             (`held`), and how often they point the other way (`wrong`)
 
+Two of the kinds scored are not lines the report prints. The count tendency
+and the setup by pitch and height are rules of the findings engine
+(`flags.py`), which the report still computes and no longer lists. They are
+scored here because they are the best-measured answer to one question: what
+does a three-standard-error bar let through on a small sample? The count
+tendency makes ten times the claims the sequence graph does.
+
 The bars are counts, not shares — 40 follow-ups to a side before a row of the
 sequence graph is read, 20 of a follow-up before it is coloured, three standard
 errors — so the hope was that a small sample would say less and be wrong no
@@ -52,7 +59,12 @@ simpler game — and nothing here measures that. This answers the sample-size
 question and no other: with this few pitches, does the report still hold?
 
 And the draws are not independent. Twenty shuffles of one pitcher are the same
-arm twenty times, so every interval here resamples pitchers, not rows.
+arm twenty times, so every interval here resamples pitchers, not rows, and a
+rate that rests on fewer than MIN_PITCHERS pitchers is not reported at all.
+
+Seasons can be pooled, and the two cached ones are not alike: every cutoff was
+set on 2025. Pooling is for the shape, how a rate climbs with the sample. For
+the level, run the season no cutoff has seen on its own.
 """
 
 from __future__ import annotations
@@ -63,8 +75,9 @@ import zlib
 import numpy as np
 import pandas as pd
 
-from src import config, gameplan, replication, validation
+from src import config, gameplan, replication, report, validation
 from src.metrics import counts, sequencing, tunneling
+from src.validation import pitcher_interval
 
 # The label for the largest training sample: every game on the training side.
 HALF = "half"
@@ -77,14 +90,20 @@ BY_DATE = "by date"
 # count of what a report prints.
 UNORDERED_LABELS: frozenset[str] = frozenset({"Lately"})
 
+# A rate is reported when at least this many pitchers made the claim. Under
+# that it describes those pitchers, not the rule, and a bootstrap over three
+# or four of them has no percentiles worth printing.
+MIN_PITCHERS = 6
+
 KIND_LABELS: dict[str, str] = {
     **validation.RULE_LABELS,
-    "count_lift": "Count grid: a coloured cell",
     "follow_up_more": "Sequence graph: more than usual",
     "follow_up_less": "Sequence graph: less than usual",
-    "sequencing": "Setup by pitch and height",
     "tunnel_same": "Tunneling: same window",
     "tunnel_apart": "Tunneling: apart early",
+    # Rules the report computes and does not print; see the module docstring.
+    "count_lift": "Rule: count tendency",
+    "sequencing": "Rule: setup by pitch and height",
 }
 
 PRINTED_LABELS: dict[str, str] = {
@@ -93,9 +112,9 @@ PRINTED_LABELS: dict[str, str] = {
     "graph_rows": "Sequence graph: rows it can read",
     "graph_coloured": "Sequence graph: follow-ups coloured",
     "sequence_lines": "Card: a Sequence line",
-    "count_cells": "Count grid: cells coloured",
     "tunnel_pairs": "Tunneling: pairs in the table",
     "tunnel_read": "Tunneling: pairs given a word",
+    "count_tendencies": "Rule: count tendencies found",
 }
 
 
@@ -181,9 +200,11 @@ def printed(sample: pd.DataFrame) -> dict:
                 "flags.thresholds.predictable_count_own_lift", 1.50)))
             & (cells["lift_z"] >= replication._min_z())]
 
+    # The table prints the most common pairs to each side, up to its limit.
     pairs = tunneling.pair_table(sample)
     if len(pairs):
-        pairs = pairs[pairs["pitch_type"] != pairs["next_pitch"]]
+        pairs = (pairs[pairs["pitch_type"] != pairs["next_pitch"]]
+                 .groupby("stand").head(report.TUNNEL_ROWS_PER_SIDE))
 
     return {
         "pitches": int(len(sample)),
@@ -191,9 +212,9 @@ def printed(sample: pd.DataFrame) -> dict:
         "graph_rows": int((rows["row_n"] >= row_gate).sum()),
         "graph_coloured": int((table["standout"] != "").sum()),
         "sequence_lines": sum(k["label"] == "Sequence" for k in lines),
-        "count_cells": int(len(cells)),
         "tunnel_pairs": int(len(pairs)),
         "tunnel_read": int((pairs["reading"] != "").sum()) if len(pairs) else 0,
+        "count_tendencies": int(len(cells)),
     }
 
 
@@ -311,27 +332,6 @@ def _sizes(table: pd.DataFrame) -> list:
     return sorted((s for s in present if s not in named), key=int) + named
 
 
-def pitcher_interval(table: pd.DataFrame, column: str, n_boot: int = 2000,
-                     seed: int = 17) -> tuple[float, float]:
-    """95% interval for the mean of `column`, resampling pitchers.
-
-    Each pitcher contributes all his rows or none. Twenty draws of one pitcher
-    share his arm and his habits; treating them as twenty pitchers would give
-    an interval several times too narrow.
-    """
-    if len(table) == 0 or "pitcher" not in table.columns:
-        return float("nan"), float("nan")
-    by = table.groupby("pitcher")[column].agg(["sum", "count"])
-    if len(by) < 3:
-        return float("nan"), float("nan")
-    rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(by), (n_boot, len(by)))
-    totals = by["sum"].to_numpy(dtype=float)[picks].sum(axis=1)
-    sizes = by["count"].to_numpy(dtype=float)[picks].sum(axis=1)
-    lo, hi = np.percentile(totals / sizes, [2.5, 97.5])
-    return float(lo), float(hi)
-
-
 def summarise_printed(rows: list[dict]) -> list[dict]:
     """One line per size and count: the average report, and how many say anything.
 
@@ -363,7 +363,9 @@ def summarise_scored(rows: list[dict], reports: list[dict]) -> list[dict]:
 
     `per_report` divides by every report of that size, including the ones
     that made no such claim, so it falls as the sample does. `held_pct` and
-    `wrong_pct` divide by the claims made.
+    `wrong_pct` divide by the claims made, and are left empty, with their
+    intervals and medians, when fewer than MIN_PITCHERS pitchers made any:
+    `claims` and `pitchers` still say how few there were.
     """
     table = pd.DataFrame(rows)
     out: list[dict] = []
@@ -375,19 +377,21 @@ def summarise_scored(rows: list[dict], reports: list[dict]) -> list[dict]:
         for size in _sizes(table):
             sub = of_kind[of_kind["starts"] == size]
             n = int(len(sub))
-            held_lo, held_hi = pitcher_interval(sub, "held")
-            wrong_lo, wrong_hi = pitcher_interval(sub, "wrong")
+            pitchers = int(sub["pitcher"].nunique()) if n else 0
+            enough = pitchers >= MIN_PITCHERS
+            held_lo, held_hi = pitcher_interval(sub, "held", min_pitchers=MIN_PITCHERS)
+            wrong_lo, wrong_hi = pitcher_interval(sub, "wrong", min_pitchers=MIN_PITCHERS)
             out.append({
                 "kind": kind, "label": label, "starts": size,
                 "claims": n,
-                "pitchers": int(sub["pitcher"].nunique()) if n else 0,
+                "pitchers": pitchers,
                 "per_report": n / int(made.get(size, 0)) if made.get(size, 0) else float("nan"),
-                "held_pct": float(sub["held"].mean()) if n else float("nan"),
+                "held_pct": float(sub["held"].mean()) if enough else float("nan"),
                 "held_lo": held_lo, "held_hi": held_hi,
-                "wrong_pct": float(sub["wrong"].mean()) if n else float("nan"),
+                "wrong_pct": float(sub["wrong"].mean()) if enough else float("nan"),
                 "wrong_lo": wrong_lo, "wrong_hi": wrong_hi,
-                "median_first": float(sub["first"].median()) if n else float("nan"),
-                "median_second": float(sub["second"].median()) if n else float("nan"),
+                "median_first": float(sub["first"].median()) if enough else float("nan"),
+                "median_second": float(sub["second"].median()) if enough else float("nan"),
             })
     return out
 

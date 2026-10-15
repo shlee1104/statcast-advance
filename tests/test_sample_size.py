@@ -193,6 +193,16 @@ class TestPrinted:
         out = sample_size.printed(season(10, doubles_up()))
         assert out["tunnel_pairs"] == 0 and out["tunnel_read"] == 0
 
+    def test_a_count_tendency_is_counted_as_a_rule_not_as_the_grid(self):
+        """The count grid colours every cell it can read. What is counted
+        here is the findings rule: 1.5 times his rate, three standard errors."""
+        tendency = [{"pitch_type": "SL", "n": 20, "strikes": 2},
+                    {"pitch_type": "FF", "n": 5, "strikes": 2},
+                    {"pitch_type": "SL", "n": 5}, {"pitch_type": "FF", "n": 50}]
+        out = sample_size.printed(season(5, tendency))
+        assert out["count_tendencies"] >= 1
+        assert "count_cells" not in out
+
 
 # ---------------------------------------------------------------------------
 # Whether it was right
@@ -347,6 +357,11 @@ def claims(pitcher: str, held: list[bool], starts=3, kind="follow_up_more",
              "held": h, "wrong": w} for h, w in zip(held, wrong)]
 
 
+def from_six(held: list[bool], **kwargs) -> list[dict]:
+    """The same claims from each of six pitchers: enough for a rate."""
+    return [row for name in "ABCDEF" for row in claims(name, held, **kwargs)]
+
+
 def reports(n: int, starts=3, pitcher: str = "A", **counts) -> list[dict]:
     blank = dict.fromkeys(sample_size.PRINTED_LABELS, 0)
     return [{"pitcher": pitcher, "season": 2025, "draw": i, "starts": starts,
@@ -377,6 +392,14 @@ class TestPitcherInterval:
     def test_an_empty_table(self):
         lo, hi = sample_size.pitcher_interval(pd.DataFrame(), "held")
         assert lo != lo and hi != hi
+
+    def test_a_caller_can_ask_for_more_pitchers(self):
+        table = pd.DataFrame([row for name in "ABCDE"
+                              for row in claims(name, [True, False])])
+        lo, _ = sample_size.pitcher_interval(table, "held", min_pitchers=6)
+        assert lo != lo
+        lo, hi = sample_size.pitcher_interval(table, "held", min_pitchers=5)
+        assert (lo, hi) == (0.5, 0.5)
 
 
 class TestSummarisePrinted:
@@ -418,14 +441,27 @@ class TestSummariseScored:
         assert row["per_report"] == pytest.approx(0.25)
 
     def test_held_and_wrong_are_shares_of_the_claims(self):
-        rows = claims("A", [True, False, False, False],
-                      wrong=[False, False, False, True])
+        rows = from_six([True, False, False, False],
+                        wrong=[False, False, False, True])
         (row,) = [r for r in sample_size.summarise_scored(rows, reports(4))
                   if r["kind"] == "follow_up_more"]
+        assert row["claims"] == 24 and row["pitchers"] == 6
         assert row["held_pct"] == pytest.approx(0.25)
         assert row["wrong_pct"] == pytest.approx(0.25)
         assert row["median_first"] == pytest.approx(1.6)
         assert row["median_second"] == pytest.approx(1.2)
+
+    def test_five_pitchers_is_too_few_for_a_rate(self):
+        """Forty claims that all held, from five arms: it says those five
+        keep their habits, and nothing about the rule."""
+        rows = [row for name in "ABCDE" for row in claims(name, [True] * 8)]
+        (row,) = [r for r in sample_size.summarise_scored(rows, reports(4))
+                  if r["kind"] == "follow_up_more"]
+        assert row["claims"] == 40 and row["pitchers"] == 5
+        assert row["per_report"] == pytest.approx(10.0)
+        for field in ("held_pct", "wrong_pct", "held_lo", "held_hi",
+                      "median_first", "median_second"):
+            assert row[field] != row[field]
 
     def test_a_kind_nobody_claimed_is_a_zero_not_a_gap(self):
         out = sample_size.summarise_scored(claims("A", [True]), reports(4))
@@ -435,7 +471,7 @@ class TestSummariseScored:
         assert row["held_pct"] != row["held_pct"]
 
     def test_each_size_is_its_own_line(self):
-        rows = claims("A", [True]) + claims("A", [False, False], starts=10)
+        rows = from_six([True]) + from_six([False, False], starts=10)
         out = [r for r in sample_size.summarise_scored(
                    rows, reports(4) + reports(4, starts=10))
                if r["kind"] == "follow_up_more"]
@@ -497,3 +533,6 @@ class TestScript:
         said = capsys.readouterr().out
         assert "1 pitchers, 1 seasons, 1 shuffles" in said
         assert "not college pitchers" in said
+        # One pitcher is not a rate: the claims are counted, the rates dashed.
+        assert "Count grid" not in said
+        assert "Rule: count tendency" in said

@@ -630,6 +630,28 @@ class TestSummariseFindings:
     def test_no_findings(self):
         assert replication.summarise_findings([]) == []
 
+    def clustered(self) -> list[dict]:
+        """Sixteen findings from eight pitchers: four pitchers whose findings
+        all held, four whose findings all failed."""
+        return [{"pitcher": name, "kind": "tunnel_apart", "key": "x",
+                 "first": 1.5, "second": 1.4, "n_second": 50,
+                 "held": name in "ABCD", "direction": True}
+                for name in "ABCDEFGH" for _ in range(2)]
+
+    def test_findings_that_come_in_pairs_get_a_wider_interval_by_pitcher(self):
+        """Wilson reads sixteen findings. There are eight pitchers, and each
+        one's two findings agree, so there are eight facts."""
+        (row,) = replication.summarise_findings(self.clustered())
+        assert row["held_pct"] == pytest.approx(0.5)
+        wilson = row["held_hi"] - row["held_lo"]
+        by_pitcher = row["held_pitcher_hi"] - row["held_pitcher_lo"]
+        assert by_pitcher > wilson * 1.2
+
+    def test_too_few_pitchers_for_the_second_interval(self):
+        counts, _ = replication.summarise_findings(self.rows())
+        assert counts["held_pitcher_lo"] != counts["held_pitcher_lo"]
+        assert counts["held_lo"] == counts["held_lo"]
+
 
 class TestCorrelations:
     def pitch_rows(self, n: int) -> list[dict]:

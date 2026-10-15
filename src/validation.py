@@ -355,6 +355,33 @@ def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, flo
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
+def pitcher_interval(table: pd.DataFrame, column: str, n_boot: int = 2000,
+                     seed: int = 17, min_pitchers: int = 3) -> tuple[float, float]:
+    """95% interval for the mean of `column`, resampling pitchers.
+
+    Each pitcher contributes all his rows or none. Several findings from one
+    pitcher share his arm and his habits, and a Wilson interval, which counts
+    every row as its own pitcher, is too narrow by however much they agree.
+
+    It is a check on the Wilson intervals, not a replacement for them. A rate
+    of 7 in 7 resamples to 7 in 7 every time, so this gives 100% to 100% where
+    Wilson correctly says 65% to 100%; and with a handful of pitchers the
+    percentiles of a bootstrap are not to be trusted, so below `min_pitchers`
+    it returns nothing.
+    """
+    if len(table) == 0 or "pitcher" not in table.columns:
+        return float("nan"), float("nan")
+    by = table.groupby("pitcher")[column].agg(["sum", "count"])
+    if len(by) < max(3, min_pitchers):
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(by), (n_boot, len(by)))
+    totals = by["sum"].to_numpy(dtype=float)[picks].sum(axis=1)
+    sizes = by["count"].to_numpy(dtype=float)[picks].sum(axis=1)
+    lo, hi = np.percentile(totals / sizes, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
 def _skill(values: pd.DataFrame) -> tuple[float, float, float]:
     """(skill, own error, average-pitcher error) for one rule's rows."""
     if len(values) < 3:
@@ -408,6 +435,9 @@ def summarise(rows: list[dict], n_boot: int = 2000, seed: int = 17) -> list[dict
     Every rate carries a 95% interval (`*_lo`, `*_hi`): Wilson for the held
     and flipped rates, a bootstrap over pitchers for skill. With a few dozen
     pitchers these intervals are wide, and that is the point of printing them.
+    `held_pitcher_lo` and `held_pitcher_hi` are the held rate's interval from
+    resampling pitchers, a check on Wilson's assumption that a pitcher's
+    lefty and righty rows are separate facts (see `pitcher_interval`).
 
     Two things this number cannot tell you, both about what it was run on:
 
@@ -459,6 +489,10 @@ def summarise(rows: list[dict], n_boot: int = 2000, seed: int = 17) -> list[dict
 
         held_lo, held_hi = wilson_interval(int(held.sum()), n_advised)
         flipped_lo, flipped_hi = wilson_interval(int(flipped.sum()), n_advised)
+        # A pitcher gives advice to each batter side, so two rows can be one
+        # arm. The same interval from resampling pitchers, as a check.
+        by_lo, by_hi = pitcher_interval(advised, "same_call", n_boot, seed,
+                                        min_pitchers=6)
 
         out.append({
             "rule": rule,
@@ -467,10 +501,14 @@ def summarise(rows: list[dict], n_boot: int = 2000, seed: int = 17) -> list[dict
             "pitchers": (int(sub["pitcher"].nunique())
                          if "pitcher" in sub.columns else float("nan")),
             "advice_given": n_advised,
+            "advice_pitchers": (int(advised["pitcher"].nunique())
+                                if "pitcher" in advised.columns else float("nan")),
             "advice_held": int(held.sum()),
             "held_pct": pct(held),
             "held_lo": held_lo,
             "held_hi": held_hi,
+            "held_pitcher_lo": by_lo,
+            "held_pitcher_hi": by_hi,
             "held_strict": int(advised["same_call_strict"].sum()),
             "held_strict_pct": pct(advised["same_call_strict"]),
             "weakened": int(weakened.sum()),
